@@ -9,7 +9,12 @@ from pathlib import Path
 from ame_stocks_api.artifacts import ArtifactError
 from ame_stocks_api.cli.date_range import add_history_range_arguments, resolve_history_range
 from ame_stocks_api.downloads import BronzeStorageError
-from ame_stocks_api.transforms import MaterializationError, materialize_universe
+from ame_stocks_api.transforms import (
+    MaterializationError,
+    materialize_ticker_overview_lifecycles,
+    materialize_ticker_overview_safe,
+    materialize_universe,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -19,7 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "action",
-        choices=("universe",),
+        choices=("ticker-overview-lifecycles", "ticker-overview-safe", "universe"),
     )
     parser.add_argument("--data-root", type=Path, required=True)
     add_history_range_arguments(parser)
@@ -50,6 +55,46 @@ def main(argv: list[str] | None = None) -> int:
                         "status": result.status,
                         "ticker_count": result.ticker_count,
                         "ticker_file": str(result.ticker_file),
+                    },
+                    sort_keys=True,
+                )
+            )
+            return 0
+        if arguments.action == "ticker-overview-lifecycles":
+            result = materialize_ticker_overview_lifecycles(
+                arguments.data_root,
+                start=start,
+                end=end,
+            )
+            print(
+                json.dumps(
+                    {
+                        "lifecycle_count": result.lifecycle_count,
+                        "lifecycle_file": str(result.lifecycle_path),
+                        "manifest": str(result.manifest_path),
+                        "request_count": result.request_count,
+                        "request_file": str(result.request_file),
+                        "status": result.status,
+                    },
+                    sort_keys=True,
+                )
+            )
+            return 0
+        if arguments.action == "ticker-overview-safe":
+            result = materialize_ticker_overview_safe(
+                arguments.data_root,
+                start=start,
+                end=end,
+            )
+            print(
+                json.dumps(
+                    {
+                        "failed_request_count": result.failed_request_count,
+                        "lifecycle_count": result.lifecycle_count,
+                        "manifest": str(result.manifest_path),
+                        "output_file": str(result.output_path),
+                        "row_count": result.row_count,
+                        "status": result.status,
                     },
                     sort_keys=True,
                 )

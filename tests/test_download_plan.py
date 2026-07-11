@@ -124,6 +124,7 @@ def test_minute_plan_requires_tickers() -> None:
         ProviderDataset.RISK_FACTORS,
         ProviderDataset.TEN_K_SECTIONS,
         ProviderDataset.EIGHT_K_TEXT,
+        ProviderDataset.EIGHT_K_DISCLOSURES,
         ProviderDataset.NEWS,
     ],
 )
@@ -148,6 +149,7 @@ def test_bulk_research_plans_use_chronological_calendar_year_chunks(dataset) -> 
         ProviderDataset.TICKER_TYPES,
         ProviderDataset.EXCHANGES,
         ProviderDataset.RISK_TAXONOMY,
+        ProviderDataset.DISCLOSURE_TAXONOMY,
     ],
 )
 def test_latest_snapshots_require_one_capture_date(dataset) -> None:
@@ -182,6 +184,50 @@ def test_ticker_events_require_identifiers_and_preserve_exact_case() -> None:
     )
     assert [request.asset_ids[0] for request in plan.requests] == ["BBG000B9XRY4", "BCpC"]
     assert all(dict(request.parameters) == {"types": "ticker_change"} for request in plan.requests)
+
+
+def test_ticker_overview_uses_one_request_per_lifecycle_date() -> None:
+    plan = build_download_plan(
+        dataset=ProviderDataset.TICKER_OVERVIEW,
+        start=date(2016, 7, 11),
+        end=date(2026, 7, 9),
+        ticker_dates=(
+            ("BCpC", date(2018, 2, 1)),
+            ("AAPL", date(2026, 7, 9)),
+            ("BCpC", date(2018, 2, 1)),
+        ),
+    )
+
+    assert [(request.asset_ids[0], request.start) for request in plan.requests] == [
+        ("BCpC", date(2018, 2, 1)),
+        ("AAPL", date(2026, 7, 9)),
+    ]
+    assert all(request.start == request.end for request in plan.requests)
+
+
+def test_ticker_overview_rejects_ambiguous_or_out_of_window_inputs() -> None:
+    with pytest.raises(ValueError, match="cannot combine"):
+        build_download_plan(
+            dataset=ProviderDataset.TICKER_OVERVIEW,
+            start=date(2026, 7, 9),
+            end=date(2026, 7, 9),
+            tickers=("AAPL",),
+            ticker_dates=(("AAPL", date(2026, 7, 9)),),
+        )
+    with pytest.raises(ValueError, match="outside"):
+        build_download_plan(
+            dataset=ProviderDataset.TICKER_OVERVIEW,
+            start=date(2026, 7, 9),
+            end=date(2026, 7, 9),
+            ticker_dates=(("AAPL", date(2026, 7, 8)),),
+        )
+    with pytest.raises(ValueError, match="only supported"):
+        build_download_plan(
+            dataset=ProviderDataset.ASSETS,
+            start=date(2026, 7, 9),
+            end=date(2026, 7, 9),
+            ticker_dates=(("AAPL", date(2026, 7, 9)),),
+        )
 
 
 def test_13f_rejects_ticker_filter() -> None:

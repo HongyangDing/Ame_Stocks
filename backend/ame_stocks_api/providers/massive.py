@@ -32,6 +32,7 @@ _ALLOWED_PARAMETERS = {
     ProviderDataset.SHORT_VOLUME: frozenset({"short_volume_ratio"}),
     ProviderDataset.FLOAT: frozenset({"free_float_percent"}),
     ProviderDataset.IPOS: frozenset({"ipo_status", "isin", "us_code"}),
+    ProviderDataset.TICKER_OVERVIEW: frozenset(),
     ProviderDataset.TICKER_EVENTS: frozenset({"types"}),
     ProviderDataset.TICKER_TYPES: frozenset(),
     ProviderDataset.EXCHANGES: frozenset(),
@@ -44,6 +45,10 @@ _ALLOWED_PARAMETERS = {
     ProviderDataset.RISK_FACTORS: frozenset({"cik"}),
     ProviderDataset.TEN_K_SECTIONS: frozenset({"cik", "period_end", "section"}),
     ProviderDataset.EIGHT_K_TEXT: frozenset({"cik", "form_type"}),
+    ProviderDataset.EIGHT_K_DISCLOSURES: frozenset({"cik", "tertiary_category"}),
+    ProviderDataset.DISCLOSURE_TAXONOMY: frozenset(
+        {"primary_category", "secondary_category", "taxonomy", "tertiary_category"}
+    ),
     ProviderDataset.NEWS: frozenset(),
     ProviderDataset.TREASURY_YIELDS: frozenset(),
     ProviderDataset.INFLATION: frozenset(),
@@ -95,6 +100,13 @@ _BULK_ENDPOINTS = {
     ),
     ProviderDataset.EIGHT_K_TEXT: _BulkEndpoint(
         "/stocks/filings/8-K/vX/text", "filing_date", 100, "filing_date.asc"
+    ),
+    ProviderDataset.EIGHT_K_DISCLOSURES: _BulkEndpoint(
+        "/stocks/filings/8-K/vX/disclosures",
+        "filing_date",
+        1_000,
+        "filing_date.asc",
+        "tickers",
     ),
     ProviderDataset.NEWS: _BulkEndpoint(
         "/v2/reference/news", "published_utc", 1_000, "published_utc", order="asc"
@@ -381,6 +393,15 @@ class MassiveProvider:
                 parameters["ticker"] = request.asset_ids[0]
             return "/stocks/vX/float", parameters
 
+        if request.dataset is ProviderDataset.TICKER_OVERVIEW:
+            if request.start != request.end:
+                raise MassiveConfigurationError(
+                    "ticker_overview requests require start and end to match"
+                )
+            self._require_exactly_one_asset(request)
+            ticker = quote(request.asset_ids[0], safe="")
+            return f"/v3/reference/tickers/{ticker}", {"date": request.start.isoformat()}
+
         if request.dataset is ProviderDataset.TICKER_EVENTS:
             self._require_exactly_one_asset(request)
             identifier = quote(request.asset_ids[0], safe="")
@@ -415,6 +436,22 @@ class MassiveProvider:
             if request.asset_ids:
                 raise MassiveConfigurationError("risk_taxonomy does not accept asset_ids")
             return "/stocks/taxonomies/vX/risk-factors", {
+                "limit": "1000",
+                "sort": "taxonomy.desc",
+                **extras,
+            }
+
+        if request.dataset is ProviderDataset.DISCLOSURE_TAXONOMY:
+            if request.start != request.end:
+                raise MassiveConfigurationError(
+                    "disclosure_taxonomy is a latest-only snapshot"
+                )
+            self._require_at_most_one_asset(request)
+            if request.asset_ids:
+                raise MassiveConfigurationError(
+                    "disclosure_taxonomy does not accept asset_ids"
+                )
+            return "/stocks/taxonomies/vX/disclosures", {
                 "limit": "1000",
                 "sort": "taxonomy.desc",
                 **extras,

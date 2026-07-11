@@ -20,6 +20,7 @@ _ANNUAL_BULK_DATASETS = frozenset(
         ProviderDataset.RISK_FACTORS,
         ProviderDataset.TEN_K_SECTIONS,
         ProviderDataset.EIGHT_K_TEXT,
+        ProviderDataset.EIGHT_K_DISCLOSURES,
         ProviderDataset.NEWS,
     }
 )
@@ -30,6 +31,7 @@ _LATEST_SNAPSHOT_DATASETS = frozenset(
         ProviderDataset.TICKER_TYPES,
         ProviderDataset.EXCHANGES,
         ProviderDataset.RISK_TAXONOMY,
+        ProviderDataset.DISCLOSURE_TAXONOMY,
     }
 )
 _SINGLE_STREAM_BULK_DATASETS = frozenset(
@@ -94,6 +96,7 @@ def build_download_plan(
     start: date,
     end: date,
     tickers: tuple[str, ...] = (),
+    ticker_dates: tuple[tuple[str, date], ...] = (),
     active: str = "both",
     requests_per_minute: float = 600.0,
 ) -> DownloadPlan:
@@ -104,6 +107,9 @@ def build_download_plan(
     if requests_per_minute <= 0:
         raise ValueError("requests_per_minute must be positive")
     normalized_tickers = _normalize_tickers(tickers)
+    normalized_ticker_dates = _normalize_ticker_dates(ticker_dates, start=start, end=end)
+    if normalized_ticker_dates and dataset is not ProviderDataset.TICKER_OVERVIEW:
+        raise ValueError("ticker-date inputs are only supported for ticker_overview")
 
     if dataset is ProviderDataset.ASSETS:
         if normalized_tickers:
@@ -169,6 +175,35 @@ def build_download_plan(
             )
             for ticker in normalized_tickers
         )
+    elif dataset is ProviderDataset.TICKER_OVERVIEW:
+        if normalized_ticker_dates and normalized_tickers:
+            raise ValueError("ticker_overview cannot combine tickers with ticker-date inputs")
+        if normalized_ticker_dates:
+            requests = tuple(
+                ProviderRequest(
+                    dataset=dataset,
+                    start=query_date,
+                    end=query_date,
+                    asset_ids=(ticker,),
+                )
+                for ticker, query_date in normalized_ticker_dates
+            )
+        else:
+            if start != end:
+                raise ValueError(
+                    "ticker_overview ticker requests require one shared query date"
+                )
+            if not normalized_tickers:
+                raise ValueError("ticker_overview requires tickers or ticker-date inputs")
+            requests = tuple(
+                ProviderRequest(
+                    dataset=dataset,
+                    start=start,
+                    end=end,
+                    asset_ids=(ticker,),
+                )
+                for ticker in normalized_tickers
+            )
     elif dataset in {ProviderDataset.SPLITS, ProviderDataset.DIVIDENDS}:
         # No ticker filter is the efficient full-market path: one request stream for the date range.
         requests = (
@@ -253,6 +288,23 @@ def build_download_plan(
 def _normalize_tickers(tickers: tuple[str, ...]) -> tuple[str, ...]:
     # Duplicates are harmless for callers, but removing them avoids wasted requests.
     return tuple(sorted({ticker.strip() for ticker in tickers if ticker.strip()}))
+
+
+def _normalize_ticker_dates(
+    ticker_dates: tuple[tuple[str, date], ...],
+    *,
+    start: date,
+    end: date,
+) -> tuple[tuple[str, date], ...]:
+    normalized: set[tuple[str, date]] = set()
+    for ticker, query_date in ticker_dates:
+        clean_ticker = ticker.strip()
+        if not clean_ticker:
+            raise ValueError("ticker-date inputs cannot contain blank tickers")
+        if query_date < start or query_date > end:
+            raise ValueError("ticker-date query date falls outside the requested window")
+        normalized.add((clean_ticker, query_date))
+    return tuple(sorted(normalized, key=lambda item: (item[1], item[0])))
 
 
 def calendar_year_ranges(start: date, end: date) -> tuple[tuple[date, date], ...]:

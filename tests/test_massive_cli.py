@@ -56,6 +56,42 @@ def test_rest_plan_defaults_to_ten_years(monkeypatch, capsys) -> None:
     assert output["request_count"] > 4_900
 
 
+def test_ticker_date_csv_builds_lifecycle_overview_plan(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("MASSIVE_API_KEY", raising=False)
+    request_file = tmp_path / "requests.csv"
+    request_file.write_text(
+        "ticker,query_date\nBCpC,2018-02-01\nAAPL,2026-07-09\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "plan",
+            "--dataset",
+            "ticker_overview",
+            "--start",
+            "2016-07-11",
+            "--end",
+            "2026-07-09",
+            "--ticker-date-file",
+            str(request_file),
+            "--show-all",
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["request_count"] == 2
+    assert [(item["asset_ids"], item["start"]) for item in output["requests"]] == [
+        (["BCpC"], "2018-02-01"),
+        (["AAPL"], "2026-07-09"),
+    ]
+
+
 def test_continue_on_error_finishes_independent_request_streams(
     monkeypatch,
     capsys,

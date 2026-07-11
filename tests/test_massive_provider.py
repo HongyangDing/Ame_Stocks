@@ -254,6 +254,15 @@ def test_dataset_endpoint_mapping(
             "ticker",
         ),
         (
+            ProviderDataset.EIGHT_K_DISCLOSURES,
+            "/stocks/filings/8-K/vX/disclosures",
+            "filing_date",
+            "1000",
+            "filing_date.asc",
+            ("AAPL",),
+            "tickers",
+        ),
+        (
             ProviderDataset.NEWS,
             "/v2/reference/news",
             "published_utc",
@@ -353,6 +362,11 @@ def test_bulk_research_endpoint_mapping(
             "/stocks/taxonomies/vX/risk-factors",
             {"limit": "1000", "sort": "taxonomy.desc"},
         ),
+        (
+            ProviderDataset.DISCLOSURE_TAXONOMY,
+            "/stocks/taxonomies/vX/disclosures",
+            {"limit": "1000", "sort": "taxonomy.desc"},
+        ),
     ],
 )
 def test_latest_snapshot_endpoint_mapping(
@@ -391,6 +405,37 @@ def test_ticker_events_quote_identifier_and_count_event_rows() -> None:
         parameters=(("types", "ticker_change"),),
     )
     assert len(asyncio.run(_collect(_provider(handler), request))) == 1
+
+
+def test_ticker_overview_quotes_ticker_and_uses_historical_query_date() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert "/v3/reference/tickers/BRK%2FB" in str(request.url)
+        assert request.url.params["date"] == "2020-06-30"
+        return httpx2.Response(200, json={"results": {"ticker": "BRK/B"}, "status": "OK"})
+
+    request = ProviderRequest(
+        dataset=ProviderDataset.TICKER_OVERVIEW,
+        start=date(2020, 6, 30),
+        end=date(2020, 6, 30),
+        asset_ids=("BRK/B",),
+    )
+    assert len(asyncio.run(_collect(_provider(handler), request))) == 1
+
+
+def test_ticker_overview_requires_one_asset_and_one_date() -> None:
+    provider = _provider(lambda request: httpx2.Response(200, json={"status": "OK"}))
+    with pytest.raises(MassiveConfigurationError, match="start and end"):
+        asyncio.run(
+            _collect(
+                provider,
+                ProviderRequest(
+                    dataset=ProviderDataset.TICKER_OVERVIEW,
+                    start=date(2020, 6, 29),
+                    end=date(2020, 6, 30),
+                    asset_ids=("AAPL",),
+                ),
+            )
+        )
 
 
 def test_checkpoint_resumes_at_exact_relative_next_url() -> None:

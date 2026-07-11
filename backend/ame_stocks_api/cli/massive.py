@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import csv
 import json
+from datetime import date
 from pathlib import Path
 
 from ame_stocks_api.cli.date_range import add_history_range_arguments, resolve_history_range
@@ -27,6 +29,11 @@ def build_parser() -> argparse.ArgumentParser:
     add_history_range_arguments(parser)
     parser.add_argument("--ticker", action="append", default=[])
     parser.add_argument("--ticker-file", type=Path)
+    parser.add_argument(
+        "--ticker-date-file",
+        type=Path,
+        help="ticker_overview only: CSV with exact ticker,query_date columns",
+    )
     parser.add_argument(
         "--active",
         choices=("history", "true", "false", "both"),
@@ -69,12 +76,14 @@ def main(argv: list[str] | None = None) -> int:
             years=arguments.years,
         )
         tickers = _load_tickers(arguments.ticker, arguments.ticker_file)
+        ticker_dates = _load_ticker_dates(arguments.ticker_date_file)
         dataset = ProviderDataset(arguments.dataset)
         plan = build_download_plan(
             dataset=dataset,
             start=start,
             end=end,
             tickers=tickers,
+            ticker_dates=ticker_dates,
             active=arguments.active,
             requests_per_minute=arguments.requests_per_minute,
         )
@@ -186,6 +195,31 @@ def _load_tickers(cli_tickers: list[str], ticker_file: Path | None) -> tuple[str
             if value:
                 tickers.append(value)
     return tuple(tickers)
+
+
+def _load_ticker_dates(ticker_date_file: Path | None) -> tuple[tuple[str, date], ...]:
+    if ticker_date_file is None:
+        return ()
+    with ticker_date_file.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if reader.fieldnames != ["ticker", "query_date"]:
+            raise ValueError("ticker-date CSV must have exact ticker,query_date columns")
+        rows: list[tuple[str, date]] = []
+        for line_number, row in enumerate(reader, start=2):
+            ticker = str(row.get("ticker", "")).strip()
+            raw_date = str(row.get("query_date", "")).strip()
+            if not ticker or not raw_date:
+                raise ValueError(f"ticker-date CSV line {line_number} is incomplete")
+            try:
+                query_date = date.fromisoformat(raw_date)
+            except ValueError as exc:
+                raise ValueError(
+                    f"ticker-date CSV line {line_number} has an invalid date"
+                ) from exc
+            rows.append((ticker, query_date))
+    if not rows:
+        raise ValueError("ticker-date CSV cannot be empty")
+    return tuple(rows)
 
 
 if __name__ == "__main__":
