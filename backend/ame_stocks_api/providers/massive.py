@@ -21,7 +21,7 @@ DEFAULT_REQUESTS_PER_MINUTE = 5.0
 _RETRYABLE_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
 _ALLOWED_PARAMETERS = {
     ProviderDataset.ASSETS: frozenset({"active", "exchange", "search", "type"}),
-    ProviderDataset.DAILY_BARS: frozenset(),
+    ProviderDataset.DAILY_BARS: frozenset({"include_otc"}),
     ProviderDataset.MINUTE_BARS: frozenset(),
     ProviderDataset.SPLITS: frozenset({"adjustment_type"}),
     ProviderDataset.DIVIDENDS: frozenset({"distribution_type", "frequency"}),
@@ -74,7 +74,7 @@ class MassiveProvider:
     """Stream successful Massive JSON pages without exposing credentials."""
 
     name = "massive"
-    version = "1.0.0"
+    version = "1.1.0"
 
     def __init__(
         self,
@@ -178,9 +178,9 @@ class MassiveProvider:
                 request_id=request.request_id,
                 sequence=sequence,
                 payload=payload,
-                content_type=response.headers.get("content-type", "application/json").split(
-                    ";", 1
-                )[0],
+                content_type=response.headers.get("content-type", "application/json").split(";", 1)[
+                    0
+                ],
                 next_cursor=continuation,
                 is_last=continuation is None,
             )
@@ -211,12 +211,27 @@ class MassiveProvider:
                 parameters["ticker"] = request.asset_ids[0]
             return "/v3/reference/tickers", parameters
 
-        if request.dataset in {ProviderDataset.DAILY_BARS, ProviderDataset.MINUTE_BARS}:
+        if request.dataset is ProviderDataset.DAILY_BARS:
+            if request.start != request.end:
+                raise MassiveConfigurationError(
+                    "daily_bars grouped requests require start and end to match"
+                )
+            self._require_at_most_one_asset(request)
+            if request.asset_ids:
+                raise MassiveConfigurationError(
+                    "daily_bars grouped requests do not accept asset_ids"
+                )
+            path = f"/v2/aggs/grouped/locale/us/market/stocks/{request.start.isoformat()}"
+            return path, {
+                "adjusted": str(request.adjusted).lower(),
+                "include_otc": extras.get("include_otc", "false"),
+            }
+
+        if request.dataset is ProviderDataset.MINUTE_BARS:
             self._require_exactly_one_asset(request)
-            timespan = "day" if request.dataset is ProviderDataset.DAILY_BARS else "minute"
             ticker = quote(request.asset_ids[0], safe="")
             path = (
-                f"/v2/aggs/ticker/{ticker}/range/1/{timespan}/"
+                f"/v2/aggs/ticker/{ticker}/range/1/minute/"
                 f"{request.start.isoformat()}/{request.end.isoformat()}"
             )
             return path, {

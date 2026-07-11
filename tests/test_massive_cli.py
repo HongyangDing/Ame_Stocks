@@ -11,10 +11,8 @@ def test_plan_command_needs_no_api_key_or_network(monkeypatch, capsys) -> None:
             "plan",
             "--dataset",
             "daily_bars",
-            "--ticker",
-            "AAPL",
             "--start",
-            "2024-07-01",
+            "2026-06-30",
             "--end",
             "2026-06-30",
         ]

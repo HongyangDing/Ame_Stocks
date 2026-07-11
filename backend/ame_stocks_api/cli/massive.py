@@ -28,7 +28,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--end", type=_parse_date, required=True)
     parser.add_argument("--ticker", action="append", default=[])
     parser.add_argument("--ticker-file", type=Path)
-    parser.add_argument("--active", choices=("true", "false", "both"), default="both")
+    parser.add_argument(
+        "--active",
+        choices=("history", "true", "false", "both"),
+        default="history",
+        help=(
+            "assets only: history saves daily active snapshots plus one final inactive "
+            "snapshot; both repeats active and inactive every session"
+        ),
+    )
     parser.add_argument("--requests-per-minute", type=float, default=5.0)
     parser.add_argument("--timeout-seconds", type=float, default=30.0)
     parser.add_argument("--max-attempts", type=int, default=5)

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
+import exchange_calendars as xcals
+
 from ame_stocks_core import ProviderDataset, ProviderRequest
 
 
@@ -55,7 +57,7 @@ def build_download_plan(
     start: date,
     end: date,
     tickers: tuple[str, ...] = (),
-    active: str = "both",
+    active: str = "history",
     requests_per_minute: float = 5.0,
 ) -> DownloadPlan:
     """Use the widest endpoint range possible to minimize free-tier API calls."""
@@ -67,23 +69,57 @@ def build_download_plan(
     normalized_tickers = _normalize_tickers(tickers)
 
     if dataset is ProviderDataset.ASSETS:
-        if start != end:
-            raise ValueError("assets plans require start and end to match")
         if normalized_tickers:
             raise ValueError("assets plans do not accept ticker filters")
-        if active not in {"true", "false", "both"}:
-            raise ValueError("active must be true, false, or both")
-        active_values = ("true", "false") if active == "both" else (active,)
+        if active not in {"true", "false", "both", "history"}:
+            raise ValueError("active must be true, false, both, or history")
+        sessions = market_session_dates(start, end)
+        if active == "history":
+            # The daily active snapshots are the point-in-time tradable universe. One
+            # inactive snapshot at the window end adds delisted and former symbols to
+            # the historical download union without repeating that large list daily.
+            requests = (
+                *(
+                    ProviderRequest(
+                        dataset=dataset,
+                        start=session,
+                        end=session,
+                        parameters=(("active", "true"),),
+                    )
+                    for session in sessions
+                ),
+                ProviderRequest(
+                    dataset=dataset,
+                    start=sessions[-1],
+                    end=sessions[-1],
+                    parameters=(("active", "false"),),
+                ),
+            )
+        else:
+            active_values = ("true", "false") if active == "both" else (active,)
+            requests = tuple(
+                ProviderRequest(
+                    dataset=dataset,
+                    start=session,
+                    end=session,
+                    parameters=(("active", value),),
+                )
+                for session in sessions
+                for value in active_values
+            )
+    elif dataset is ProviderDataset.DAILY_BARS:
+        if normalized_tickers:
+            raise ValueError("daily_bars uses the full-market endpoint and rejects ticker filters")
         requests = tuple(
             ProviderRequest(
                 dataset=dataset,
-                start=start,
-                end=end,
-                parameters=(("active", value),),
+                start=session,
+                end=session,
+                adjusted=False,
             )
-            for value in active_values
+            for session in market_session_dates(start, end)
         )
-    elif dataset in {ProviderDataset.DAILY_BARS, ProviderDataset.MINUTE_BARS}:
+    elif dataset is ProviderDataset.MINUTE_BARS:
         if not normalized_tickers:
             raise ValueError(f"{dataset.value} plans require at least one ticker")
         requests = tuple(
@@ -124,3 +160,16 @@ def build_download_plan(
 def _normalize_tickers(tickers: tuple[str, ...]) -> tuple[str, ...]:
     # Duplicates are harmless for callers, but removing them preserves free-tier requests.
     return tuple(sorted({ticker.strip().upper() for ticker in tickers if ticker.strip()}))
+
+
+def market_session_dates(start: date, end: date) -> tuple[date, ...]:
+    """Return deterministic XNYS sessions, including scheduled half days."""
+
+    calendar = xcals.get_calendar("XNYS")
+    sessions = tuple(
+        timestamp.date()
+        for timestamp in calendar.sessions_in_range(start.isoformat(), end.isoformat())
+    )
+    if not sessions:
+        raise ValueError("date range contains no XNYS trading sessions")
+    return sessions

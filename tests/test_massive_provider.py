@@ -88,12 +88,12 @@ def test_minute_bars_use_bearer_auth_max_limit_and_exact_pagination() -> None:
         ),
         (
             ProviderDataset.DAILY_BARS,
-            date(2024, 7, 1),
             date(2026, 6, 30),
-            ("AAPL",),
+            date(2026, 6, 30),
             (),
-            "/v2/aggs/ticker/AAPL/range/1/day/2024-07-01/2026-06-30",
-            {"adjusted": "false", "limit": "50000", "sort": "asc"},
+            (),
+            "/v2/aggs/grouped/locale/us/market/stocks/2026-06-30",
+            {"adjusted": "false", "include_otc": "false"},
         ),
         (
             ProviderDataset.SPLITS,
@@ -166,8 +166,7 @@ def test_checkpoint_resumes_at_exact_relative_next_url() -> None:
     )
     checkpoint = FetchCheckpoint(
         continuation=(
-            "/v2/aggs/ticker/AAPL/range/1/minute/1719792000000/2026-06-30"
-            "?cursor=resume-here"
+            "/v2/aggs/ticker/AAPL/range/1/minute/1719792000000/2026-06-30?cursor=resume-here"
         ),
         next_sequence=4,
     )
@@ -193,7 +192,7 @@ def test_retry_uses_retry_after_without_real_sleep() -> None:
 
     provider = _provider(handler, sleep=fake_sleep, random_float=lambda: 0.0)
     request = ProviderRequest(
-        dataset=ProviderDataset.DAILY_BARS,
+        dataset=ProviderDataset.MINUTE_BARS,
         start=date(2026, 1, 1),
         end=date(2026, 1, 2),
         asset_ids=("AAPL",),
@@ -264,7 +263,7 @@ def test_rejects_cross_origin_pagination() -> None:
 
     provider = _provider(handler)
     request = ProviderRequest(
-        dataset=ProviderDataset.DAILY_BARS,
+        dataset=ProviderDataset.MINUTE_BARS,
         start=date(2026, 1, 1),
         end=date(2026, 1, 2),
         asset_ids=("AAPL",),
@@ -282,7 +281,7 @@ def test_configuration_and_errors_never_display_key(monkeypatch: pytest.MonkeyPa
     provider = _provider(lambda request: httpx2.Response(401))
     assert TEST_KEY not in repr(provider)
     request = ProviderRequest(
-        dataset=ProviderDataset.DAILY_BARS,
+        dataset=ProviderDataset.MINUTE_BARS,
         start=date(2026, 1, 1),
         end=date(2026, 1, 2),
         asset_ids=("AAPL",),
@@ -291,3 +290,32 @@ def test_configuration_and_errors_never_display_key(monkeypatch: pytest.MonkeyPa
     with pytest.raises(MassiveRequestError) as exc_info:
         asyncio.run(_collect(provider, request))
     assert TEST_KEY not in str(exc_info.value)
+
+
+def test_grouped_daily_rejects_ranges_and_ticker_ids() -> None:
+    provider = _provider(lambda request: httpx2.Response(200, json={"status": "OK"}))
+
+    with pytest.raises(MassiveConfigurationError, match="start and end"):
+        asyncio.run(
+            _collect(
+                provider,
+                ProviderRequest(
+                    dataset=ProviderDataset.DAILY_BARS,
+                    start=date(2026, 6, 29),
+                    end=date(2026, 6, 30),
+                ),
+            )
+        )
+
+    with pytest.raises(MassiveConfigurationError, match="asset_ids"):
+        asyncio.run(
+            _collect(
+                _provider(lambda request: httpx2.Response(200, json={"status": "OK"})),
+                ProviderRequest(
+                    dataset=ProviderDataset.DAILY_BARS,
+                    start=date(2026, 6, 30),
+                    end=date(2026, 6, 30),
+                    asset_ids=("AAPL",),
+                ),
+            )
+        )

@@ -10,9 +10,12 @@ readme = "README.md"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "celery[redis]>=5.6,<5.7",
+  "exchange-calendars>=4.13,<4.14",
   "fastapi>=0.139,<0.140",
   "httpx2>=2.5,<3",
+  "pandas>=3.0,<3.1",
   "polars>=1.42,<1.43",
+  "pyarrow>=25,<26",
   "uvicorn[standard]>=0.51,<0.52",
 ]
 
@@ -27,6 +30,7 @@ where = ["packages", "backend", "worker"]
 
 [project.scripts]
 ame-massive = "ame_stocks_api.cli.massive:main"
+ame-materialize = "ame_stocks_api.cli.materialize:main"
 
 [tool.pytest.ini_options]
 addopts = "-q"

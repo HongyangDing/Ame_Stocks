@@ -85,8 +85,6 @@ Planning never reads `MASSIVE_API_KEY` and never contacts Massive:
 ```bash
 .venv/bin/ame-massive plan \
   --dataset daily_bars \
-  --ticker AAPL \
-  --ticker MSFT \
   --start 2024-07-01 \
   --end 2026-06-30
 ```
@@ -103,3 +101,8 @@ MASSIVE_API_KEY='set-in-your-shell' .venv/bin/ame-massive download \
 ```
 
 Do not run the live command until the downloader has been reviewed. See [docs/massive-downloader.md](docs/massive-downloader.md) for endpoints, rate limits, storage layout, and resume behavior.
+
+After a reviewed download, `ame-materialize` performs offline-only conversion. It can
+build the historical ticker union, parse each unadjusted ticker stream into reviewable
+Parquet, and—only after a separate explicit command—compact by New York date into one
+long-format file per session. It never reads `MASSIVE_API_KEY` or contacts Massive.

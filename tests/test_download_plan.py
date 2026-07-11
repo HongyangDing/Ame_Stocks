@@ -6,7 +6,7 @@ from ame_stocks_api.downloads import build_download_plan
 from ame_stocks_core import ProviderDataset
 
 
-def test_bar_plan_uses_one_full_range_request_per_ticker() -> None:
+def test_minute_plan_uses_one_full_range_request_per_ticker() -> None:
     plan = build_download_plan(
         dataset=ProviderDataset.MINUTE_BARS,
         start=date(2024, 7, 1),
@@ -43,6 +43,48 @@ def test_assets_plan_captures_active_and_inactive_point_in_time() -> None:
         "true",
         "false",
     ]
+
+
+def test_history_assets_plan_uses_daily_active_and_one_final_inactive_snapshot() -> None:
+    plan = build_download_plan(
+        dataset=ProviderDataset.ASSETS,
+        start=date(2026, 6, 29),
+        end=date(2026, 6, 30),
+    )
+
+    assert [(request.start, dict(request.parameters)["active"]) for request in plan.requests] == [
+        (date(2026, 6, 29), "true"),
+        (date(2026, 6, 30), "true"),
+        (date(2026, 6, 30), "false"),
+    ]
+
+
+def test_daily_plan_uses_one_full_market_request_per_exchange_session() -> None:
+    plan = build_download_plan(
+        dataset=ProviderDataset.DAILY_BARS,
+        start=date(2026, 6, 29),
+        end=date(2026, 7, 3),
+    )
+
+    # July 3, 2026 is the observed Independence Day market holiday.
+    assert [request.start for request in plan.requests] == [
+        date(2026, 6, 29),
+        date(2026, 6, 30),
+        date(2026, 7, 1),
+        date(2026, 7, 2),
+    ]
+    assert all(request.start == request.end for request in plan.requests)
+    assert all(request.asset_ids == () for request in plan.requests)
+
+
+def test_daily_plan_rejects_ticker_filters() -> None:
+    with pytest.raises(ValueError, match="full-market"):
+        build_download_plan(
+            dataset=ProviderDataset.DAILY_BARS,
+            start=date(2026, 6, 30),
+            end=date(2026, 6, 30),
+            tickers=("AAPL",),
+        )
 
 
 def test_minute_plan_requires_tickers() -> None:
