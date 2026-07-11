@@ -26,14 +26,18 @@ from ame_stocks_core import ProviderDataset, ProviderRequest
 
 IssueKind = Literal["corruption", "difference"]
 
-REST_SEMANTIC_AUDIT_SCHEMA_VERSION = 1
+REST_SEMANTIC_AUDIT_SCHEMA_VERSION = 2
 
-KEY_DATASETS: dict[ProviderDataset, str] = {
-    ProviderDataset.SPLITS: "id",
-    ProviderDataset.DIVIDENDS: "id",
-    ProviderDataset.NEWS: "id",
-    ProviderDataset.EDGAR_INDEX: "accession_number",
+KEY_DATASETS: dict[ProviderDataset, tuple[str, ...]] = {
+    ProviderDataset.SPLITS: ("id",),
+    ProviderDataset.DIVIDENDS: ("id",),
+    ProviderDataset.NEWS: ("id",),
+    # One SEC submission can cover several registrants in a combined filing.
+    ProviderDataset.EDGAR_INDEX: ("accession_number", "cik"),
 }
+_DIAGNOSTIC_DUPLICATE_DATASETS = frozenset(
+    {ProviderDataset.CONDITION_CODES.value, ProviderDataset.EDGAR_INDEX.value}
+)
 TAXONOMY_DEFINITIONS: dict[ProviderDataset, str] = {
     ProviderDataset.DISCLOSURE_TAXONOMY: "disclosure",
     ProviderDataset.RISK_TAXONOMY: "risk",
@@ -238,6 +242,22 @@ class RestSemanticAuditor:
             if corruption
             else ("passed_with_differences" if differences else "passed")
         )
+        hard_key_failures = any(
+            dataset not in _DIAGNOSTIC_DUPLICATE_DATASETS
+            and (
+                int(details["exact_duplicate_excess_rows"]) > 0
+                or int(details["conflicting_keys"]) > 0
+            )
+            for dataset, details in uniqueness.items()
+        )
+        diagnostic_key_differences = any(
+            dataset in _DIAGNOSTIC_DUPLICATE_DATASETS
+            and (
+                int(details["exact_duplicate_excess_rows"]) > 0
+                or int(details["conflicting_keys"]) > 0
+            )
+            for dataset, details in uniqueness.items()
+        )
         return {
             "audit_schema_version": REST_SEMANTIC_AUDIT_SCHEMA_VERSION,
             "status": status,
@@ -248,9 +268,12 @@ class RestSemanticAuditor:
             ],
             "gates": {
                 "semantic_corruption": "failed" if corruption else "passed",
-                "accession_coverage": (
-                    "different" if differences else accessions["status"]
+                "candidate_key_consistency": (
+                    "failed"
+                    if hard_key_failures
+                    else ("different" if diagnostic_key_differences else "matched")
                 ),
+                "accession_coverage": accessions["status"],
             },
             "summary": {
                 "corruption_count": corruption,
@@ -514,14 +537,14 @@ class RestSemanticAuditor:
         metric: DatasetMetrics,
     ) -> None:
         if dataset in KEY_DATASETS:
-            field = KEY_DATASETS[dataset]
-            key = row.get(field)
-            if not isinstance(key, str) or not key.strip():
+            fields = KEY_DATASETS[dataset]
+            values = tuple(row.get(field) for field in fields)
+            if any(not isinstance(value, str) or not value.strip() for value in values):
                 self.issues.add(
                     "corruption",
                     "missing_candidate_key",
                     dataset.value,
-                    f"row has no nonblank {field}",
+                    f"row has no nonblank candidate-key fields: {', '.join(fields)}",
                 )
             else:
                 digest = _canonical_row_sha256(row)
@@ -531,10 +554,11 @@ class RestSemanticAuditor:
                         "row_not_canonical_json",
                         dataset.value,
                         "row cannot be represented as canonical JSON",
-                        example=key,
+                        example=values,
                     )
                 else:
-                    batch.keys[(dataset.value, _json_key((key.strip(),)), digest)] += 1
+                    normalized = tuple(str(value).strip() for value in values)
+                    batch.keys[(dataset.value, _json_key(normalized), digest)] += 1
                     metric.candidate_key_rows += 1
 
         if dataset is ProviderDataset.CONDITION_CODES:
@@ -749,10 +773,11 @@ class RestSemanticAuditor:
             metric = self.metrics[dataset]
             metric.exact_duplicate_excess_rows = excess
             metric.conflicting_keys = conflicts
+            diagnostic = dataset in _DIAGNOSTIC_DUPLICATE_DATASETS
             if excess:
                 self.issues.add(
-                    "corruption",
-                    "exact_duplicate_rows",
+                    "difference" if diagnostic else "corruption",
+                    "provider_exact_duplicate_rows" if diagnostic else "exact_duplicate_rows",
                     dataset,
                     "candidate key and canonical row repeat exactly",
                     count=excess,
@@ -760,8 +785,8 @@ class RestSemanticAuditor:
                 )
             if conflicts:
                 self.issues.add(
-                    "corruption",
-                    "conflicting_candidate_keys",
+                    "difference" if diagnostic else "corruption",
+                    "candidate_key_ambiguity" if diagnostic else "conflicting_candidate_keys",
                     dataset,
                     "one candidate key maps to multiple canonical rows",
                     count=conflicts,

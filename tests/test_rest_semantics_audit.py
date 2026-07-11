@@ -192,9 +192,32 @@ def test_condition_identity_expands_data_types_before_uniqueness(tmp_path: Path)
 
     report = _audit(tmp_path, ProviderDataset.CONDITION_CODES)
 
-    assert report["status"] == "failed"
+    assert report["status"] == "passed_with_differences"
     assert report["uniqueness"]["condition_codes"]["distinct_candidate_keys"] == 2
     assert report["uniqueness"]["condition_codes"]["conflicting_keys"] == 1
+    assert report["gates"]["candidate_key_consistency"] == "different"
+
+
+def test_edgar_combined_filing_uses_accession_and_cik_candidate_key(
+    tmp_path: Path,
+) -> None:
+    request = _formal_request(ProviderDataset.EDGAR_INDEX)
+    first = {
+        "accession_number": "0001-26-000001",
+        "cik": "0000000001",
+        "filing_date": "2026-06-30",
+    }
+    second_registrant = {**first, "cik": "0000000002"}
+    _write_request(tmp_path, request, [first, second_registrant, first])
+
+    report = _audit(tmp_path, ProviderDataset.EDGAR_INDEX)
+
+    assert report["status"] == "passed_with_differences"
+    uniqueness = report["uniqueness"]["edgar_index"]
+    assert uniqueness["distinct_candidate_keys"] == 2
+    assert uniqueness["conflicting_keys"] == 0
+    assert uniqueness["exact_duplicate_excess_rows"] == 1
+    assert report["summary"]["difference_code_counts"]["provider_exact_duplicate_rows"] == 1
 
 
 def test_empty_reference_snapshot_fails(tmp_path: Path) -> None:
@@ -248,7 +271,13 @@ def test_accession_coverage_is_a_non_failing_difference(tmp_path: Path, capsys) 
     _write_request(
         tmp_path,
         _formal_request(ProviderDataset.EDGAR_INDEX),
-        [{"accession_number": "0001-26-000001", "filing_date": "2026-06-30"}],
+        [
+            {
+                "accession_number": "0001-26-000001",
+                "cik": "0000000001",
+                "filing_date": "2026-06-30",
+            }
+        ],
     )
     _write_request(
         tmp_path,
