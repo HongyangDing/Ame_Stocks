@@ -133,6 +133,9 @@ The Chinese [data dictionary](DATA_README.md) inventories every downloaded datas
 documents its observed field structure, candidate keys, timing semantics, and backtest risks.
 
 After reviewed downloads, `ame-materialize universe` builds one active/inactive security
-master per date. `ame-flatfiles convert` preserves each daily unadjusted CSV as Parquet,
-and `ame-flatfiles coverage` reconciles bars with reference status. These commands are
-offline and never read credentials.
+master per date. `ame-materialize ticker-overview-lifecycles` creates one historical detail
+request per deduplicated ticker/identity lifecycle, and `ame-materialize ticker-overview-safe`
+builds the allowlisted identity/SIC/list-date table while keeping market-cap and share-count
+fields in Bronze only. `ame-flatfiles convert` preserves each daily unadjusted CSV as Parquet,
+and `ame-flatfiles coverage` reconciles bars with reference status. Materialization commands
+are offline and never read credentials.

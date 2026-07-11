@@ -21,13 +21,16 @@ HTTP status and response size; credentials and response bodies were not logged.
 | Free float | capture date only | one full-market snapshot | liquidity/position-size research; never treated as history |
 | IPOs | 2008-01-01 | calendar-year gzip JSON streams | listing age, issuance, and IPO cohort effects |
 | Ticker events | 2003-09-10 | one request per FIGI/CUSIP/ticker | symbol continuity and entity identity QA |
+| Ticker Overview | one request per ticker/identity lifecycle | gzip JSON plus allowlisted Parquet | SIC, listing date, and identity reference inputs |
 | Exchanges + ticker types | capture date only | two small snapshots | decode reference classifications |
 | EDGAR index | 2016-07-11 project window | calendar-year gzip JSON streams | authoritative filing availability timestamp |
 | Forms 3 and 4 | 2016-07-11 project window | calendar-year gzip JSON streams | insider ownership and transaction factors |
 | Form 13-F | 2016-07-11 project window | calendar-quarter gzip JSON streams | institutional holdings and crowding factors |
 | 10-K sections | 2016-07-11 project window | calendar-year gzip JSON streams | business/risk text factors |
 | 8-K text | 2016-07-11 project window | calendar-year gzip JSON streams | event-driven disclosure factors |
-| Risk-factor taxonomy | 2016-07-11 project window | calendar-year gzip JSON streams | standardized disclosure-risk features |
+| 8-K disclosures | requested from 2016-07-11; provider returns from 2022-01-03 | calendar-year gzip JSON streams | standardized event-disclosure factors |
+| 8-K disclosure taxonomy | capture date only | one small snapshot | decode standardized disclosure categories |
+| Risk factors | 2016-07-11 project window | calendar-year gzip JSON streams | standardized disclosure-risk features |
 | News | 2016-06-22 | calendar-year gzip JSON streams | point-in-time sentiment and attention features |
 | Treasury yields | 1962-01-02 | one gzip JSON stream | yield-curve and rate-regime controls |
 | Inflation | 1947-01-01 | one gzip JSON stream | realized inflation regime controls |
@@ -59,6 +62,11 @@ provider record key and enforce publication-time lags.
   quarters because its 1,000-row page limit makes yearly pagination unnecessarily serial.
 - Each successful page is gzip-compressed, checksummed, atomically written, and checkpointed.
 - A rerun skips complete manifests and resumes incomplete pagination from the committed cursor.
+- Ticker Overview is queried once per deduplicated ticker/identity lifecycle. Bronze retains the
+  full response, while the stage-one Parquet allowlists identity, SIC, and listing-date fields.
+  Market cap and all shares-outstanding fields remain Bronze-only.
+- Stage-one Ticker Overview consumers must require `identity_match=true`; rows without a
+  comparable CIK/FIGI remain visible for QA but are not approved inputs.
 - REST and S3 tasks refuse writes that would leave less than 40 GiB free.
 - Large text/news/ownership datasets begin with the oldest annual chunk; measured size and
   record count determine whether the remaining years start.
@@ -82,6 +90,18 @@ provider record key and enforce publication-time lags.
   --ticker-file .runtime/ticker-event-identifiers.txt \
   --start 2003-09-10 \
   --end 2026-07-09
+
+# Generate one Overview request per deduplicated ticker/identity lifecycle.
+.venv/bin/ame-materialize ticker-overview-lifecycles \
+  --start 2016-07-11 \
+  --end 2026-07-09 \
+  --data-root /mnt/HC_Volume_106309665/american_stocks
+
+# Build the allowlisted identity/SIC/list-date table after the Bronze requests finish.
+.venv/bin/ame-materialize ticker-overview-safe \
+  --start 2016-07-11 \
+  --end 2026-07-09 \
+  --data-root /mnt/HC_Volume_106309665/american_stocks
 ```
 
 Large identifier lists may include symbols for which the experimental ticker-events endpoint
@@ -101,6 +121,8 @@ Official endpoint documentation:
 - [13-F](https://massive.com/docs/rest/stocks/filings/13-f-filings)
 - [10-K sections](https://massive.com/docs/rest/stocks/filings/10-k-sections)
 - [8-K text](https://massive.com/docs/rest/stocks/filings/8-k-text)
+- [8-K disclosures](https://massive.com/docs/rest/stocks/filings/8-k-disclosures)
+- [Disclosure categories](https://massive.com/docs/rest/stocks/filings/disclosure-categories)
 - [Risk factors](https://massive.com/docs/rest/stocks/filings/risk-factors)
 - [News](https://massive.com/docs/rest/stocks/news)
 - [Economy overview](https://massive.com/docs/rest/economy/overview)
