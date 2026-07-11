@@ -45,6 +45,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--timeout-seconds", type=float, default=30.0)
     parser.add_argument("--max-attempts", type=int, default=5)
+    parser.add_argument(
+        "--continue-on-error",
+        action="store_true",
+        help=(
+            "finish independent request streams after expected per-identifier failures; "
+            "failed manifests remain retryable"
+        ),
+    )
     parser.add_argument("--data-root", type=Path)
     parser.add_argument("--show-all", action="store_true")
     return parser
@@ -87,7 +95,7 @@ async def _execute_downloads(
     requests: tuple[ProviderRequest, ...],
 ) -> int:
     downloader = BronzeDownloader(arguments.data_root)
-    downloaded = resumed = skipped = pages = records = compressed_bytes = 0
+    downloaded = resumed = skipped = failed = pages = records = compressed_bytes = 0
 
     async with MassiveProvider.from_env(
         requests_per_minute=arguments.requests_per_minute,
@@ -98,7 +106,13 @@ async def _execute_downloads(
 
         async def download_one(index: int, request: ProviderRequest):
             async with semaphore:
-                return index, request, await downloader.download(provider, request)
+                try:
+                    result = await downloader.download(provider, request)
+                except (BronzeStorageError, MassiveProviderError, OSError) as exc:
+                    if not arguments.continue_on_error:
+                        raise
+                    return index, request, None, type(exc).__name__
+                return index, request, result, None
 
         tasks = [
             asyncio.create_task(download_one(index, request))
@@ -106,7 +120,22 @@ async def _execute_downloads(
         ]
         try:
             for completed in asyncio.as_completed(tasks):
-                index, request, result = await completed
+                index, request, result, error_type = await completed
+                if result is None:
+                    failed += 1
+                    print(
+                        json.dumps(
+                            {
+                                "error_type": error_type,
+                                "index": index,
+                                "request_count": len(requests),
+                                "request_id": request.request_id,
+                                "status": "failed",
+                            },
+                            sort_keys=True,
+                        )
+                    )
+                    continue
                 downloaded += result.status == "downloaded"
                 resumed += result.status == "resumed"
                 skipped += result.status == "skipped"
@@ -136,11 +165,12 @@ async def _execute_downloads(
             {
                 "compressed_bytes": compressed_bytes,
                 "downloaded_requests": downloaded,
+                "failed_requests": failed,
                 "pages": pages,
                 "records": records,
                 "resumed_requests": resumed,
                 "skipped_requests": skipped,
-                "status": "complete",
+                "status": "complete_with_failures" if failed else "complete",
             },
             sort_keys=True,
         )

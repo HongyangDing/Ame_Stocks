@@ -82,6 +82,10 @@ provider record key and enforce publication-time lags.
   --end 2026-07-09
 ```
 
+Large identifier lists may include symbols for which the experimental ticker-events endpoint
+returns HTTP 404. Run that dataset with `--continue-on-error`: each missing identifier keeps a
+retryable failed manifest while independent identifiers finish. Other datasets remain fail-fast.
+
 Official endpoint documentation:
 
 - [Stocks REST overview](https://massive.com/docs/rest/stocks)
