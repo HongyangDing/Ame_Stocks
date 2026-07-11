@@ -33,6 +33,7 @@ HTTP status and response size; credentials and response bodies were not logged.
 | Inflation | 1947-01-01 | one gzip JSON stream | realized inflation regime controls |
 | Inflation expectations | 1982-01-01 | one gzip JSON stream | market/model inflation-risk controls |
 | Labor market | 1948-01-01 | one gzip JSON stream | employment-cycle controls |
+| Risk taxonomy | capture date only | one small snapshot | decode standardized SEC risk categories |
 
 Every date-ranged REST request uses the dataset's disclosure or event date, not report-period
 date. Bronze stores the provider response unchanged; later Silver jobs must deduplicate by the

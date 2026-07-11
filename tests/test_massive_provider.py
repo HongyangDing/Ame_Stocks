@@ -348,6 +348,11 @@ def test_bulk_research_endpoint_mapping(
             "/v3/reference/exchanges",
             {"asset_class": "stocks", "locale": "us"},
         ),
+        (
+            ProviderDataset.RISK_TAXONOMY,
+            "/stocks/taxonomies/vX/risk-factors",
+            {"limit": "1000", "sort": "taxonomy.desc"},
+        ),
     ],
 )
 def test_latest_snapshot_endpoint_mapping(

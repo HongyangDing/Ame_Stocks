@@ -25,7 +25,12 @@ _ANNUAL_BULK_DATASETS = frozenset(
     }
 )
 _LATEST_SNAPSHOT_DATASETS = frozenset(
-    {ProviderDataset.FLOAT, ProviderDataset.TICKER_TYPES, ProviderDataset.EXCHANGES}
+    {
+        ProviderDataset.FLOAT,
+        ProviderDataset.TICKER_TYPES,
+        ProviderDataset.EXCHANGES,
+        ProviderDataset.RISK_TAXONOMY,
+    }
 )
 _SINGLE_STREAM_BULK_DATASETS = frozenset(
     {

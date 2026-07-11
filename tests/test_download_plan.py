@@ -144,7 +144,12 @@ def test_bulk_research_plans_use_chronological_calendar_year_chunks(dataset) -> 
 
 @pytest.mark.parametrize(
     "dataset",
-    [ProviderDataset.FLOAT, ProviderDataset.TICKER_TYPES, ProviderDataset.EXCHANGES],
+    [
+        ProviderDataset.FLOAT,
+        ProviderDataset.TICKER_TYPES,
+        ProviderDataset.EXCHANGES,
+        ProviderDataset.RISK_TAXONOMY,
+    ],
 )
 def test_latest_snapshots_require_one_capture_date(dataset) -> None:
     with pytest.raises(ValueError, match="latest-only"):

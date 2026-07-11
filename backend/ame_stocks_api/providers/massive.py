@@ -49,6 +49,9 @@ _ALLOWED_PARAMETERS = {
     ProviderDataset.INFLATION: frozenset(),
     ProviderDataset.INFLATION_EXPECTATIONS: frozenset(),
     ProviderDataset.LABOR_MARKET: frozenset(),
+    ProviderDataset.RISK_TAXONOMY: frozenset(
+        {"primary_category", "secondary_category", "taxonomy", "tertiary_category"}
+    ),
 }
 
 
@@ -403,6 +406,18 @@ class MassiveProvider:
             return "/v3/reference/exchanges", {
                 "asset_class": "stocks",
                 "locale": "us",
+            }
+
+        if request.dataset is ProviderDataset.RISK_TAXONOMY:
+            if request.start != request.end:
+                raise MassiveConfigurationError("risk_taxonomy is a latest-only snapshot")
+            self._require_at_most_one_asset(request)
+            if request.asset_ids:
+                raise MassiveConfigurationError("risk_taxonomy does not accept asset_ids")
+            return "/stocks/taxonomies/vX/risk-factors", {
+                "limit": "1000",
+                "sort": "taxonomy.desc",
+                **extras,
             }
 
         raise MassiveConfigurationError(f"unsupported Massive dataset: {request.dataset.value}")

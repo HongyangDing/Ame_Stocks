@@ -49,5 +49,6 @@ def test_contract_endpoint_is_explicit_and_versioned() -> None:
             "inflation",
             "inflation_expectations",
             "labor_market",
+            "risk_taxonomy",
         ],
     }

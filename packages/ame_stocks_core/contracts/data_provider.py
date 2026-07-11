@@ -44,6 +44,7 @@ class ProviderDataset(StrEnum):
     INFLATION = "inflation"
     INFLATION_EXPECTATIONS = "inflation_expectations"
     LABOR_MARKET = "labor_market"
+    RISK_TAXONOMY = "risk_taxonomy"
 
 
 @dataclass(frozen=True, slots=True)
