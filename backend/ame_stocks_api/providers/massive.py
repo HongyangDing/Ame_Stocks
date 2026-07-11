@@ -36,6 +36,7 @@ _ALLOWED_PARAMETERS = {
     ProviderDataset.TICKER_EVENTS: frozenset({"types"}),
     ProviderDataset.TICKER_TYPES: frozenset(),
     ProviderDataset.EXCHANGES: frozenset(),
+    ProviderDataset.CONDITION_CODES: frozenset(),
     ProviderDataset.EDGAR_INDEX: frozenset({"cik", "form_type"}),
     ProviderDataset.FORM_3: frozenset({"form_type", "issuer_cik", "owner_cik"}),
     ProviderDataset.FORM_4: frozenset(
@@ -427,6 +428,17 @@ class MassiveProvider:
             return "/v3/reference/exchanges", {
                 "asset_class": "stocks",
                 "locale": "us",
+            }
+
+        if request.dataset is ProviderDataset.CONDITION_CODES:
+            if request.start != request.end:
+                raise MassiveConfigurationError("condition_codes is a latest-only snapshot")
+            self._require_at_most_one_asset(request)
+            if request.asset_ids:
+                raise MassiveConfigurationError("condition_codes does not accept asset_ids")
+            return "/v3/reference/conditions", {
+                "asset_class": "stocks",
+                "limit": "1000",
             }
 
         if request.dataset is ProviderDataset.RISK_TAXONOMY:

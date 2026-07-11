@@ -30,6 +30,7 @@ _LATEST_SNAPSHOT_DATASETS = frozenset(
         ProviderDataset.FLOAT,
         ProviderDataset.TICKER_TYPES,
         ProviderDataset.EXCHANGES,
+        ProviderDataset.CONDITION_CODES,
         ProviderDataset.RISK_TAXONOMY,
         ProviderDataset.DISCLOSURE_TAXONOMY,
     }

@@ -33,6 +33,7 @@ class ProviderDataset(StrEnum):
     TICKER_EVENTS = "ticker_events"
     TICKER_TYPES = "ticker_types"
     EXCHANGES = "exchanges"
+    CONDITION_CODES = "condition_codes"
     EDGAR_INDEX = "edgar_index"
     FORM_3 = "form_3"
     FORM_4 = "form_4"

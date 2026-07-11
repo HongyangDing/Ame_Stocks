@@ -38,6 +38,7 @@ def test_contract_endpoint_is_explicit_and_versioned() -> None:
             "ticker_events",
             "ticker_types",
             "exchanges",
+            "condition_codes",
             "edgar_index",
             "form_3",
             "form_4",

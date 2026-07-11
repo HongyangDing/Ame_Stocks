@@ -148,6 +148,7 @@ def test_bulk_research_plans_use_chronological_calendar_year_chunks(dataset) -> 
         ProviderDataset.FLOAT,
         ProviderDataset.TICKER_TYPES,
         ProviderDataset.EXCHANGES,
+        ProviderDataset.CONDITION_CODES,
         ProviderDataset.RISK_TAXONOMY,
         ProviderDataset.DISCLOSURE_TAXONOMY,
     ],
@@ -166,6 +167,16 @@ def test_latest_snapshots_require_one_capture_date(dataset) -> None:
         end=date(2026, 7, 9),
     )
     assert len(plan.requests) == 1
+
+
+def test_condition_codes_plan_rejects_ticker_filters() -> None:
+    with pytest.raises(ValueError, match="does not accept ticker filters"):
+        build_download_plan(
+            dataset=ProviderDataset.CONDITION_CODES,
+            start=date(2026, 7, 12),
+            end=date(2026, 7, 12),
+            tickers=("AAPL",),
+        )
 
 
 def test_ticker_events_require_identifiers_and_preserve_exact_case() -> None:

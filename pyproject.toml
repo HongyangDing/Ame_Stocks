@@ -31,6 +31,7 @@ where = ["packages", "backend", "worker"]
 
 [project.scripts]
 ame-flatfiles = "ame_stocks_api.cli.flatfiles:main"
+ame-audit-bronze = "ame_stocks_api.cli.audit:main"
 ame-massive = "ame_stocks_api.cli.massive:main"
 ame-materialize = "ame_stocks_api.cli.materialize:main"
 

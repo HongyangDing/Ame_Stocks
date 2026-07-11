@@ -358,6 +358,11 @@ def test_bulk_research_endpoint_mapping(
             {"asset_class": "stocks", "locale": "us"},
         ),
         (
+            ProviderDataset.CONDITION_CODES,
+            "/v3/reference/conditions",
+            {"asset_class": "stocks", "limit": "1000"},
+        ),
+        (
             ProviderDataset.RISK_TAXONOMY,
             "/stocks/taxonomies/vX/risk-factors",
             {"limit": "1000", "sort": "taxonomy.desc"},
@@ -405,6 +410,56 @@ def test_ticker_events_quote_identifier_and_count_event_rows() -> None:
         parameters=(("types", "ticker_change"),),
     )
     assert len(asyncio.run(_collect(_provider(handler), request))) == 1
+
+
+def test_condition_codes_follow_provider_pagination() -> None:
+    requests: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if len(requests) == 1:
+            assert request.url.path == "/v3/reference/conditions"
+            assert request.url.params["asset_class"] == "stocks"
+            assert request.url.params["limit"] == "1000"
+            return httpx2.Response(
+                200,
+                json={
+                    "next_url": f"{BASE_URL}/v3/reference/conditions?cursor=page-two",
+                    "results": [{"id": 1}],
+                    "status": "OK",
+                },
+            )
+        assert request.url.path == "/v3/reference/conditions"
+        assert request.url.params["cursor"] == "page-two"
+        return httpx2.Response(200, json={"results": [{"id": 2}], "status": "OK"})
+
+    request = ProviderRequest(
+        dataset=ProviderDataset.CONDITION_CODES,
+        start=date(2026, 7, 12),
+        end=date(2026, 7, 12),
+    )
+
+    batches = asyncio.run(_collect(_provider(handler), request))
+
+    assert [batch.sequence for batch in batches] == [0, 1]
+    assert [batch.is_last for batch in batches] == [False, True]
+
+
+def test_condition_codes_reject_ticker_filters() -> None:
+    request = ProviderRequest(
+        dataset=ProviderDataset.CONDITION_CODES,
+        start=date(2026, 7, 12),
+        end=date(2026, 7, 12),
+        asset_ids=("AAPL",),
+    )
+
+    with pytest.raises(MassiveConfigurationError, match="does not accept asset_ids"):
+        asyncio.run(
+            _collect(
+                _provider(lambda request: httpx2.Response(200, json={"status": "OK"})),
+                request,
+            )
+        )
 
 
 def test_ticker_overview_quotes_ticker_and_uses_historical_query_date() -> None:
