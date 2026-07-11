@@ -21,4 +21,5 @@ def test_plan_command_needs_no_api_key_or_network(monkeypatch, capsys) -> None:
     output = json.loads(capsys.readouterr().out)
     assert exit_code == 0
     assert output["request_count"] == 1
+    assert output["requests_per_minute"] == 600.0
     assert output["note"].endswith("never contacts Massive.")

@@ -9,6 +9,7 @@ description = "U.S. equity factor research and backtesting platform"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 dependencies = [
+  "boto3>=1.42,<2",
   "celery[redis]>=5.6,<5.7",
   "exchange-calendars>=4.13,<4.14",
   "fastapi>=0.139,<0.140",
@@ -29,6 +30,7 @@ dev = [
 where = ["packages", "backend", "worker"]
 
 [project.scripts]
+ame-flatfiles = "ame_stocks_api.cli.flatfiles:main"
 ame-massive = "ame_stocks_api.cli.massive:main"
 ame-materialize = "ame_stocks_api.cli.materialize:main"
 

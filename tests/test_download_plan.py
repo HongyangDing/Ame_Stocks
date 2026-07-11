@@ -50,10 +50,26 @@ def test_history_assets_plan_uses_daily_active_and_one_final_inactive_snapshot()
         dataset=ProviderDataset.ASSETS,
         start=date(2026, 6, 29),
         end=date(2026, 6, 30),
+        active="history",
     )
 
     assert [(request.start, dict(request.parameters)["active"]) for request in plan.requests] == [
         (date(2026, 6, 29), "true"),
+        (date(2026, 6, 30), "true"),
+        (date(2026, 6, 30), "false"),
+    ]
+
+
+def test_default_assets_plan_captures_active_and_inactive_every_session() -> None:
+    plan = build_download_plan(
+        dataset=ProviderDataset.ASSETS,
+        start=date(2026, 6, 29),
+        end=date(2026, 6, 30),
+    )
+
+    assert [(request.start, dict(request.parameters)["active"]) for request in plan.requests] == [
+        (date(2026, 6, 29), "true"),
+        (date(2026, 6, 29), "false"),
         (date(2026, 6, 30), "true"),
         (date(2026, 6, 30), "false"),
     ]

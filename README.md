@@ -68,7 +68,9 @@ The Celery application can be imported without a broker. Running a worker will r
 
 ## Configuration and secrets
 
-Copy `.env.example` only when local overrides are needed. Planning requires no API key. An approved live download will read Massive credentials only from an untracked `MASSIVE_API_KEY` environment variable.
+Copy `.env.example` only when local overrides are needed. Planning requires no
+credentials. REST downloads use an untracked `MASSIVE_API_KEY`; Flat Files use the
+separate S3 access key and secret supplied in the Massive dashboard.
 
 The future remote data root is reserved as:
 
@@ -78,31 +80,35 @@ The future remote data root is reserved as:
 
 No remote directories, services, domains, or legacy applications are changed by Step 1.
 
-## Massive downloader review
+## Massive Starter hybrid downloader review
 
-Planning never reads `MASSIVE_API_KEY` and never contacts Massive:
+Full-market minute and day backfills use Starter Flat Files. This offline plan reads no
+credentials and contacts no network service:
 
 ```bash
-.venv/bin/ame-massive plan \
-  --dataset daily_bars \
+.venv/bin/ame-flatfiles plan \
+  --dataset minute_aggregates \
   --start 2024-07-01 \
   --end 2026-06-30
 ```
 
-The live command is intentionally distinct and requires an explicit storage root:
+The live S3 command is intentionally distinct and requires an explicit storage root:
 
 ```bash
-MASSIVE_API_KEY='set-in-your-shell' .venv/bin/ame-massive download \
-  --dataset minute_bars \
-  --ticker-file tickers.txt \
+.venv/bin/ame-flatfiles download \
+  --dataset minute_aggregates \
   --start 2024-07-01 \
   --end 2026-06-30 \
   --data-root /mnt/HC_Volume_106309665/american_stocks
 ```
 
-Do not run the live command until the downloader has been reviewed. See [docs/massive-downloader.md](docs/massive-downloader.md) for endpoints, rate limits, storage layout, and resume behavior.
+Daily survivorship-safe membership is downloaded separately through REST using both
+`active=true` and `active=false`; Flat File membership is never treated as listing
+status. Do not run either live path until review. See
+[docs/massive-downloader.md](docs/massive-downloader.md) for the evidence, storage
+layout, credential separation, and resume behavior.
 
-After a reviewed download, `ame-materialize` performs offline-only conversion. It can
-build the historical ticker union, parse each unadjusted ticker stream into reviewable
-Parquet, and—only after a separate explicit command—compact by New York date into one
-long-format file per session. It never reads `MASSIVE_API_KEY` or contacts Massive.
+After reviewed downloads, `ame-materialize universe` builds one active/inactive security
+master per date. `ame-flatfiles convert` preserves each daily unadjusted CSV as Parquet,
+and `ame-flatfiles coverage` reconciles bars with reference status. These commands are
+offline and never read credentials.

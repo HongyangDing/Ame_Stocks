@@ -17,7 +17,9 @@ from ame_stocks_core import FetchCheckpoint, ProviderBatch, ProviderDataset, Pro
 
 MASSIVE_BASE_URL = "https://api.massive.com"
 MASSIVE_API_KEY_ENV = "MASSIVE_API_KEY"
-DEFAULT_REQUESTS_PER_MINUTE = 5.0
+# Paid plans have unlimited calls; 10 requests/second remains well below Massive's
+# published recommendation to stay under 100 requests/second.
+DEFAULT_REQUESTS_PER_MINUTE = 600.0
 _RETRYABLE_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
 _ALLOWED_PARAMETERS = {
     ProviderDataset.ASSETS: frozenset({"active", "exchange", "search", "type"}),
@@ -74,7 +76,7 @@ class MassiveProvider:
     """Stream successful Massive JSON pages without exposing credentials."""
 
     name = "massive"
-    version = "1.1.0"
+    version = "1.2.0"
 
     def __init__(
         self,

@@ -57,10 +57,10 @@ def build_download_plan(
     start: date,
     end: date,
     tickers: tuple[str, ...] = (),
-    active: str = "history",
-    requests_per_minute: float = 5.0,
+    active: str = "both",
+    requests_per_minute: float = 600.0,
 ) -> DownloadPlan:
-    """Use the widest endpoint range possible to minimize free-tier API calls."""
+    """Build deterministic requests while avoiding unnecessary API fragmentation."""
 
     if start > end:
         raise ValueError("start must be on or before end")
@@ -158,7 +158,7 @@ def build_download_plan(
 
 
 def _normalize_tickers(tickers: tuple[str, ...]) -> tuple[str, ...]:
-    # Duplicates are harmless for callers, but removing them preserves free-tier requests.
+    # Duplicates are harmless for callers, but removing them avoids wasted requests.
     return tuple(sorted({ticker.strip().upper() for ticker in tickers if ticker.strip()}))
 
 

@@ -31,13 +31,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--active",
         choices=("history", "true", "false", "both"),
-        default="history",
+        default="both",
         help=(
-            "assets only: history saves daily active snapshots plus one final inactive "
-            "snapshot; both repeats active and inactive every session"
+            "assets only: both saves active and inactive on every session; history saves "
+            "daily active plus one final inactive snapshot"
         ),
     )
-    parser.add_argument("--requests-per-minute", type=float, default=5.0)
+    parser.add_argument("--requests-per-minute", type=float, default=600.0)
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=10,
+        help="maximum concurrent request streams for paid-plan downloads",
+    )
     parser.add_argument("--timeout-seconds", type=float, default=30.0)
     parser.add_argument("--max-attempts", type=int, default=5)
     parser.add_argument("--data-root", type=Path)
@@ -60,6 +66,8 @@ def main(argv: list[str] | None = None) -> int:
             active=arguments.active,
             requests_per_minute=arguments.requests_per_minute,
         )
+        if arguments.concurrency < 1:
+            raise ValueError("concurrency must be positive")
         if arguments.action == "plan":
             print(json.dumps(plan.summary(show_all=arguments.show_all), indent=2, sort_keys=True))
             return 0
@@ -82,26 +90,42 @@ async def _execute_downloads(
         timeout_seconds=arguments.timeout_seconds,
         max_attempts=arguments.max_attempts,
     ) as provider:
-        for index, request in enumerate(requests, start=1):
-            result = await downloader.download(provider, request)
-            downloaded += result.status == "downloaded"
-            resumed += result.status == "resumed"
-            skipped += result.status == "skipped"
-            pages += result.page_count
-            records += result.record_count
-            compressed_bytes += result.compressed_bytes
-            print(
-                json.dumps(
-                    {
-                        "index": index,
-                        "manifest": str(result.manifest_path),
-                        "request_count": len(requests),
-                        "request_id": request.request_id,
-                        "status": result.status,
-                    },
-                    sort_keys=True,
+        semaphore = asyncio.Semaphore(arguments.concurrency)
+
+        async def download_one(index: int, request: ProviderRequest):
+            async with semaphore:
+                return index, request, await downloader.download(provider, request)
+
+        tasks = [
+            asyncio.create_task(download_one(index, request))
+            for index, request in enumerate(requests, start=1)
+        ]
+        try:
+            for completed in asyncio.as_completed(tasks):
+                index, request, result = await completed
+                downloaded += result.status == "downloaded"
+                resumed += result.status == "resumed"
+                skipped += result.status == "skipped"
+                pages += result.page_count
+                records += result.record_count
+                compressed_bytes += result.compressed_bytes
+                print(
+                    json.dumps(
+                        {
+                            "index": index,
+                            "manifest": str(result.manifest_path),
+                            "request_count": len(requests),
+                            "request_id": request.request_id,
+                            "status": result.status,
+                        },
+                        sort_keys=True,
+                    )
                 )
-            )
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     print(
         json.dumps(

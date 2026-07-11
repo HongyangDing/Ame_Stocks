@@ -1,169 +1,193 @@
-# Massive downloader review guide
+# Massive Starter hybrid downloader review guide
 
-The code is review-only at this checkpoint. None of the commands below have been run
-against Massive, and no API key is stored in the repository.
+This checkpoint is code-only. No REST or S3 market-data request has been executed, and
+no real credential is stored in Git.
 
-## Universe semantics
+## Confirmed Starter capabilities
 
-Massive's All Tickers endpoint supports both a point-in-time `date` and an `active`
-filter. The project uses them as follows:
+Stocks Starter includes the `us_stocks_sip/minute_aggs_v1` and
+`us_stocks_sip/day_aggs_v1` Flat File datasets. Minute aggregate files are:
 
-- `active=true` on every XNYS trading session is the point-in-time tradable universe.
-- `active=false` on the final session is the historical security-master supplement. It
-  captures delisted/former symbols without downloading the mostly unchanged inactive
-  list every day.
-- The generated minute-download union contains every ticker seen in a daily active
-  snapshot plus any final-snapshot ticker whose `delisted_utc` falls inside the window.
-- `--active both` remains available for a literal active/inactive snapshot on every
-  session, but it is intentionally not the default because it costs many redundant
-  free-tier requests.
+- one gzip CSV object per U.S. trading day;
+- end-of-day, normally finalized around 11:00 AM ET the following day;
+- available for five years on Starter;
+- unadjusted for splits, dividends, and other corporate actions;
+- market-activity files with OHLCV, ticker, timestamp, and transaction count.
 
-Bronze discovery does not filter the Massive ticker `type`; later research layers can
-select common shares (`CS`) without losing ADRs, ETFs, preferred shares, old symbols, or
-other listed instruments prematurely. The current scope is U.S. listed stocks and does
-not include Massive's separate OTC market.
+The official 2025 minute archive is about 5.4 GB compressed and 2024 is about 4.7 GB.
+A rolling two-year Bronze minute archive should therefore be roughly 10–11 GB before
+measuring the current files. This is much safer for the 186 GB volume than downloading
+per-ticker REST pages.
 
-## API strategy
+## Flat Files do not solve survivorship by themselves
 
-| Dataset | Endpoint | Request shape |
+The Flat File schema is:
+
+```text
+ticker, volume, open, close, high, low, window_start, transactions
+```
+
+It contains neither `active` nor `inactive`, and it only represents securities with an
+eligible aggregate row. Consequently:
+
+- a ticker present in a Flat File had qualifying market activity;
+- a ticker absent from a Flat File might be suspended, illiquid, newly listed, or
+  otherwise have no eligible bar;
+- absence must never be interpreted as delisting;
+- Flat Files cannot serve as the point-in-time security master.
+
+Massive explicitly states that its market data includes companies delisted from the
+exchanges and preserves observations as they occurred on each historical date. Thus a
+later-delisted company should retain its historical bars on dates when it traded. The
+Flat File still does not label those rows inactive and is not a complete status table,
+so the pipeline never infers listing status from Flat File membership.
+
+## Survivorship-safe hybrid design
+
+For every XNYS session:
+
+1. REST `GET /v3/reference/tickers?date=...&active=true` downloads all active tickers.
+2. REST `GET /v3/reference/tickers?date=...&active=false` downloads all inactive/
+   delisted tickers.
+3. Both paginated results are combined into one daily security master with
+   `active_on_date` explicitly recorded.
+4. One minute aggregate Flat File supplies the complete daily activity table.
+5. Coverage QA joins activity to the security master and reports:
+   - active tickers without bars;
+   - inactive tickers with bars;
+   - bar tickers missing from reference data.
+
+Research selects `active_on_date=true` using the historical date, never the latest
+status. A company that later delists therefore remains eligible on dates when it was
+active, eliminating the usual current-constituent survivorship bias.
+
+`active=false` is retained every day as requested, even though it repeats much of the
+historical delisted list. `--active history` remains available as a cheaper diagnostic
+mode, but it is not the project default.
+
+## API and S3 responsibilities
+
+| Source | Responsibility | Stored form |
 | --- | --- | --- |
-| Point-in-time tickers | `GET /v3/reference/tickers` | Daily active streams plus one final inactive stream, `limit=1000` |
-| Daily bars | `GET /v2/aggs/grouped/locale/us/market/stocks/{date}` | One full-market request per XNYS session, unadjusted, OTC excluded |
-| Minute bars | `GET /v2/aggs/ticker/{ticker}/range/1/minute/{from}/{to}` | One full-window stream per historical ticker, `limit=50000`, unadjusted |
-| Splits | `GET /stocks/v1/splits` | One full-market date-range stream, `limit=5000` |
-| Dividends | `GET /stocks/v1/dividends` | One full-market date-range stream, `limit=5000` |
+| REST All Tickers | Daily active and inactive security master | gzip JSON Bronze plus daily Parquet |
+| Minute Flat Files | Full-market unadjusted minute activity | immutable daily gzip CSV Bronze |
+| Day Flat Files | Full-market unadjusted daily activity | immutable daily gzip CSV Bronze |
+| REST splits/dividends | Later adjustment inputs | gzip JSON Bronze |
+| REST Custom Bars | Small validation samples and future execution-price supplement | gzip JSON Bronze |
 
-The grouped daily endpoint is materially cheaper than requesting daily bars ticker by
-ticker: approximately one base request per trading session instead of one stream per
-ticker. Minute bars do not have an equivalent free full-market endpoint, so each ticker
-uses the widest two-year request range and follows pagination rather than being split
-into daily requests.
+The old per-ticker minute REST downloader remains available only for spot checks. It is
+no longer the full-market backfill path.
 
-`exchange-calendars` supplies the XNYS session list, including scheduled holidays and
-half days. API planning reports a lower bound because ticker and minute responses may
-paginate.
+Paid REST plans have unlimited request counts. The default client pace is therefore 600
+requests per minute (10 per second), still well below Massive's published recommendation
+to remain under 100 requests per second; 429 responses continue to back off and retry.
 
-## Safety properties
+## VWAP limitation
 
-- `plan` never reads an API key or opens a network client.
-- `download` reads only the `MASSIVE_API_KEY` environment variable.
-- Authentication uses `Authorization: Bearer`; the key is never placed in a query
-  string, manifest, or log.
-- One provider instance enforces a global default of five requests per minute.
-- HTTP 429, 408, 425, and selected 5xx responses retry with `Retry-After` or capped
-  exponential backoff.
-- `next_url` must remain on the configured HTTPS origin and must not contain `apiKey`.
-- Successful JSON pages are gzip-compressed deterministically and written atomically.
-- Every page stores raw and compressed SHA-256 checksums.
-- A continuation checkpoint is committed after each page; interrupted jobs resume
-  without replaying completed pages.
-- Completed request manifests are verified and skipped on rerun.
-- Existing Bronze and materialized files are never replaced when checksums differ.
+Starter minute aggregate Flat Files do not contain a VWAP column. OHLCV alone cannot
+reconstruct exact trade-level 09:30–10:00 VWAP. The backtest must therefore later choose
+one explicitly named method:
+
+- preferred: retrieve a targeted 30-minute aggregate VWAP through REST for execution;
+- alternative: use a clearly labelled volume-weighted minute-close proxy.
+
+The current converter does not invent a `vwap` field, so the platform cannot silently
+present an approximation as an exact VWAP.
+
+## Credentials
+
+REST and Flat Files use different credentials:
+
+```text
+MASSIVE_API_KEY                 # REST
+MASSIVE_S3_ACCESS_KEY_ID        # Dashboard Flat Files access key
+MASSIVE_S3_SECRET_ACCESS_KEY    # Dashboard Flat Files secret key
+```
+
+S3 uses endpoint `https://files.massive.com` and bucket `flatfiles`. Credentials are
+read only by the explicit download command and never placed in object keys, manifests,
+logs, or Git.
 
 ## Storage layout
 
-Raw responses remain request-shaped and immutable. Only the explicit offline
-materialization commands reorganize them by date.
-
 ```text
 DATA_ROOT/
-├── bronze/massive/{dataset}/request_id={sha256}/page-00000.json.gz
-├── manifests/massive/{dataset}/{sha256}.json
-├── staging/universe/window={start}_{end}/
-│   ├── snapshots/date=YYYY-MM-DD/status=active/tickers.parquet
-│   ├── snapshots/date=YYYY-MM-DD/status=inactive/tickers.parquet
-│   ├── historical_tickers.parquet
-│   └── historical_tickers.txt
-├── staging/minute_unadjusted/
-│   └── by_ticker/ticker=AAPL/request_id={sha256}/bars.parquet
-└── silver_unadjusted/minute/
-    └── date=YYYY-MM-DD/bars.parquet
+├── bronze/massive/
+│   ├── assets/request_id={sha256}/page-00000.json.gz
+│   └── flatfiles/us_stocks_sip/
+│       ├── minute_aggs_v1/YYYY/MM/YYYY-MM-DD.csv.gz
+│       └── day_aggs_v1/YYYY/MM/YYYY-MM-DD.csv.gz
+├── silver_unadjusted/
+│   ├── universe/date=YYYY-MM-DD/tickers.parquet
+│   ├── minute/date=YYYY-MM-DD/bars.parquet
+│   ├── daily/date=YYYY-MM-DD/bars.parquet
+│   └── coverage/date=YYYY-MM-DD/ticker_coverage.parquet
+├── manifests/
+└── tmp/massive_flatfiles/
 ```
 
-The intermediate layer intentionally uses one two-year Parquet per ticker instead of
-millions of tiny `date × ticker` files. It is still directly reviewable and retains the
-New York `session_date` column. The explicit compaction pass streams those ticker files
-into daily partitions and then writes exactly one final file per session.
-
-The final daily minute file is long format, not thousands of timestamp columns. One row
-is one `ticker × minute` observation:
-
-```text
-session_date, timestamp_utc, ticker, open, high, low, close,
-volume, vwap, transactions, otc
-```
-
-`session_date` is derived in `America/New_York`, so an after-hours bar whose UTC date is
-the next day remains in the correct U.S. trading-date partition. Rows are sorted by
-`timestamp_utc, ticker`. Duplicate `(ticker, timestamp_utc)` bars are counted in the
-manifest and preserved at this rough aggregation stage; cleaning is a later reviewed
-step.
-
-Parquet is interoperable with both Polars and pandas:
-
-```python
-import pandas as pd
-
-bars = pd.read_parquet(
-    "silver_unadjusted/minute/date=2026-06-30/bars.parquet",
-)
-```
+Downloads resume through S3 byte ranges, verify advertised size, fully decompress the
+gzip stream to validate CRC and CSV headers, calculate SHA-256, and atomically publish
+Bronze. Completed files are checksummed and skipped. A download is rejected if it would
+leave less than the configured 40 GiB disk-safety floor; conversion applies the same
+floor with a conservative temporary-space estimate.
 
 ## Review workflow
 
-All `plan` and `ame-materialize` commands are offline. Only `download` contacts Massive.
+All `plan`, `convert`, `coverage`, and `ame-materialize` commands are offline. Only an
+explicit `download` action contacts Massive.
 
 ```bash
-# 1. Review the exact point-in-time universe request plan.
+# 1. Daily point-in-time reference plan: active and inactive every session.
 .venv/bin/ame-massive plan \
   --dataset assets \
+  --active both \
   --start 2024-07-01 \
   --end 2026-06-30
 
-# 2. After an approved assets download, build snapshot Parquet and the ticker union.
+# 2. After approved REST download, build each daily security master.
 .venv/bin/ame-materialize universe \
   --start 2024-07-01 \
   --end 2026-06-30 \
   --data-root /mnt/HC_Volume_106309665/american_stocks
 
-# 3. Review the cheap full-market daily plan.
-.venv/bin/ame-massive plan \
-  --dataset daily_bars \
+# 3. Offline Flat File plan: one daily object, no S3 credentials read.
+.venv/bin/ame-flatfiles plan \
+  --dataset minute_aggregates \
   --start 2024-07-01 \
   --end 2026-06-30
 
-# 4. Review minute requests using the generated historical union.
-.venv/bin/ame-massive plan \
-  --dataset minute_bars \
-  --ticker-file /mnt/HC_Volume_106309665/american_stocks/staging/universe/window=2024-07-01_2026-06-30/historical_tickers.txt \
-  --start 2024-07-01 \
-  --end 2026-06-30
-
-# 5. After an approved minute download, parse each ticker stream into review Parquet.
-.venv/bin/ame-materialize partition-minute \
-  --ticker-file /path/to/reviewed-tickers.txt \
+# 4. Live S3 download only after review and server-side credential setup.
+.venv/bin/ame-flatfiles download \
+  --dataset minute_aggregates \
   --start 2024-07-01 \
   --end 2026-06-30 \
   --data-root /mnt/HC_Volume_106309665/american_stocks
 
-# 6. Only after reviewing all partitions, explicitly create one file per day.
-.venv/bin/ame-materialize compact-minute \
-  --ticker-file /path/to/reviewed-tickers.txt \
+# 5. After inspecting Bronze CSV files, explicitly convert them to daily Parquet.
+.venv/bin/ame-flatfiles convert \
+  --dataset minute_aggregates \
+  --start 2024-07-01 \
+  --end 2026-06-30 \
+  --data-root /mnt/HC_Volume_106309665/american_stocks
+
+# 6. Reconcile Flat File activity with point-in-time reference status.
+.venv/bin/ame-flatfiles coverage \
   --start 2024-07-01 \
   --end 2026-06-30 \
   --data-root /mnt/HC_Volume_106309665/american_stocks
 ```
 
-The first approved live run must still be one ticker and one completed trading day.
-The 50-stock pilot and full-market history remain separate later checkpoints.
+The first live checkpoint remains one trading day. Its coverage report will provide the
+first account-specific evidence about inactive tickers appearing in the selected Flat
+File before any two-year backfill is authorized.
 
 ## Official references
 
-- [REST authentication quickstart](https://massive.com/docs/rest/quickstart)
-- [All Tickers](https://massive.com/docs/rest/stocks/tickers/all-tickers)
-- [Ticker Types](https://massive.com/docs/rest/stocks/tickers/ticker-types)
-- [Daily Market Summary](https://massive.com/docs/rest/stocks/aggregates/daily-market-summary)
-- [Stocks Custom Bars](https://massive.com/docs/rest/stocks/aggregates/custom-bars)
-- [Splits](https://massive.com/docs/rest/stocks/corporate-actions/splits)
-- [Dividends](https://massive.com/docs/rest/stocks/corporate-actions/dividends)
-- [REST request limits](https://massive.com/knowledge-base/article/what-is-the-request-limit-for-massives-restful-apis)
+- [Stocks Flat Files overview](https://massive.com/docs/flat-files/stocks/overview)
+- [Stocks Minute Aggregates](https://massive.com/docs/flat-files/stocks/minute-aggregates)
+- [Flat Files Quickstart](https://massive.com/docs/flat-files/quickstart)
+- [REST All Tickers](https://massive.com/docs/rest/stocks/tickers/all-tickers)
+- [REST Stocks overview](https://massive.com/docs/rest/stocks)
+- [Massive handling of delisted tickers](https://massive.com/knowledge-base/article/what-does-massive-do-with-delisted-tickers)
+- [REST Custom Bars](https://massive.com/docs/rest/stocks/aggregates/custom-bars)
