@@ -5,9 +5,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-from datetime import date
 from pathlib import Path
 
+from ame_stocks_api.cli.date_range import add_history_range_arguments, resolve_history_range
 from ame_stocks_api.downloads import BronzeDownloader, BronzeStorageError, build_download_plan
 from ame_stocks_api.providers import MassiveProvider, MassiveProviderError
 from ame_stocks_core import ProviderDataset, ProviderRequest
@@ -24,8 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[dataset.value for dataset in ProviderDataset],
         required=True,
     )
-    parser.add_argument("--start", type=_parse_date, required=True)
-    parser.add_argument("--end", type=_parse_date, required=True)
+    add_history_range_arguments(parser)
     parser.add_argument("--ticker", action="append", default=[])
     parser.add_argument("--ticker-file", type=Path)
     parser.add_argument(
@@ -56,12 +55,17 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
 
     try:
+        start, end = resolve_history_range(
+            start=arguments.start,
+            end=arguments.end,
+            years=arguments.years,
+        )
         tickers = _load_tickers(arguments.ticker, arguments.ticker_file)
         dataset = ProviderDataset(arguments.dataset)
         plan = build_download_plan(
             dataset=dataset,
-            start=arguments.start,
-            end=arguments.end,
+            start=start,
+            end=end,
             tickers=tickers,
             active=arguments.active,
             requests_per_minute=arguments.requests_per_minute,
@@ -152,13 +156,6 @@ def _load_tickers(cli_tickers: list[str], ticker_file: Path | None) -> tuple[str
             if value:
                 tickers.append(value)
     return tuple(tickers)
-
-
-def _parse_date(raw: str) -> date:
-    try:
-        return date.fromisoformat(raw)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("dates must use YYYY-MM-DD") from exc
 
 
 if __name__ == "__main__":

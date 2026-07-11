@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import date
 from pathlib import Path
 
 from ame_stocks_api.artifacts import ArtifactError
+from ame_stocks_api.cli.date_range import add_history_range_arguments, resolve_history_range
 from ame_stocks_api.downloads import BronzeStorageError
 from ame_stocks_api.transforms import MaterializationError, materialize_universe
 
@@ -22,8 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("universe",),
     )
     parser.add_argument("--data-root", type=Path, required=True)
-    parser.add_argument("--start", type=_parse_date, required=True)
-    parser.add_argument("--end", type=_parse_date, required=True)
+    add_history_range_arguments(parser)
     return parser
 
 
@@ -31,11 +30,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     arguments = parser.parse_args(argv)
     try:
+        start, end = resolve_history_range(
+            start=arguments.start,
+            end=arguments.end,
+            years=arguments.years,
+        )
         if arguments.action == "universe":
             result = materialize_universe(
                 arguments.data_root,
-                start=arguments.start,
-                end=arguments.end,
+                start=start,
+                end=end,
             )
             print(
                 json.dumps(
@@ -53,13 +57,6 @@ def main(argv: list[str] | None = None) -> int:
             return 0
     except (ArtifactError, BronzeStorageError, MaterializationError, OSError, ValueError) as exc:
         parser.exit(2, f"ame-materialize: {exc}\n")
-
-
-def _parse_date(raw: str) -> date:
-    try:
-        return date.fromisoformat(raw)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("dates must use YYYY-MM-DD") from exc
 
 
 if __name__ == "__main__":

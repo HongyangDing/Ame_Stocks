@@ -32,6 +32,7 @@ class DownloadPlan:
         displayed = self.requests if show_all else self.requests[:10]
         return {
             "dataset": self.dataset.value,
+            "end": max(request.end for request in self.requests).isoformat(),
             "minimum_api_calls": self.minimum_api_calls,
             "minimum_minutes_at_configured_rate": round(self.minimum_minutes, 2),
             "note": "Pagination can increase actual API calls; plan output never contacts Massive.",
@@ -47,6 +48,7 @@ class DownloadPlan:
                 for request in displayed
             ],
             "requests_per_minute": self.requests_per_minute,
+            "start": min(request.start for request in self.requests).isoformat(),
             "truncated": not show_all and len(self.requests) > len(displayed),
         }
 

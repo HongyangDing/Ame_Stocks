@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 
 from ame_stocks_api.artifacts import ArtifactError
+from ame_stocks_api.cli.date_range import add_history_range_arguments, resolve_history_range
 from ame_stocks_api.flatfiles import (
     FlatFileDataset,
     FlatFileDownloadError,
@@ -49,13 +50,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     arguments = parser.parse_args(argv)
     try:
+        start, end = resolve_history_range(
+            start=arguments.start,
+            end=arguments.end,
+            years=arguments.years,
+        )
         if arguments.action == "coverage":
-            return _coverage(arguments)
+            return _coverage(arguments, start=start, end=end)
         dataset = FlatFileDataset(arguments.dataset)
         plan = build_flat_file_plan(
             dataset=dataset,
-            start=arguments.start,
-            end=arguments.end,
+            start=start,
+            end=end,
         )
         if arguments.action == "plan":
             print(json.dumps(plan.summary(show_all=arguments.show_all), indent=2, sort_keys=True))
@@ -113,11 +119,11 @@ def main(argv: list[str] | None = None) -> int:
         parser.exit(2, f"ame-flatfiles: {exc}\n")
 
 
-def _coverage(arguments: argparse.Namespace) -> int:
+def _coverage(arguments: argparse.Namespace, *, start: date, end: date) -> int:
     sessions = build_flat_file_plan(
         dataset=FlatFileDataset.MINUTE_AGGREGATES,
-        start=arguments.start,
-        end=arguments.end,
+        start=start,
+        end=end,
     ).objects
     results = [
         build_daily_coverage(arguments.data_root, session_date=item.session_date)
@@ -148,15 +154,7 @@ def _add_dataset_range(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_range(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--start", type=_parse_date, required=True)
-    parser.add_argument("--end", type=_parse_date, required=True)
-
-
-def _parse_date(raw: str) -> date:
-    try:
-        return date.fromisoformat(raw)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("dates must use YYYY-MM-DD") from exc
+    add_history_range_arguments(parser)
 
 
 if __name__ == "__main__":

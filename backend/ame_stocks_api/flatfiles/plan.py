@@ -57,6 +57,7 @@ class FlatFilePlan:
         displayed = self.objects if show_all else self.objects[:10]
         return {
             "dataset": self.dataset.value,
+            "end": self.objects[-1].session_date.isoformat(),
             "note": "Plan output is offline; object sizes require authenticated S3 HEAD requests.",
             "object_count": len(self.objects),
             "objects": [
@@ -67,6 +68,7 @@ class FlatFilePlan:
                 }
                 for item in displayed
             ],
+            "start": self.objects[0].session_date.isoformat(),
             "truncated": not show_all and len(displayed) < len(self.objects),
         }
 

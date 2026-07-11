@@ -88,23 +88,26 @@ credentials and contacts no network service:
 ```bash
 .venv/bin/ame-flatfiles plan \
   --dataset minute_aggregates \
-  --start 2024-07-01 \
   --end 2026-06-30
 ```
+
+When `--start` is omitted, every market-data CLI derives a five-calendar-year window
+from `--end` (the example starts on 2021-06-30). An explicit `--start` remains available
+for the required one-day and short pilot reviews.
 
 The live S3 command is intentionally distinct and requires an explicit storage root:
 
 ```bash
 .venv/bin/ame-flatfiles download \
   --dataset minute_aggregates \
-  --start 2024-07-01 \
   --end 2026-06-30 \
   --data-root /mnt/HC_Volume_106309665/american_stocks
 ```
 
 Daily survivorship-safe membership is downloaded separately through REST using both
-`active=true` and `active=false`; Flat File membership is never treated as listing
-status. Do not run either live path until review. See
+`active=true` and `active=false`. Flat Files retain historical activity from companies
+that later delist, but their rows are never treated as listing status. Do not run either
+live path until review. See
 [docs/massive-downloader.md](docs/massive-downloader.md) for the evidence, storage
 layout, credential separation, and resume behavior.
 

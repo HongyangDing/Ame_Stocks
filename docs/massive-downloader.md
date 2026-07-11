@@ -14,10 +14,13 @@ Stocks Starter includes the `us_stocks_sip/minute_aggs_v1` and
 - unadjusted for splits, dividends, and other corporate actions;
 - market-activity files with OHLCV, ticker, timestamp, and transaction count.
 
-The official 2025 minute archive is about 5.4 GB compressed and 2024 is about 4.7 GB.
-A rolling two-year Bronze minute archive should therefore be roughly 10–11 GB before
-measuring the current files. This is much safer for the 186 GB volume than downloading
-per-ticker REST pages.
+The official compressed minute archives are about 5.03 GB (2021), 5.01 GB (2022),
+4.57 GB (2023), 4.70 GB (2024), and 5.40 GB (2025). A rolling five-year Bronze minute
+archive should therefore be roughly 25–27 GB, depending on the exact cutoff. Until a
+short conversion pilot measures the real Parquet ratio, reserve 50–70 GB for Bronze plus
+Silver as a deliberately conservative planning range. This remains compatible with the
+186 GB volume and 40 GiB safety floor, but the estimate is not a substitute for the
+pilot.
 
 ## Flat Files do not solve survivorship by themselves
 
@@ -57,9 +60,35 @@ For every XNYS session:
    - inactive tickers with bars;
    - bar tickers missing from reference data.
 
-Research selects `active_on_date=true` using the historical date, never the latest
-status. A company that later delists therefore remains eligible on dates when it was
-active, eliminating the usual current-constituent survivorship bias.
+Research selects `active_on_date=true` using the signal date, never today's status and
+never the set of tickers that happens to have bars. The daily reference table is the
+left side of the join, so an active but halted ticker remains visible as a missing-data
+case instead of silently disappearing. A company that later delists therefore remains
+eligible on dates when it was active, avoiding current-constituent survivorship bias.
+
+For example, if `XYZ` is active through January 20 and inactive from January 21, a
+January 10 backtest universe may include it even if it is inactive today. It is excluded
+from new selections from January 21 onward. Rebuilding January from today's active list
+would erase `XYZ` before the backtest starts and bias the result upward.
+
+The backtest will apply the two sources in this order:
+
+1. On signal date `t`, start with the REST security master and filter
+   `active_on_date=true`, supported security types, exchanges, and rules known by `t`.
+2. Left-join unadjusted Flat File bars and derived features. Insufficient history, IPOs,
+   halts, and missing minutes remain explicit eligibility or QA outcomes.
+3. Freeze the orders at the close of `t`. At `t+1` execution, an order without the
+   required 09:30–10:00 price remains unfilled/cash; the engine must not use that new
+   information to drop the ticker and rerank the remaining names.
+4. Treat an existing position that delists as a separate return-accounting problem.
+   The inactive flag identifies a status transition but does not provide the economic
+   delisting payoff. Corporate actions and ticker events will supply the preferred exit;
+   a documented conservative fallback is required when that value is unavailable.
+
+Dropping missing positions, forward-filling them forever, or interpreting
+`active=false` as a zero return would each create a different bias. Those behaviors are
+therefore prohibited by design and will receive small hand-calculated tests in the
+backtest step.
 
 `active=false` is retained every day as requested, even though it repeats much of the
 historical delisted list. `--active history` remains available as a cheaper diagnostic
@@ -137,50 +166,50 @@ floor with a conservative temporary-space estimate.
 All `plan`, `convert`, `coverage`, and `ame-materialize` commands are offline. Only an
 explicit `download` action contacts Massive.
 
+All three CLIs use the same date rule: `--end` is required, while omitting `--start`
+defaults to the inclusive five-calendar-year window ending on that date. Use an explicit
+`--start` for a one-day or short pilot. `--years N` can request another lookback, but it
+cannot be combined with `--start`.
+
 ```bash
 # 1. Daily point-in-time reference plan: active and inactive every session.
 .venv/bin/ame-massive plan \
   --dataset assets \
   --active both \
-  --start 2024-07-01 \
   --end 2026-06-30
 
 # 2. After approved REST download, build each daily security master.
 .venv/bin/ame-materialize universe \
-  --start 2024-07-01 \
   --end 2026-06-30 \
   --data-root /mnt/HC_Volume_106309665/american_stocks
 
 # 3. Offline Flat File plan: one daily object, no S3 credentials read.
 .venv/bin/ame-flatfiles plan \
   --dataset minute_aggregates \
-  --start 2024-07-01 \
   --end 2026-06-30
 
 # 4. Live S3 download only after review and server-side credential setup.
 .venv/bin/ame-flatfiles download \
   --dataset minute_aggregates \
-  --start 2024-07-01 \
   --end 2026-06-30 \
   --data-root /mnt/HC_Volume_106309665/american_stocks
 
 # 5. After inspecting Bronze CSV files, explicitly convert them to daily Parquet.
 .venv/bin/ame-flatfiles convert \
   --dataset minute_aggregates \
-  --start 2024-07-01 \
   --end 2026-06-30 \
   --data-root /mnt/HC_Volume_106309665/american_stocks
 
 # 6. Reconcile Flat File activity with point-in-time reference status.
 .venv/bin/ame-flatfiles coverage \
-  --start 2024-07-01 \
   --end 2026-06-30 \
   --data-root /mnt/HC_Volume_106309665/american_stocks
 ```
 
 The first live checkpoint remains one trading day. Its coverage report will provide the
 first account-specific evidence about inactive tickers appearing in the selected Flat
-File before any two-year backfill is authorized.
+File before any five-year backfill is authorized. For that checkpoint, pass the same
+date to both `--start` and `--end`; the default does not override an explicit start.
 
 ## Official references
 
