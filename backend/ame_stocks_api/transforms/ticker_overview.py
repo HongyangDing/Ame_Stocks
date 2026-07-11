@@ -26,7 +26,7 @@ from ame_stocks_api.transforms.materialize import MaterializationError
 from ame_stocks_core import ProviderDataset, ProviderRequest
 
 TICKER_LIFECYCLE_SCHEMA_VERSION = 2
-TICKER_OVERVIEW_SAFE_SCHEMA_VERSION = 1
+TICKER_OVERVIEW_SAFE_SCHEMA_VERSION = 2
 
 # These values are retained only in the immutable Bronze response. They are current-looking
 # quantities without a sufficiently explicit point-in-time/as-of contract for factor research.
@@ -64,6 +64,7 @@ _SAFE_SCHEMA = {
     "identity_type": pl.String,
     "identity_value": pl.String,
     "identity_match": pl.Boolean,
+    "identity_match_basis": pl.String,
     "ticker": pl.String,
     "name": pl.String,
     "type": pl.String,
@@ -265,11 +266,17 @@ def materialize_ticker_overview_safe(
         / "silver_unadjusted"
         / "reference"
         / "ticker_overview_safe"
+        / f"schema=v{TICKER_OVERVIEW_SAFE_SCHEMA_VERSION}"
         / f"window={window}"
         / "ticker_overview.parquet"
     )
     manifest_path = (
-        root / "manifests" / "materialized" / "ticker_overview_safe" / f"{window}.json"
+        root
+        / "manifests"
+        / "materialized"
+        / "ticker_overview_safe"
+        / f"schema=v{TICKER_OVERVIEW_SAFE_SCHEMA_VERSION}"
+        / f"{window}.json"
     )
     existing = load_reusable_manifest(
         root,
@@ -520,10 +527,10 @@ def _safe_overview_row(
     }
     expected_type = str(lifecycle["identity_type"])
     expected_value = str(lifecycle["identity_value"])
-    comparable = (
-        response_identities.get(expected_type)
-        if expected_type != "ticker"
-        else result.get("ticker")
+    identity_match, identity_match_basis = _identity_match(
+        lifecycle,
+        response_identities=response_identities,
+        response_ticker=_clean_string(result.get("ticker")),
     )
     return {
         "lifecycle_id": lifecycle["lifecycle_id"],
@@ -534,7 +541,8 @@ def _safe_overview_row(
         "last_active_date": lifecycle["last_active_date"],
         "identity_type": expected_type,
         "identity_value": expected_value,
-        "identity_match": _clean_string(comparable) == expected_value,
+        "identity_match": identity_match,
+        "identity_match_basis": identity_match_basis,
         "ticker": _clean_string(result.get("ticker")),
         "name": _clean_string(result.get("name")),
         "type": _clean_string(result.get("type")),
@@ -551,6 +559,29 @@ def _safe_overview_row(
         "ticker_root": _clean_string(result.get("ticker_root")),
         "ticker_suffix": _clean_string(result.get("ticker_suffix")),
     }
+
+
+def _identity_match(
+    lifecycle: dict[str, Any],
+    *,
+    response_identities: dict[str, str | None],
+    response_ticker: str | None,
+) -> tuple[bool, str | None]:
+    if lifecycle["identity_type"] == "ticker":
+        matches = response_ticker == _clean_string(lifecycle.get("ticker"))
+        return matches, "ticker" if matches else None
+
+    comparable: list[tuple[str, bool]] = []
+    for field in _IDENTITY_FIELDS:
+        expected = _clean_string(lifecycle.get(field))
+        actual = response_identities[field]
+        if expected is not None and actual is not None:
+            comparable.append((field, expected == actual))
+    if not comparable or any(not matches for _, matches in comparable):
+        return False, None
+    matching_fields = {field for field, matches in comparable if matches}
+    basis = next(field for field in _IDENTITY_FIELDS if field in matching_fields)
+    return True, basis
 
 
 def _load_complete_artifact_manifest(root: Path, path: Path) -> dict[str, Any]:

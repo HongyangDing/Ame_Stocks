@@ -157,7 +157,6 @@ def test_lifecycle_overview_allowlist_quarantines_market_cap_and_shares(
             "ticker": "AAPL",
             "name": "Apple Inc.",
             "active": True,
-            "share_class_figi": "FIGI-AAPL",
             "cik": "0000320193",
             "sic_code": "3571",
             "sic_description": "Electronic Computers",
@@ -194,6 +193,11 @@ def test_lifecycle_overview_allowlist_quarantines_market_cap_and_shares(
     assert safe.row_count == 3
     assert safe.failed_request_count == 0
     assert safe_frame["identity_match"].to_list() == [True, True, True]
+    assert safe_frame["identity_match_basis"].to_list() == [
+        "share_class_figi",
+        "cik",
+        "share_class_figi",
+    ]
     assert not QUARANTINED_TICKER_OVERVIEW_FIELDS.intersection(safe_frame.columns)
     assert "total_employees" not in safe_frame.columns
     assert safe_frame.filter(pl.col("ticker") == "AAPL")["sic_code"].item() == "3571"
