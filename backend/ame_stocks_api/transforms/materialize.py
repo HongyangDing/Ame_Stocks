@@ -209,7 +209,10 @@ def _snapshot_frame(
                     "snapshot_date": request.start,
                     "active_on_date": active_on_date,
                     "provider_active": result.get("active"),
-                    "ticker": ticker.strip().upper(),
+                    # Massive identifiers are case-sensitive: lowercase characters can
+                    # encode preferred/special share suffixes (for example BCPC and
+                    # BCpC are different securities). Preserve the provider identifier.
+                    "ticker": ticker.strip(),
                     "type": result.get("type"),
                     "name": result.get("name"),
                     "market": result.get("market"),

@@ -374,3 +374,40 @@ def test_daily_universe_and_flat_file_coverage_keep_status_separate(tmp_path: Pa
     halt = coverage_frame.filter(pl.col("ticker") == "HALT").row(0, named=True)
     assert halt["active_on_date"] is True
     assert halt["has_minute_bar"] is False
+
+
+def test_daily_universe_preserves_case_sensitive_massive_tickers(tmp_path: Path) -> None:
+    session = date(2021, 7, 12)
+    plan = build_download_plan(
+        dataset=ProviderDataset.ASSETS,
+        start=session,
+        end=session,
+    )
+    requests = {dict(request.parameters)["active"]: request for request in plan.requests}
+    _write_reference_bronze(
+        tmp_path,
+        requests["true"],
+        [
+            {
+                "active": True,
+                "name": "Balchem Corporation",
+                "ticker": "BCPC",
+                "type": "CS",
+            },
+            {
+                "active": True,
+                "name": "Brunswick Corporation notes",
+                "ticker": "BCpC",
+                "type": "SP",
+            },
+        ],
+    )
+    _write_reference_bronze(tmp_path, requests["false"], [])
+
+    materialize_universe(tmp_path, start=session, end=session)
+    universe = pl.read_parquet(
+        tmp_path / "silver_unadjusted/universe/date=2021-07-12/tickers.parquet"
+    )
+
+    assert universe["ticker"].to_list() == ["BCPC", "BCpC"]
+    assert universe["ticker"].n_unique() == 2
