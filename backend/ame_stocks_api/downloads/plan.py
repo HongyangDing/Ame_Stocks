@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 import exchange_calendars as xcals
 
@@ -17,13 +17,13 @@ _ANNUAL_BULK_DATASETS = frozenset(
         ProviderDataset.EDGAR_INDEX,
         ProviderDataset.FORM_3,
         ProviderDataset.FORM_4,
-        ProviderDataset.FORM_13F,
         ProviderDataset.RISK_FACTORS,
         ProviderDataset.TEN_K_SECTIONS,
         ProviderDataset.EIGHT_K_TEXT,
         ProviderDataset.NEWS,
     }
 )
+_QUARTERLY_BULK_DATASETS = frozenset({ProviderDataset.FORM_13F})
 _LATEST_SNAPSHOT_DATASETS = frozenset(
     {
         ProviderDataset.FLOAT,
@@ -198,6 +198,13 @@ def build_download_plan(
             for chunk_start, chunk_end in calendar_year_ranges(start, end)
             for identifier in identifiers
         )
+    elif dataset in _QUARTERLY_BULK_DATASETS:
+        if normalized_tickers:
+            raise ValueError(f"{dataset.value} only supports full-market requests")
+        requests = tuple(
+            ProviderRequest(dataset=dataset, start=chunk_start, end=chunk_end)
+            for chunk_start, chunk_end in calendar_quarter_ranges(start, end)
+        )
     elif dataset in _SINGLE_STREAM_BULK_DATASETS:
         if normalized_tickers:
             raise ValueError(f"{dataset.value} only supports full-market requests")
@@ -260,6 +267,28 @@ def calendar_year_ranges(start: date, end: date) -> tuple[tuple[date, date], ...
         )
         for year in range(start.year, end.year + 1)
     )
+
+
+def calendar_quarter_ranges(start: date, end: date) -> tuple[tuple[date, date], ...]:
+    """Split a range into chronological calendar-quarter chunks."""
+
+    if start > end:
+        raise ValueError("start must be on or before end")
+    ranges: list[tuple[date, date]] = []
+    year = start.year
+    quarter = ((start.month - 1) // 3) + 1
+    while True:
+        first_month = ((quarter - 1) * 3) + 1
+        quarter_start = date(year, first_month, 1)
+        if quarter_start > end:
+            break
+        next_year = year + 1 if quarter == 4 else year
+        next_quarter = 1 if quarter == 4 else quarter + 1
+        next_first_month = ((next_quarter - 1) * 3) + 1
+        quarter_end = date(next_year, next_first_month, 1) - timedelta(days=1)
+        ranges.append((max(start, quarter_start), min(end, quarter_end)))
+        year, quarter = next_year, next_quarter
+    return tuple(ranges)
 
 
 def market_session_dates(start: date, end: date) -> tuple[date, ...]:

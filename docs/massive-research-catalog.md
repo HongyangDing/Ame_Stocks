@@ -24,7 +24,7 @@ HTTP status and response size; credentials and response bodies were not logged.
 | Exchanges + ticker types | capture date only | two small snapshots | decode reference classifications |
 | EDGAR index | 2016-07-11 project window | calendar-year gzip JSON streams | authoritative filing availability timestamp |
 | Forms 3 and 4 | 2016-07-11 project window | calendar-year gzip JSON streams | insider ownership and transaction factors |
-| Form 13-F | 2016-07-11 project window | calendar-year gzip JSON streams | institutional holdings and crowding factors |
+| Form 13-F | 2016-07-11 project window | calendar-quarter gzip JSON streams | institutional holdings and crowding factors |
 | 10-K sections | 2016-07-11 project window | calendar-year gzip JSON streams | business/risk text factors |
 | 8-K text | 2016-07-11 project window | calendar-year gzip JSON streams | event-driven disclosure factors |
 | Risk-factor taxonomy | 2016-07-11 project window | calendar-year gzip JSON streams | standardized disclosure-risk features |
@@ -55,7 +55,8 @@ provider record key and enforce publication-time lags.
 
 ## Safety and execution rules
 
-- Full-market range endpoints are split into chronological calendar-year requests.
+- Full-market range endpoints are split into chronological calendar-year requests; 13-F uses
+  quarters because its 1,000-row page limit makes yearly pagination unnecessarily serial.
 - Each successful page is gzip-compressed, checksummed, atomically written, and checkpointed.
 - A rerun skips complete manifests and resumes incomplete pagination from the committed cursor.
 - REST and S3 tasks refuse writes that would leave less than 40 GiB free.

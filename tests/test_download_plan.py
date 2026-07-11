@@ -121,7 +121,6 @@ def test_minute_plan_requires_tickers() -> None:
         ProviderDataset.EDGAR_INDEX,
         ProviderDataset.FORM_3,
         ProviderDataset.FORM_4,
-        ProviderDataset.FORM_13F,
         ProviderDataset.RISK_FACTORS,
         ProviderDataset.TEN_K_SECTIONS,
         ProviderDataset.EIGHT_K_TEXT,
@@ -193,6 +192,20 @@ def test_13f_rejects_ticker_filter() -> None:
             end=date(2026, 7, 9),
             tickers=("AAPL",),
         )
+
+
+def test_13f_uses_chronological_calendar_quarter_chunks() -> None:
+    plan = build_download_plan(
+        dataset=ProviderDataset.FORM_13F,
+        start=date(2016, 7, 11),
+        end=date(2017, 2, 3),
+    )
+
+    assert [(request.start, request.end) for request in plan.requests] == [
+        (date(2016, 7, 11), date(2016, 9, 30)),
+        (date(2016, 10, 1), date(2016, 12, 31)),
+        (date(2017, 1, 1), date(2017, 2, 3)),
+    ]
 
 
 @pytest.mark.parametrize(
