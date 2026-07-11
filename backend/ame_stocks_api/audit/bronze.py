@@ -157,6 +157,7 @@ _DATE_FIELDS: dict[str, str] = {
     ProviderDataset.INFLATION_EXPECTATIONS.value: "date",
     ProviderDataset.LABOR_MARKET.value: "date",
 }
+_TIMESTAMP_FIELDS = frozenset({ProviderDataset.NEWS.value})
 _REQUIRED_ROW_FIELDS: dict[str, tuple[str, ...]] = {
     ProviderDataset.ASSETS.value: ("ticker", "active"),
     ProviderDataset.SPLITS.value: ("ticker", "execution_date"),
@@ -170,17 +171,31 @@ _REQUIRED_ROW_FIELDS: dict[str, tuple[str, ...]] = {
     ProviderDataset.CASH_FLOW_STATEMENTS.value: ("filing_date",),
     ProviderDataset.RATIOS.value: ("ticker",),
     ProviderDataset.TICKER_OVERVIEW.value: ("ticker",),
+    ProviderDataset.TICKER_EVENTS.value: ("date", "type", "ticker_change"),
     ProviderDataset.TICKER_TYPES.value: ("code",),
     ProviderDataset.EXCHANGES.value: ("id",),
     ProviderDataset.CONDITION_CODES.value: ("id",),
-    ProviderDataset.EDGAR_INDEX.value: ("filing_date",),
-    ProviderDataset.FORM_3.value: ("filing_date",),
-    ProviderDataset.FORM_4.value: ("filing_date",),
-    ProviderDataset.FORM_13F.value: ("filing_date",),
+    ProviderDataset.EDGAR_INDEX.value: ("accession_number", "cik", "filing_date"),
+    ProviderDataset.FORM_3.value: ("accession_number", "filing_date"),
+    ProviderDataset.FORM_4.value: ("accession_number", "filing_date"),
+    ProviderDataset.FORM_13F.value: (
+        "accession_number",
+        "cusip",
+        "filer_cik",
+        "filing_date",
+        "form_type",
+        "investment_discretion",
+        "issuer_name",
+        "market_value",
+        "period",
+        "shares_or_principal_amount",
+        "shares_or_principal_type",
+        "title_of_class",
+    ),
     ProviderDataset.RISK_FACTORS.value: ("filing_date",),
     ProviderDataset.TEN_K_SECTIONS.value: ("filing_date",),
-    ProviderDataset.EIGHT_K_TEXT.value: ("filing_date",),
-    ProviderDataset.EIGHT_K_DISCLOSURES.value: ("filing_date",),
+    ProviderDataset.EIGHT_K_TEXT.value: ("accession_number", "filing_date"),
+    ProviderDataset.EIGHT_K_DISCLOSURES.value: ("accession_number", "filing_date"),
     ProviderDataset.NEWS.value: ("published_utc",),
     ProviderDataset.TREASURY_YIELDS.value: ("date",),
     ProviderDataset.INFLATION.value: ("date",),
@@ -190,27 +205,51 @@ _REQUIRED_ROW_FIELDS: dict[str, tuple[str, ...]] = {
 _PHYSICAL_FAILURE_CODES = frozenset(
     {
         "artifact_missing",
+        "artifact_invalid",
+        "artifact_path_mismatch",
+        "artifacts_invalid",
         "asset_reconciliation_unreadable",
         "audit_internal_error",
         "compressed_bytes_mismatch",
+        "complete_manifest_invalid_state",
+        "dataset_identity_mismatch",
+        "flat_identity_invalid",
+        "flat_identity_mismatch",
+        "flat_output_missing",
+        "flat_path_mismatch",
         "flat_schema_mismatch",
         "flat_size_mismatch",
+        "flat_manifest_root_missing",
         "gzip_corrupt",
         "json_corrupt",
+        "manifest_invalid_json",
+        "manifest_invalid_root",
+        "manifest_request_invalid",
+        "manifest_schema_mismatch",
         "missing_flat_artifact",
         "missing_rest_artifact",
+        "provider_contract_mismatch",
+        "provider_mismatch",
+        "quarantined_flat_files",
         "raw_bytes_mismatch",
         "raw_sha256_mismatch",
         "record_count_mismatch",
+        "request_identity_mismatch",
+        "rest_manifest_root_missing",
         "stored_sha256_mismatch",
     }
 )
 _PLAN_FAILURE_CODES = frozenset(
     {
         "flat_manifest_incomplete",
+        "continuation_mismatch",
+        "duplicate_page_continuation",
+        "duplicate_page_payload",
+        "last_page_mismatch",
         "manifest_failed",
         "manifest_incomplete",
         "market_partition_mismatch",
+        "page_sequence_mismatch",
         "ticker_event_plan_invalid",
         "ticker_event_plan_missing",
         "ticker_overview_plan_invalid",
@@ -223,12 +262,19 @@ _SEMANTIC_FAILURE_CODES = frozenset(
         "asset_active_inactive_overlap",
         "asset_duplicate_ticker",
         "invalid_date_value",
+        "invalid_timestamp_value",
+        "invalid_form_13f_value",
         "required_fields_missing",
         "response_shape_invalid",
         "response_status_not_ok",
         "results_shape_invalid",
         "row_date_outside_request",
         "row_shape_invalid",
+        "ticker_event_contract_invalid",
+        "ticker_event_duplicate",
+        "ticker_event_future_date",
+        "ticker_overview_identity_mismatch",
+        "ticker_overview_result_count",
     }
 )
 
@@ -304,6 +350,7 @@ class _IssueCollector:
     def __init__(self, *, sample_limit: int = 2_000, samples_per_code: int = 20) -> None:
         self.counts: Counter[str] = Counter()
         self.code_counts: Counter[str] = Counter()
+        self.failure_code_counts: Counter[str] = Counter()
         self.samples: list[AuditIssue] = []
         self.sample_limit = sample_limit
         self.samples_per_code = samples_per_code
@@ -311,6 +358,8 @@ class _IssueCollector:
     def add(self, issue: AuditIssue) -> None:
         self.counts[issue.severity] += 1
         self.code_counts[issue.code] += 1
+        if issue.severity in {"error", "critical"}:
+            self.failure_code_counts[issue.code] += 1
         if (
             len(self.samples) < self.sample_limit
             and self.code_counts[issue.code] <= self.samples_per_code
@@ -343,7 +392,7 @@ class _HashingReader:
 class BronzeAuditor:
     """Perform a bounded-memory audit of all Massive Bronze files under one root."""
 
-    report_schema_version = 2
+    report_schema_version = 3
 
     def __init__(
         self,
@@ -402,12 +451,14 @@ class BronzeAuditor:
 
         severity = self._issues.counts
         code_counts = self._issues.code_counts
+        failure_code_counts = self._issues.failure_code_counts
         status = (
             "failed"
             if severity["critical"] or severity["error"]
             else ("passed_with_warnings" if severity["warning"] else "passed")
         )
         datasets = [asdict(self._stats[key]) for key in sorted(self._stats)]
+        gate_issue_code_counts = _gate_issue_code_counts(failure_code_counts)
         return {
             "report_schema_version": self.report_schema_version,
             "status": status,
@@ -436,14 +487,10 @@ class BronzeAuditor:
                 "issue_code_counts": dict(sorted(code_counts.items())),
             },
             "gates": {
-                "physical_integrity": _gate_status(code_counts, _PHYSICAL_FAILURE_CODES),
-                "authoritative_plan": _gate_status(
-                    code_counts,
-                    _PLAN_FAILURE_CODES,
-                    prefix="missing_expected_",
-                ),
-                "semantic_consistency": _gate_status(code_counts, _SEMANTIC_FAILURE_CODES),
+                name: "failed" if counts else "passed"
+                for name, counts in gate_issue_code_counts.items()
             },
+            "gate_issue_code_counts": gate_issue_code_counts,
             "datasets": datasets,
             "plan_receipts": self._plan_receipts,
             "issue_samples": [asdict(issue) for issue in self._issues.samples],
@@ -666,8 +713,40 @@ class BronzeAuditor:
                     str(path),
                 )
             )
+        valid_artifacts = [item for item in artifacts if isinstance(item, dict)]
+        page_hashes = [
+            str(item["raw_sha256"])
+            for item in valid_artifacts
+            if isinstance(item.get("raw_sha256"), str) and item["raw_sha256"]
+        ]
+        if len(page_hashes) != len(set(page_hashes)):
+            issues.append(
+                AuditIssue(
+                    "critical",
+                    "duplicate_page_payload",
+                    "two pages in one manifest declare the same raw payload SHA-256",
+                    dataset,
+                    str(path),
+                )
+            )
+        continuations = [
+            str(item["next_continuation"])
+            for item in valid_artifacts
+            if item.get("next_continuation") not in {None, ""}
+        ]
+        if len(continuations) != len(set(continuations)):
+            issues.append(
+                AuditIssue(
+                    "critical",
+                    "duplicate_page_continuation",
+                    "pagination repeats a continuation within one manifest",
+                    dataset,
+                    str(path),
+                )
+            )
 
         referenced: set[str] = set()
+        ticker_event_keys: set[tuple[str, str, str]] = set()
         for index, artifact in enumerate(artifacts):
             if not isinstance(artifact, dict):
                 issues.append(
@@ -710,6 +789,7 @@ class BronzeAuditor:
                     stats=stats,
                     issues=issues,
                     request=request,
+                    ticker_event_keys=ticker_event_keys,
                 )
             else:
                 self._verify_structural_file(dataset, path, artifact, stats, issues)
@@ -762,6 +842,7 @@ class BronzeAuditor:
         stats: DatasetStats,
         issues: list[AuditIssue],
         request: dict[str, Any] | None,
+        ticker_event_keys: set[tuple[str, str, str]],
     ) -> None:
         try:
             payload_path = safe_relative_path(self.data_root, artifact.get("path"))
@@ -852,7 +933,7 @@ class BronzeAuditor:
                     str(payload_path),
                 )
             )
-        rows = _result_rows(document)
+        rows = _result_rows(document, dataset)
         if rows is None:
             issues.append(
                 AuditIssue(
@@ -877,6 +958,34 @@ class BronzeAuditor:
                     str(payload_path),
                 )
             )
+        if dataset == ProviderDataset.TICKER_OVERVIEW.value:
+            if actual_count != 1:
+                issues.append(
+                    AuditIssue(
+                        "error",
+                        "ticker_overview_result_count",
+                        f"ticker overview requires exactly one result; observed {actual_count}",
+                        dataset,
+                        str(payload_path),
+                    )
+                )
+            requested = request.get("asset_ids") if request else None
+            expected_ticker = (
+                str(requested[0])
+                if isinstance(requested, list) and len(requested) == 1
+                else None
+            )
+            returned_ticker = rows[0].get("ticker") if actual_count == 1 else None
+            if expected_ticker is None or returned_ticker != expected_ticker:
+                issues.append(
+                    AuditIssue(
+                        "error",
+                        "ticker_overview_identity_mismatch",
+                        "returned ticker does not exactly match the canonical requested ticker",
+                        dataset,
+                        str(payload_path),
+                    )
+                )
         response_count = document.get("count")
         if isinstance(response_count, int) and response_count != actual_count:
             issues.append(
@@ -926,6 +1035,7 @@ class BronzeAuditor:
         required = _REQUIRED_ROW_FIELDS.get(dataset, ())
         missing_required = 0
         invalid_dates = 0
+        invalid_form_13f = 0
         observed_dates: list[str] = []
         date_field = _DATE_FIELDS.get(dataset)
         for row in rows:
@@ -941,12 +1051,66 @@ class BronzeAuditor:
                 )
                 continue
             if any(
-                field_name not in row or row[field_name] in {None, ""} for field_name in required
+                field_name not in row
+                or row[field_name] is None
+                or row[field_name] == ""
+                for field_name in required
             ):
                 missing_required += 1
+            if dataset == ProviderDataset.TICKER_EVENTS.value:
+                event_date = _iso_date(row.get("date"))
+                event_type = row.get("type")
+                ticker_change = row.get("ticker_change")
+                event_ticker = (
+                    ticker_change.get("ticker") if isinstance(ticker_change, dict) else None
+                )
+                if (
+                    event_date is None
+                    or event_type != "ticker_change"
+                    or not isinstance(event_ticker, str)
+                    or not event_ticker.strip()
+                ):
+                    issues.append(
+                        AuditIssue(
+                            "error",
+                            "ticker_event_contract_invalid",
+                            "event needs ISO date, type=ticker_change, and ticker_change.ticker",
+                            dataset,
+                            str(payload_path),
+                        )
+                    )
+                else:
+                    event_key = (event_date, str(event_type), event_ticker.strip())
+                    if event_key in ticker_event_keys:
+                        issues.append(
+                            AuditIssue(
+                                "error",
+                                "ticker_event_duplicate",
+                                "one ticker-event response repeats an event key",
+                                dataset,
+                                str(payload_path),
+                            )
+                        )
+                    ticker_event_keys.add(event_key)
+                    if event_date > self.end.isoformat():
+                        issues.append(
+                            AuditIssue(
+                                "error",
+                                "ticker_event_future_date",
+                                f"event date {event_date} is after the audit snapshot",
+                                dataset,
+                                str(payload_path),
+                            )
+                        )
+            if dataset == ProviderDataset.FORM_13F.value and not _valid_form_13f_values(row):
+                invalid_form_13f += 1
             if date_field:
                 raw_date = row.get(date_field)
-                normalized = _iso_date(raw_date)
+                normalized = (
+                    _iso_datetime_date(raw_date)
+                    if dataset in _TIMESTAMP_FIELDS
+                    else _iso_date(raw_date)
+                )
                 if normalized:
                     observed_dates.append(normalized)
                     if request and not _inside_request(normalized, request):
@@ -972,11 +1136,31 @@ class BronzeAuditor:
                 )
             )
         if invalid_dates:
+            code = (
+                "invalid_timestamp_value"
+                if dataset in _TIMESTAMP_FIELDS
+                else "invalid_date_value"
+            )
+            expected_type = (
+                "timezone-aware ISO datetime"
+                if dataset in _TIMESTAMP_FIELDS
+                else "ISO date"
+            )
             issues.append(
                 AuditIssue(
                     "error",
-                    "invalid_date_value",
-                    f"{invalid_dates} rows contain a non-ISO {date_field} value",
+                    code,
+                    f"{invalid_dates} rows contain an invalid {expected_type} in {date_field}",
+                    dataset,
+                    str(payload_path),
+                )
+            )
+        if invalid_form_13f:
+            issues.append(
+                AuditIssue(
+                    "error",
+                    "invalid_form_13f_value",
+                    f"{invalid_form_13f} rows violate numeric/domain constraints",
                     dataset,
                     str(payload_path),
                 )
@@ -1267,20 +1451,27 @@ class BronzeAuditor:
                 if reader.fieldnames != ["ticker", "query_date"]:
                     raise ValueError("receipt must have exact ticker,query_date columns")
                 for row in reader:
-                    ticker_dates.append((str(row["ticker"]), date.fromisoformat(row["query_date"])))
-        except (OSError, ValueError) as exc:
+                    ticker_dates.append(
+                        (str(row["ticker"]).strip(), date.fromisoformat(row["query_date"]))
+                    )
+            _require_unique_receipt_values(
+                ticker_dates,
+                label="ticker/query-date",
+            )
+            plan = build_download_plan(
+                dataset=dataset,
+                start=self.start,
+                end=self.end,
+                ticker_dates=tuple(ticker_dates),
+            )
+            _require_unique_plan_requests(plan.requests, dataset.value)
+        except (OSError, TypeError, ValueError) as exc:
             self._issues.add(
                 AuditIssue(
                     "error", "ticker_overview_plan_invalid", str(exc), dataset.value, str(path)
                 )
             )
             return
-        plan = build_download_plan(
-            dataset=dataset,
-            start=self.start,
-            end=self.end,
-            ticker_dates=tuple(ticker_dates),
-        )
         expected[dataset.value].update(request.request_id for request in plan.requests)
         self._record_plan_receipt(path, dataset.value, len(plan.requests))
 
@@ -1307,12 +1498,14 @@ class BronzeAuditor:
                 for line in path.read_text(encoding="utf-8").splitlines()
                 if line.partition("#")[0].strip()
             )
+            _require_unique_receipt_values(identifiers, label="ticker-event identifier")
             plan = build_download_plan(
                 dataset=dataset,
                 start=self.ticker_event_start,
                 end=self.end,
                 tickers=identifiers,
             )
+            _require_unique_plan_requests(plan.requests, dataset.value)
         except (OSError, ValueError) as exc:
             self._issues.add(
                 AuditIssue("error", "ticker_event_plan_invalid", str(exc), dataset.value, str(path))
@@ -1367,9 +1560,22 @@ class BronzeAuditor:
 
         if self.mode != "full":
             return
+        authoritative_request_ids = {
+            request.request_id
+            for request in build_download_plan(
+                dataset=ProviderDataset.ASSETS,
+                start=self.start,
+                end=self.end,
+                active="both",
+            ).requests
+        }
         by_date: dict[str, dict[str, _ManifestResult]] = defaultdict(dict)
         for result in self._rest_results:
-            if result.stats.dataset != ProviderDataset.ASSETS.value or result.status != "complete":
+            if (
+                result.stats.dataset != ProviderDataset.ASSETS.value
+                or result.status != "complete"
+                or result.request_id not in authoritative_request_ids
+            ):
                 continue
             request = result.request or {}
             parameters = request.get("parameters")
@@ -1514,18 +1720,28 @@ class BronzeAuditor:
             )
 
 
-def _result_rows(document: dict[str, Any]) -> list[Any] | None:
-    results = document.get("results")
+def _result_rows(document: dict[str, Any], dataset: str) -> list[Any] | None:
+    if "results" not in document:
+        return None
+    results = document["results"]
+    if dataset == ProviderDataset.TICKER_EVENTS.value:
+        if not isinstance(results, dict) or not isinstance(results.get("events"), list):
+            return None
+        return results["events"]
+    if dataset == ProviderDataset.TICKER_OVERVIEW.value:
+        return [results] if isinstance(results, dict) else None
     if isinstance(results, list):
         return results
-    if isinstance(results, dict):
-        events = results.get("events")
-        if isinstance(events, list):
-            return events
-        return [results]
-    if results is None:
-        return []
     return None
+
+
+def _valid_form_13f_values(row: dict[str, Any]) -> bool:
+    for field_name in ("market_value", "shares_or_principal_amount"):
+        value = row.get(field_name)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+            return False
+    share_type = row.get("shares_or_principal_type")
+    return share_type in {"PRN", "SH"}
 
 
 def _safe_continuation(value: object) -> str | None:
@@ -1593,6 +1809,33 @@ def _iso_date(value: object) -> str | None:
         return None
 
 
+def _iso_datetime_date(value: object) -> str | None:
+    if not isinstance(value, str) or len(value) < 12 or value[10] not in {"T", " "}:
+        return None
+    candidate = f"{value[:-1]}+00:00" if value.endswith(("Z", "z")) else value
+    try:
+        observed = datetime.fromisoformat(candidate)
+        if observed.tzinfo is None or observed.utcoffset() is None:
+            return None
+        return observed.astimezone(UTC).date().isoformat()
+    except ValueError:
+        return None
+
+
+def _require_unique_receipt_values(values: list[Any] | tuple[Any, ...], *, label: str) -> None:
+    if len(values) != len(set(values)):
+        raise ValueError(f"receipt contains duplicate normalized {label} values")
+
+
+def _require_unique_plan_requests(
+    requests: tuple[Any, ...],
+    dataset: str,
+) -> None:
+    request_ids = [request.request_id for request in requests]
+    if len(request_ids) != len(set(request_ids)):
+        raise ValueError(f"{dataset} receipt produces duplicate canonical requests")
+
+
 def _inside_request(value: str, request: dict[str, Any]) -> bool:
     start = str(request.get("start", ""))
     end = str(request.get("end", ""))
@@ -1620,13 +1863,33 @@ def _max_optional(first: str | None, second: str | None) -> str | None:
     return max(values) if values else None
 
 
-def _gate_status(
-    counts: Counter[str],
-    exact_codes: frozenset[str],
-    *,
-    prefix: str | None = None,
-) -> str:
-    failed = any(counts[code] for code in exact_codes)
-    if prefix:
-        failed = failed or any(count and code.startswith(prefix) for code, count in counts.items())
-    return "failed" if failed else "passed"
+def _gate_issue_code_counts(
+    failure_counts: Counter[str],
+) -> dict[str, dict[str, int]]:
+    """Map every error/critical issue to at least one public audit gate.
+
+    Explicit sets keep the gate meanings stable.  The conservative physical-integrity
+    fallback is intentional: a newly added failure code must never produce a failed
+    report while every gate still says passed.
+    """
+
+    physical = {
+        code: count for code, count in failure_counts.items() if code in _PHYSICAL_FAILURE_CODES
+    }
+    plan = {
+        code: count
+        for code, count in failure_counts.items()
+        if code in _PLAN_FAILURE_CODES or code.startswith("missing_expected_")
+    }
+    semantic = {
+        code: count for code, count in failure_counts.items() if code in _SEMANTIC_FAILURE_CODES
+    }
+    mapped = set(physical) | set(plan) | set(semantic)
+    for code, count in failure_counts.items():
+        if code not in mapped:
+            physical[code] = count
+    return {
+        "physical_integrity": dict(sorted(physical.items())),
+        "authoritative_plan": dict(sorted(plan.items())),
+        "semantic_consistency": dict(sorted(semantic.items())),
+    }

@@ -11,6 +11,7 @@ from ame_stocks_api.artifacts import write_json_atomic
 from ame_stocks_api.audit.market import (
     MarketAuditError,
     MarketAuditTolerance,
+    MarketCoveragePolicy,
     MarketCrossAuditor,
 )
 
@@ -34,6 +35,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--price-relative-tolerance", type=float, default=1e-9)
     parser.add_argument("--volume-absolute-tolerance", type=float, default=1e-6)
     parser.add_argument("--volume-relative-tolerance", type=float, default=1e-9)
+    parser.add_argument("--max-missing-ticker-fraction", type=float, default=0.10)
+    parser.add_argument("--minimum-missing-tickers", type=int, default=2)
     parser.add_argument(
         "--output",
         type=Path,
@@ -52,6 +55,10 @@ def main(argv: list[str] | None = None) -> int:
             volume_absolute=arguments.volume_absolute_tolerance,
             volume_relative=arguments.volume_relative_tolerance,
         )
+        coverage_policy = MarketCoveragePolicy(
+            max_missing_fraction=arguments.max_missing_ticker_fraction,
+            minimum_missing_tickers=arguments.minimum_missing_tickers,
+        )
         report = MarketCrossAuditor(
             arguments.data_root,
             start=arguments.start,
@@ -60,14 +67,16 @@ def main(argv: list[str] | None = None) -> int:
             cache_dir=arguments.cache_dir,
             use_cache=not arguments.no_cache,
             tolerance=tolerance,
+            coverage_policy=coverage_policy,
             max_examples=arguments.max_examples,
         ).run()
         if arguments.output:
             output = arguments.output
             if not output.is_absolute():
                 output = arguments.data_root / output
-            write_json_atomic(output.resolve(), report)
-            report["report_path"] = str(output.resolve())
+            output = output.resolve()
+            report["report_path"] = str(output)
+            write_json_atomic(output, report)
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["status"] in {"passed", "passed_with_differences"} else 1
     except (MarketAuditError, OSError, ValueError) as exc:

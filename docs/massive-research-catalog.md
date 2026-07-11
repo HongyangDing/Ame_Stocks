@@ -8,6 +8,12 @@ different paid expansion is not bulk-downloaded.
 Account access was probed again on 2026-07-12 with one-record requests. The probe printed only
 HTTP status and response size; credentials and response bodies were not logged.
 
+The frozen 2016-07-11 through 2026-07-09 catalog was independently audited on 2026-07-12. All
+27 required REST datasets and both aggregate Flat File datasets are present in the authoritative
+plan; 232,519 artifacts were opened and verified, with zero file/hash/gzip/record-count damage.
+The detailed provider differences and Barra-readiness boundary are recorded in
+[the bounded Bronze audit](bronze-audit-2026-07-12.md).
+
 ## Download catalog
 
 | Dataset | Earliest useful request | Storage/partition | Research use |

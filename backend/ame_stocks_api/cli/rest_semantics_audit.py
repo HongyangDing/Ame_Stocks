@@ -64,8 +64,9 @@ def main(argv: list[str] | None = None) -> int:
             output = arguments.output
             if not output.is_absolute():
                 output = arguments.data_root / output
-            write_json_atomic(output.resolve(), report)
-            report["report_path"] = str(output.resolve())
+            output = output.resolve()
+            report["report_path"] = str(output)
+            write_json_atomic(output, report)
         print(json.dumps(report, indent=2, sort_keys=True))
         return 1 if report["status"] == "failed" else 0
     except (RestSemanticAuditError, OSError, ValueError) as exc:

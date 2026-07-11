@@ -39,6 +39,7 @@ def _write_flat_file(
         manifest_path,
         {
             "dataset": dataset.value,
+            "flat_file_manifest_schema_version": 1,
             "object_id": item.object_id,
             "object_key": item.object_key,
             "output": {
@@ -46,6 +47,7 @@ def _write_flat_file(
                 "path": relative,
                 "sha256": hashlib.sha256(compressed).hexdigest(),
             },
+            "remote": {"content_length": len(compressed)},
             "session_date": session.isoformat(),
             "status": "complete",
         },
@@ -96,9 +98,11 @@ def test_matching_minute_and_day_files_pass(tmp_path: Path) -> None:
     session = report["sessions"][0]
     assert session["comparison"]["compared_tickers"] == 2
     assert session["comparison"]["missing_tickers"] == {
-        "day_only": [],
-        "minute_only": [],
+        "day_only": {"count": 0, "examples": []},
+        "minute_only": {"count": 0, "examples": []},
     }
+    assert report["summary"]["ticker_session_pairs_in_both_files"] == 2
+    assert report["summary"]["field_comparison_counts"]["close"] == 2
     assert all(
         details["count"] == 0 for details in session["comparison"]["field_mismatches"].values()
     )
@@ -108,6 +112,7 @@ def test_numeric_mismatch_is_reported_separately_from_integrity(
     tmp_path: Path, capsys
 ) -> None:
     _valid_fixture(tmp_path, day_close=10.75)
+    output = tmp_path / "market-audit.json"
 
     report = _audit(tmp_path)
 
@@ -127,11 +132,17 @@ def test_numeric_mismatch_is_reported_separately_from_integrity(
                 SESSION.isoformat(),
                 "--end",
                 SESSION.isoformat(),
+                "--output",
+                str(output),
             ]
         )
         == 0
     )
-    assert json.loads(capsys.readouterr().out)["status"] == "passed_with_differences"
+    printed = json.loads(capsys.readouterr().out)
+    stored = json.loads(output.read_text(encoding="utf-8"))
+    assert printed["status"] == "passed_with_differences"
+    assert stored == printed
+    assert stored["report_path"] == str(output.resolve())
 
 
 def test_invalid_minute_alignment_and_duplicate_conflict_fail(tmp_path: Path) -> None:
@@ -178,7 +189,7 @@ def test_second_run_reuses_cache_bound_to_both_manifest_hashes(tmp_path: Path) -
             / "manifests"
             / "audits"
             / "market_crosscheck"
-            / "schema=v4"
+            / "schema=v5"
             / f"{SESSION.isoformat()}.json"
         ).read_text()
     )
@@ -266,4 +277,72 @@ def test_extended_hours_only_ticker_is_not_silently_matched(tmp_path: Path) -> N
         ]
         == 1
     )
-    assert report["sessions"][0]["comparison"]["regular_session_missing"] == ["AAPL"]
+    assert report["sessions"][0]["comparison"]["regular_session_missing"] == {
+        "count": 1,
+        "examples": ["AAPL"],
+    }
+
+
+def test_noncanonical_day_timestamp_fails_source_and_row_integrity(tmp_path: Path) -> None:
+    _valid_fixture(tmp_path)
+    _write_flat_file(
+        tmp_path,
+        FlatFileDataset.DAY_AGGREGATES,
+        [f"AAPL,250,10,11,11.25,9.75,{_timestamp(14, 0)},10\n"],
+    )
+
+    report = _audit(tmp_path)
+
+    assert report["status"] == "failed"
+    assert report["gates"]["source_and_row_integrity"] == "failed"
+    assert report["summary"]["issue_code_counts"]["noncanonical_day_timestamp"] == 1
+
+
+def test_material_ticker_coverage_loss_fails_coverage_gate(tmp_path: Path) -> None:
+    first = _timestamp(13, 30)
+    _write_flat_file(
+        tmp_path,
+        FlatFileDataset.MINUTE_AGGREGATES,
+        [
+            f"AAA,100,10,10,10,10,{first},4\n",
+            f"BBB,100,10,10,10,10,{first},4\n",
+            f"CCC,100,10,10,10,10,{first},4\n",
+        ],
+    )
+    _write_flat_file(
+        tmp_path,
+        FlatFileDataset.DAY_AGGREGATES,
+        [f"AAA,100,10,10,10,10,{_timestamp(4, 0)},4\n"],
+    )
+
+    report = _audit(tmp_path)
+
+    assert report["status"] == "failed"
+    assert report["gates"]["ticker_coverage"] == "failed"
+    coverage = report["sessions"][0]["comparison"]["coverage"]
+    assert coverage["missing_tickers"] == 2
+    assert coverage["missing_fraction"] == 2 / 3
+
+
+def test_market_manifest_cannot_point_day_identity_at_minute_path(tmp_path: Path) -> None:
+    _valid_fixture(tmp_path)
+    minute_path = next(
+        (tmp_path / "bronze" / "massive" / "flatfiles").glob("**/minute_aggs_v1/**/*.gz")
+    )
+    day_manifest_path = (
+        tmp_path
+        / "manifests"
+        / "massive"
+        / "flatfiles"
+        / FlatFileDataset.DAY_AGGREGATES.value
+        / f"{SESSION.isoformat()}.json"
+    )
+    manifest = json.loads(day_manifest_path.read_text())
+    manifest["output"]["path"] = str(minute_path.relative_to(tmp_path))
+    write_json_atomic(day_manifest_path, manifest)
+
+    report = _audit(tmp_path)
+
+    assert report["status"] == "failed"
+    assert report["gates"]["source_and_row_integrity"] == "failed"
+    assert report["summary"]["issue_code_counts"]["source_unavailable"] == 1

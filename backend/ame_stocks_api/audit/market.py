@@ -14,6 +14,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, time, timedelta
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -30,8 +31,8 @@ from ame_stocks_api.artifacts import (
 from ame_stocks_api.downloads import market_session_dates
 from ame_stocks_api.flatfiles import FlatFileDataset, FlatFileObject
 
-MARKET_AUDIT_SCHEMA_VERSION = 4
-CACHE_SCHEMA_VERSION = 4
+MARKET_AUDIT_SCHEMA_VERSION = 5
+CACHE_SCHEMA_VERSION = 5
 EXPECTED_COLUMNS = (
     "ticker",
     "volume",
@@ -89,6 +90,25 @@ class MarketAuditTolerance:
 
 
 @dataclass(frozen=True, slots=True)
+class MarketCoveragePolicy:
+    """Escalate a material cross-product ticker loss without failing on sparse edge cases."""
+
+    max_missing_fraction: float = 0.10
+    minimum_missing_tickers: int = 2
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.max_missing_fraction) or not (
+            0 <= self.max_missing_fraction <= 1
+        ):
+            raise ValueError("max_missing_fraction must be between zero and one")
+        if self.minimum_missing_tickers < 1:
+            raise ValueError("minimum_missing_tickers must be positive")
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
 class _Source:
     dataset: str
     manifest_path: Path
@@ -124,6 +144,7 @@ class MarketCrossAuditor:
         cache_dir: Path | None = None,
         use_cache: bool = True,
         tolerance: MarketAuditTolerance | None = None,
+        coverage_policy: MarketCoveragePolicy | None = None,
         max_examples: int = 20,
     ) -> None:
         self.data_root = data_root.expanduser().resolve()
@@ -138,6 +159,7 @@ class MarketCrossAuditor:
         self.workers = workers
         self.use_cache = use_cache
         self.tolerance = tolerance or MarketAuditTolerance()
+        self.coverage_policy = coverage_policy or MarketCoveragePolicy()
         self.max_examples = max_examples
         default_cache = (
             self.data_root
@@ -157,6 +179,7 @@ class MarketCrossAuditor:
         results.sort(key=lambda item: str(item["session_date"]))
         issue_counts: Counter[str] = Counter()
         mismatch_counts: Counter[str] = Counter()
+        comparison_counts: Counter[str] = Counter()
         for result in results:
             for issue in result["issues"]:
                 issue_counts[str(issue["code"])] += int(issue["count"])
@@ -167,6 +190,9 @@ class MarketCrossAuditor:
                     for field, details in mismatches.items():
                         if isinstance(details, dict):
                             mismatch_counts[str(field)] += int(details.get("count", 0))
+                            comparison_counts[str(field)] += int(
+                                details.get("compared", 0)
+                            )
         failed = sum(result["status"] == "failed" for result in results)
         differences = sum(
             result["status"] == "passed_with_differences" for result in results
@@ -179,16 +205,53 @@ class MarketCrossAuditor:
             "difference_sessions": differences,
             "failed_sessions": failed,
             "field_mismatch_counts": dict(sorted(mismatch_counts.items())),
+            "field_comparison_counts": dict(sorted(comparison_counts.items())),
+            "field_mismatch_rates": {
+                field: mismatch_counts[field] / compared if compared else None
+                for field, compared in sorted(comparison_counts.items())
+            },
             "issue_code_counts": dict(sorted(issue_counts.items())),
             "minute_rows": sum(
                 int(result["datasets"].get("minute", {}).get("rows", 0)) for result in results
             ),
             "passed_sessions": len(results) - failed - differences,
             "sessions": len(results),
+            "day_ticker_session_pairs": sum(
+                int(result["datasets"].get("day", {}).get("tickers", 0))
+                for result in results
+            ),
+            "minute_ticker_session_pairs": sum(
+                int(result["datasets"].get("minute", {}).get("tickers", 0))
+                for result in results
+            ),
+            "ticker_session_pairs_in_both_files": sum(
+                int(result.get("comparison", {}).get("ticker_pairs_in_both_files", 0))
+                for result in results
+            ),
+        }
+        gate_values = {
+            gate: [str(result.get("gates", {}).get(gate, "not_run")) for result in results]
+            for gate in (
+                "source_and_row_integrity",
+                "ticker_coverage",
+                "cross_product_reconciliation",
+            )
+        }
+        gates = {
+            "source_and_row_integrity": (
+                "failed"
+                if "failed" in gate_values["source_and_row_integrity"]
+                else "passed"
+            ),
+            "ticker_coverage": _combined_gate_status(gate_values["ticker_coverage"]),
+            "cross_product_reconciliation": _combined_gate_status(
+                gate_values["cross_product_reconciliation"]
+            ),
         }
         return {
             "audit_schema_version": MARKET_AUDIT_SCHEMA_VERSION,
             "config": self._config(),
+            "gates": gates,
             "sessions": results,
             "status": (
                 "failed"
@@ -222,6 +285,11 @@ class MarketCrossAuditor:
                 "cache_status": "not_written",
                 "comparison": {"status": "not_run"},
                 "datasets": {},
+                "gates": {
+                    "cross_product_reconciliation": "not_run",
+                    "source_and_row_integrity": "failed",
+                    "ticker_coverage": "not_run",
+                },
                 "issues": _sort_issues(source_issues),
                 "session_date": session.isoformat(),
                 "sources": {
@@ -270,6 +338,12 @@ class MarketCrossAuditor:
         """Return only policy that can change one session's deterministic result."""
 
         return {
+            "coverage_policy": self.coverage_policy.to_dict(),
+            "engine_versions": {
+                "exchange_calendars": _package_version("exchange_calendars"),
+                "polars": pl.__version__,
+                "tzdata": _package_version("tzdata"),
+            },
             "max_examples": self.max_examples,
             "tolerance": self.tolerance.to_dict(),
         }
@@ -324,7 +398,8 @@ class MarketCrossAuditor:
             raise MarketAuditError(f"manifest is not complete: {manifest_path}")
         item = FlatFileObject(dataset=dataset, session_date=session)
         if (
-            manifest.get("dataset") != dataset.value
+            manifest.get("flat_file_manifest_schema_version") != 1
+            or manifest.get("dataset") != dataset.value
             or manifest.get("session_date") != session.isoformat()
             or manifest.get("object_id") != item.object_id
             or manifest.get("object_key") != item.object_key
@@ -333,6 +408,11 @@ class MarketCrossAuditor:
         output = manifest.get("output")
         if not isinstance(output, dict) or not isinstance(output.get("sha256"), str):
             raise MarketAuditError(f"manifest output is incomplete: {manifest_path}")
+        expected_path = f"bronze/massive/flatfiles/{item.object_key}"
+        if output.get("path") != expected_path:
+            raise MarketAuditError(
+                f"manifest output path differs from {expected_path}: {manifest_path}"
+            )
         try:
             artifact_path = safe_relative_path(self.data_root, output.get("path"))
             stat = artifact_path.stat()
@@ -345,6 +425,14 @@ class MarketCrossAuditor:
             raise MarketAuditError(
                 f"artifact size {stat.st_size} differs from manifest {expected_bytes}: "
                 f"{artifact_path}"
+            )
+        remote = manifest.get("remote")
+        if (
+            not isinstance(remote, dict)
+            or _safe_int(remote.get("content_length")) != expected_bytes
+        ):
+            raise MarketAuditError(
+                f"remote content length differs from output bytes: {manifest_path}"
             )
         observed_sha256 = sha256_file(artifact_path)
         return _Source(
@@ -379,6 +467,19 @@ class MarketCrossAuditor:
                     schema_overrides=_CSV_SCHEMA,
                     null_values=["", "null"],
                 )
+                post_parse_stat = source.artifact_path.stat()
+                if (
+                    post_parse_stat.st_size != source.artifact_bytes
+                    or post_parse_stat.st_mtime_ns != source.artifact_mtime_ns
+                ):
+                    issues.append(
+                        _issue(
+                            "artifact_changed_during_audit",
+                            label,
+                            1,
+                            "artifact size or mtime changed between hashing and parsing",
+                        )
+                    )
             except Exception as exc:  # Polars exposes several parser/decompression exception types.
                 issues.append(
                     _issue(
@@ -407,15 +508,29 @@ class MarketCrossAuditor:
         reconciliation_issues = [
             issue for issue in issues if issue["dataset"] == "cross_table"
         ]
+        coverage_status = str(comparison.get("coverage", {}).get("status", "not_run"))
+        numerical_differences = any(
+            str(issue["code"]).endswith("_mismatch") for issue in reconciliation_issues
+        )
+        gates = {
+            "source_and_row_integrity": "failed" if integrity_issues else "passed",
+            "ticker_coverage": coverage_status,
+            "cross_product_reconciliation": (
+                "different" if numerical_differences else "matched"
+            )
+            if comparison.get("status") != "not_run"
+            else "not_run",
+        }
         status = (
             "failed"
-            if integrity_issues
+            if integrity_issues or coverage_status == "failed"
             else ("passed_with_differences" if reconciliation_issues else "passed")
         )
         return {
             "audit_schema_version": MARKET_AUDIT_SCHEMA_VERSION,
             "comparison": comparison,
             "datasets": dataset_stats,
+            "gates": gates,
             "issues": issues,
             "session_date": session.isoformat(),
             "sources": {
@@ -570,6 +685,22 @@ class MarketCrossAuditor:
                         "window_start is not aligned to an exact UTC minute",
                     )
                 )
+        else:
+            expected_day_start = start_ns
+            noncanonical_day_timestamp = _count(
+                frame,
+                pl.col("window_start").is_not_null()
+                & pl.col("window_start").ne(expected_day_start),
+            )
+            if noncanonical_day_timestamp:
+                issues.append(
+                    _issue(
+                        "noncanonical_day_timestamp",
+                        label,
+                        noncanonical_day_timestamp,
+                        "day window_start must equal midnight America/New_York",
+                    )
+                )
 
         duplicate_stats = _duplicate_stats(frame)
         if duplicate_stats["duplicate_keys"]:
@@ -668,6 +799,27 @@ class MarketCrossAuditor:
             | pl.col("regular_minute_count").eq(0)
         )["ticker"].to_list()
 
+        ticker_pairs_in_both = both.height
+        ticker_union = ticker_pairs_in_both + len(minute_only) + len(day_only)
+        missing_tickers = len(minute_only) + len(day_only)
+        missing_fraction = missing_tickers / ticker_union if ticker_union else 0.0
+        no_regular_fraction = (
+            len(no_regular_session) / ticker_pairs_in_both if ticker_pairs_in_both else 0.0
+        )
+        coverage_failed = (
+            missing_tickers >= self.coverage_policy.minimum_missing_tickers
+            and missing_fraction > self.coverage_policy.max_missing_fraction
+        )
+        coverage_status = (
+            "failed"
+            if coverage_failed
+            else (
+                "different"
+                if missing_tickers or no_regular_session
+                else "matched"
+            )
+        )
+
         issues: list[dict[str, object]] = []
         if minute_only:
             issues.append(
@@ -715,7 +867,13 @@ class MarketCrossAuditor:
             )
             mismatch_frame = _float_mismatches(both, field, absolute, relative)
             examples = mismatch_frame.head(self.max_examples).to_dicts()
-            mismatches[field] = {"count": mismatch_frame.height, "examples": examples}
+            compared = _float_comparison_count(both, field)
+            mismatches[field] = {
+                "compared": compared,
+                "count": mismatch_frame.height,
+                "examples": examples,
+                "rate": mismatch_frame.height / compared if compared else None,
+            }
             if mismatch_frame.height:
                 issues.append(
                     _issue(
@@ -736,9 +894,20 @@ class MarketCrossAuditor:
             .sort("ticker")
         )
         transaction_examples = transaction_mismatches.head(self.max_examples).to_dicts()
+        transactions_compared = _count(
+            both,
+            pl.col("minute_transactions").is_not_null()
+            & pl.col("day_transactions").is_not_null(),
+        )
         mismatches["transactions"] = {
+            "compared": transactions_compared,
             "count": transaction_mismatches.height,
             "examples": transaction_examples,
+            "rate": (
+                transaction_mismatches.height / transactions_compared
+                if transactions_compared
+                else None
+            ),
         }
         if transaction_mismatches.height:
             issues.append(
@@ -752,13 +921,31 @@ class MarketCrossAuditor:
             )
         return (
             {
-                "compared_tickers": both.height,
+                "compared_tickers": ticker_pairs_in_both,
+                "ticker_pairs_in_both_files": ticker_pairs_in_both,
                 "field_mismatches": mismatches,
                 "missing_tickers": {
-                    "day_only": day_only,
-                    "minute_only": minute_only,
+                    "day_only": {
+                        "count": len(day_only),
+                        "examples": day_only[: self.max_examples],
+                    },
+                    "minute_only": {
+                        "count": len(minute_only),
+                        "examples": minute_only[: self.max_examples],
+                    },
                 },
-                "regular_session_missing": no_regular_session,
+                "regular_session_missing": {
+                    "count": len(no_regular_session),
+                    "examples": no_regular_session[: self.max_examples],
+                },
+                "coverage": {
+                    "missing_fraction": missing_fraction,
+                    "missing_tickers": missing_tickers,
+                    "no_regular_session_fraction": no_regular_fraction,
+                    "policy": self.coverage_policy.to_dict(),
+                    "status": coverage_status,
+                    "ticker_union": ticker_union,
+                },
                 "status": "different" if issues else "matched",
                 "tolerance": self.tolerance.to_dict(),
                 "reconstruction": {
@@ -848,10 +1035,41 @@ def _float_mismatches(
     )
 
 
+def _float_comparison_count(frame: pl.DataFrame, field: str) -> int:
+    minute = pl.col(f"minute_{field}")
+    day = pl.col(f"day_{field}")
+    return _count(
+        frame,
+        minute.is_not_null()
+        & day.is_not_null()
+        & minute.is_finite()
+        & day.is_finite(),
+    )
+
+
 def _session_bounds_ns(session: date) -> tuple[int, int]:
     start = datetime.combine(session, time.min, tzinfo=_NEW_YORK)
     end = datetime.combine(session + timedelta(days=1), time.min, tzinfo=_NEW_YORK)
     return int(start.timestamp() * 1_000_000_000), int(end.timestamp() * 1_000_000_000)
+
+
+def _combined_gate_status(values: list[str]) -> str:
+    if "failed" in values:
+        return "failed"
+    if "different" in values:
+        return "different"
+    if "matched" in values:
+        return "matched"
+    if "passed" in values:
+        return "passed"
+    return "not_run"
+
+
+def _package_version(package: str) -> str:
+    try:
+        return version(package)
+    except PackageNotFoundError:
+        return "not-installed"
 
 
 def _count(frame: pl.DataFrame, expression: pl.Expr) -> int:
@@ -894,5 +1112,6 @@ __all__ = [
     "MARKET_AUDIT_SCHEMA_VERSION",
     "MarketAuditError",
     "MarketAuditTolerance",
+    "MarketCoveragePolicy",
     "MarketCrossAuditor",
 ]

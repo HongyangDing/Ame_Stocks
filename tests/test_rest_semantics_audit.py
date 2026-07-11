@@ -96,6 +96,7 @@ def test_non_authoritative_disclosure_pilot_is_never_opened(tmp_path: Path) -> N
         "primary_category": "leadership",
         "secondary_category": "executives",
         "tertiary_category": "appointment",
+        "taxonomy": "1.0",
     }
     _write_request(tmp_path, _formal_request(ProviderDataset.DISCLOSURE_TAXONOMY), [taxonomy])
     _write_request(
@@ -238,6 +239,7 @@ def test_taxonomy_usage_path_must_exist_in_definition(tmp_path: Path) -> None:
                 "primary_category": "operations",
                 "secondary_category": "supply_chain",
                 "tertiary_category": "shortage",
+                "taxonomy": "1.0",
             }
         ],
     )
@@ -286,6 +288,7 @@ def test_accession_coverage_is_a_non_failing_difference(tmp_path: Path, capsys) 
     )
 
     report = _audit(tmp_path, ProviderDataset.EDGAR_INDEX, ProviderDataset.FORM_3)
+    output = tmp_path / "rest-semantics-audit.json"
 
     assert report["status"] == "passed_with_differences"
     assert report["gates"]["semantic_corruption"] == "passed"
@@ -304,8 +307,135 @@ def test_accession_coverage_is_a_non_failing_difference(tmp_path: Path, capsys) 
                 "edgar_index",
                 "--dataset",
                 "form_3",
+                "--output",
+                str(output),
             ]
         )
         == 0
     )
-    assert json.loads(capsys.readouterr().out)["status"] == "passed_with_differences"
+    printed = json.loads(capsys.readouterr().out)
+    stored = json.loads(output.read_text(encoding="utf-8"))
+    assert printed["status"] == "passed_with_differences"
+    assert stored == printed
+    assert stored["report_path"] == str(output.resolve())
+
+
+def test_missing_detail_accession_fails_semantics_and_coverage_gate(tmp_path: Path) -> None:
+    _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.EDGAR_INDEX),
+        [
+            {
+                "accession_number": "0001-26-000001",
+                "cik": "0000000001",
+                "filing_date": "2026-06-30",
+            }
+        ],
+    )
+    _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.FORM_3),
+        [{"filing_date": "2026-06-30"}],
+    )
+
+    report = _audit(tmp_path, ProviderDataset.EDGAR_INDEX, ProviderDataset.FORM_3)
+
+    assert report["status"] == "failed"
+    assert report["gates"]["semantic_corruption"] == "failed"
+    assert report["gates"]["accession_coverage"] == "failed"
+    assert report["summary"]["corruption_code_counts"] == {
+        "accession_number_missing": 1
+    }
+    assert report["accession_coverage"]["rows_without_accession"] == 1
+    assert report["accession_coverage"]["datasets"]["form_3"][
+        "rows_without_accession"
+    ] == 1
+
+
+def test_exact_detail_rows_are_profiled_across_the_authoritative_dataset(
+    tmp_path: Path,
+) -> None:
+    accession = "0001-26-000001"
+    _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.EDGAR_INDEX),
+        [
+            {
+                "accession_number": accession,
+                "cik": "0000000001",
+                "filing_date": "2026-06-30",
+            }
+        ],
+    )
+    detail = {"accession_number": accession, "filing_date": "2026-06-30"}
+    _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.FORM_3),
+        [detail, detail],
+    )
+
+    report = _audit(tmp_path, ProviderDataset.EDGAR_INDEX, ProviderDataset.FORM_3)
+
+    assert report["status"] == "passed_with_differences"
+    assert report["uniqueness"]["form_3"]["exact_duplicate_excess_rows"] == 1
+    assert report["summary"]["difference_code_counts"][
+        "provider_exact_duplicate_rows"
+    ] == 1
+
+
+def test_detail_filing_date_must_match_edgar_for_the_same_accession(
+    tmp_path: Path,
+) -> None:
+    accession = "0001-26-000001"
+    _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.EDGAR_INDEX),
+        [
+            {
+                "accession_number": accession,
+                "cik": "0000000001",
+                "filing_date": "2026-06-30",
+            }
+        ],
+    )
+    _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.FORM_3),
+        [{"accession_number": accession, "filing_date": "2026-01-01"}],
+    )
+
+    report = _audit(tmp_path, ProviderDataset.EDGAR_INDEX, ProviderDataset.FORM_3)
+
+    assert report["status"] == "failed"
+    assert report["gates"]["accession_coverage"] == "failed"
+    assert report["summary"]["corruption_code_counts"][
+        "accession_filing_date_mismatch"
+    ] == 1
+
+
+def test_taxonomy_snapshot_must_have_one_explicit_version(tmp_path: Path) -> None:
+    _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.RISK_TAXONOMY),
+        [
+            {
+                "primary_category": "operations",
+                "secondary_category": "supply_chain",
+                "tertiary_category": "shortage",
+                "taxonomy": "1.0",
+            },
+            {
+                "primary_category": "finance",
+                "secondary_category": "capital",
+                "tertiary_category": "liquidity",
+                "taxonomy": "2.0",
+            },
+        ],
+    )
+
+    report = _audit(tmp_path, ProviderDataset.RISK_TAXONOMY)
+
+    assert report["status"] == "failed"
+    assert report["summary"]["corruption_code_counts"][
+        "taxonomy_version_ambiguous"
+    ] == 2

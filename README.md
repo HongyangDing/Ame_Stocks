@@ -131,6 +131,9 @@ layout, credential separation, and resume behavior. The versioned
 are queued, excluded as reconstructible, unavailable on the account, or latest-only.
 The Chinese [data dictionary](DATA_README.md) inventories every downloaded dataset and
 documents its observed field structure, candidate keys, timing semantics, and backtest risks.
+The bounded [2026-07-12 Bronze audit](docs/bronze-audit-2026-07-12.md) records the full-file
+hash/gzip/row verification, authoritative-plan reconciliation, market cross-check, semantic
+differences, and the exact remaining blockers for a classic Barra implementation.
 
 After reviewed downloads, `ame-materialize universe` builds one active/inactive security
 master per date. `ame-materialize ticker-overview-lifecycles` creates one historical detail

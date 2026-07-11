@@ -26,17 +26,41 @@ from ame_stocks_core import ProviderDataset, ProviderRequest
 
 IssueKind = Literal["corruption", "difference"]
 
-REST_SEMANTIC_AUDIT_SCHEMA_VERSION = 2
+REST_SEMANTIC_AUDIT_SCHEMA_VERSION = 3
 
 KEY_DATASETS: dict[ProviderDataset, tuple[str, ...]] = {
     ProviderDataset.SPLITS: ("id",),
     ProviderDataset.DIVIDENDS: ("id",),
     ProviderDataset.NEWS: ("id",),
+    ProviderDataset.SHORT_INTEREST: ("settlement_date", "ticker"),
+    ProviderDataset.SHORT_VOLUME: ("date", "ticker"),
+    ProviderDataset.FLOAT: ("effective_date", "ticker"),
+    ProviderDataset.IPOS: ("listing_date", "ticker"),
+    ProviderDataset.TREASURY_YIELDS: ("date",),
+    ProviderDataset.INFLATION: ("date",),
+    ProviderDataset.INFLATION_EXPECTATIONS: ("date",),
+    ProviderDataset.LABOR_MARKET: ("date",),
+    ProviderDataset.TICKER_TYPES: ("code",),
+    ProviderDataset.EXCHANGES: ("id",),
+    ProviderDataset.TEN_K_SECTIONS: ("cik", "filing_date", "section"),
     # One SEC submission can cover several registrants in a combined filing.
     ProviderDataset.EDGAR_INDEX: ("accession_number", "cik"),
 }
 _DIAGNOSTIC_DUPLICATE_DATASETS = frozenset(
-    {ProviderDataset.CONDITION_CODES.value, ProviderDataset.EDGAR_INDEX.value}
+    {
+        ProviderDataset.CONDITION_CODES.value,
+        ProviderDataset.EDGAR_INDEX.value,
+        ProviderDataset.EIGHT_K_DISCLOSURES.value,
+        ProviderDataset.EIGHT_K_TEXT.value,
+        ProviderDataset.FORM_3.value,
+        ProviderDataset.FORM_4.value,
+        ProviderDataset.FLOAT.value,
+        ProviderDataset.IPOS.value,
+        ProviderDataset.RISK_FACTORS.value,
+        ProviderDataset.SHORT_INTEREST.value,
+        ProviderDataset.SHORT_VOLUME.value,
+        ProviderDataset.TEN_K_SECTIONS.value,
+    }
 )
 TAXONOMY_DEFINITIONS: dict[ProviderDataset, str] = {
     ProviderDataset.DISCLOSURE_TAXONOMY: "disclosure",
@@ -50,9 +74,13 @@ ACCESSION_DETAILS = frozenset(
     {
         ProviderDataset.FORM_3,
         ProviderDataset.FORM_4,
+        ProviderDataset.FORM_13F,
         ProviderDataset.EIGHT_K_TEXT,
         ProviderDataset.EIGHT_K_DISCLOSURES,
     }
+)
+_EXACT_ROW_DATASETS = frozenset(
+    (ACCESSION_DETAILS - {ProviderDataset.FORM_13F}) | frozenset(TAXONOMY_USES)
 )
 AUDITED_DATASETS = frozenset(
     {
@@ -68,12 +96,22 @@ _EARLIEST_STARTS = {
     ProviderDataset.SPLITS: date(2003, 9, 10),
     ProviderDataset.DIVIDENDS: date(2003, 9, 10),
     ProviderDataset.NEWS: date(2016, 6, 22),
+    ProviderDataset.SHORT_INTEREST: date(2017, 12, 29),
+    ProviderDataset.SHORT_VOLUME: date(2024, 2, 6),
+    ProviderDataset.IPOS: date(2008, 1, 1),
+    ProviderDataset.TREASURY_YIELDS: date(1962, 1, 2),
+    ProviderDataset.INFLATION: date(1947, 1, 1),
+    ProviderDataset.INFLATION_EXPECTATIONS: date(1982, 1, 1),
+    ProviderDataset.LABOR_MARKET: date(1948, 1, 1),
 }
 _SNAPSHOTS = frozenset(
     {
         ProviderDataset.CONDITION_CODES,
         ProviderDataset.DISCLOSURE_TAXONOMY,
+        ProviderDataset.EXCHANGES,
+        ProviderDataset.FLOAT,
         ProviderDataset.RISK_TAXONOMY,
+        ProviderDataset.TICKER_TYPES,
     }
 )
 _TAXONOMY_FIELDS = ("primary_category", "secondary_category", "tertiary_category")
@@ -166,11 +204,12 @@ class _Issues:
 class _PageBatch:
     keys: Counter[tuple[str, str, bytes]]
     taxonomies: Counter[tuple[str, str, str]]
-    accessions: Counter[tuple[str, str]]
+    taxonomy_versions: Counter[tuple[str, str]]
+    accessions: Counter[tuple[str, str, str, str, str]]
 
     @classmethod
     def empty(cls) -> _PageBatch:
-        return cls(Counter(), Counter(), Counter())
+        return cls(Counter(), Counter(), Counter(), Counter())
 
 
 class RestSemanticAuditor:
@@ -301,7 +340,9 @@ class RestSemanticAuditor:
                 "Only request IDs rebuilt from the authoritative plan are opened. Each gzip JSON "
                 "page is decoded independently; candidate keys, canonical row SHA-256 values, "
                 "taxonomy paths, and accession sets are aggregated in an automatically removed "
-                "temporary SQLite database. Form 13-F is intentionally outside this audit."
+                "temporary SQLite database. Form 13-F participates in accession coverage and "
+                "filing-date agreement without materializing 103 million row hashes; its required "
+                "holding fields are enforced by the full Bronze audit."
             ),
         }
 
@@ -326,11 +367,20 @@ class RestSemanticAuditor:
                 occurrences INTEGER NOT NULL,
                 PRIMARY KEY (family, role, path)
             ) WITHOUT ROWID;
+            CREATE TABLE taxonomy_versions (
+                family TEXT NOT NULL,
+                version TEXT NOT NULL,
+                occurrences INTEGER NOT NULL,
+                PRIMARY KEY (family, version)
+            ) WITHOUT ROWID;
             CREATE TABLE accessions (
                 dataset TEXT NOT NULL,
                 accession TEXT NOT NULL,
+                filing_date TEXT NOT NULL,
+                cik TEXT NOT NULL,
+                form_type TEXT NOT NULL,
                 occurrences INTEGER NOT NULL,
-                PRIMARY KEY (dataset, accession)
+                PRIMARY KEY (dataset, accession, filing_date, cik, form_type)
             ) WITHOUT ROWID;
             """
         )
@@ -421,6 +471,34 @@ class RestSemanticAuditor:
         if sequences != list(range(len(artifacts))):
             self._invalid_manifest(metric, dataset, path, "artifact sequence is not contiguous")
             return
+        raw_hashes = [
+            str(item["raw_sha256"])
+            for item in artifacts
+            if isinstance(item, dict)
+            and isinstance(item.get("raw_sha256"), str)
+            and item["raw_sha256"]
+        ]
+        if len(raw_hashes) != len(set(raw_hashes)):
+            self.issues.add(
+                "corruption",
+                "duplicate_page_payload",
+                dataset.value,
+                "one authoritative manifest repeats a raw page SHA-256",
+                example=path.name,
+            )
+        continuations = [
+            str(item["next_continuation"])
+            for item in artifacts
+            if isinstance(item, dict) and item.get("next_continuation") not in {None, ""}
+        ]
+        if len(continuations) != len(set(continuations)):
+            self.issues.add(
+                "corruption",
+                "duplicate_page_continuation",
+                dataset.value,
+                "one authoritative manifest repeats a pagination continuation",
+                example=path.name,
+            )
 
         metric.complete_manifests += 1
         for artifact in artifacts:
@@ -489,9 +567,16 @@ class RestSemanticAuditor:
                 example=artifact.get("path"),
             )
             return
-        rows = document.get("results")
-        if rows is None:
-            rows = []
+        if "results" not in document:
+            self.issues.add(
+                "corruption",
+                "results_missing",
+                dataset.value,
+                "provider response omits the results field",
+                example=artifact.get("path"),
+            )
+            return
+        rows = document["results"]
         if not isinstance(rows, list):
             self.issues.add(
                 "corruption",
@@ -539,7 +624,8 @@ class RestSemanticAuditor:
         if dataset in KEY_DATASETS:
             fields = KEY_DATASETS[dataset]
             values = tuple(row.get(field) for field in fields)
-            if any(not isinstance(value, str) or not value.strip() for value in values):
+            normalized_values = tuple(_normalized_scalar(value) for value in values)
+            if any(value is None for value in normalized_values):
                 self.issues.add(
                     "corruption",
                     "missing_candidate_key",
@@ -557,8 +643,9 @@ class RestSemanticAuditor:
                         example=values,
                     )
                 else:
-                    normalized = tuple(str(value).strip() for value in values)
-                    batch.keys[(dataset.value, _json_key(normalized), digest)] += 1
+                    batch.keys[
+                        (dataset.value, _json_key(normalized_values), digest)
+                    ] += 1
                     metric.candidate_key_rows += 1
 
         if dataset is ProviderDataset.CONDITION_CODES:
@@ -573,6 +660,16 @@ class RestSemanticAuditor:
                     batch.keys[(dataset.value, path, digest)] += 1
                     batch.taxonomies[(family, "definition", path)] += 1
                     metric.candidate_key_rows += 1
+            taxonomy_version = _normalized_scalar(row.get("taxonomy"))
+            if taxonomy_version is None:
+                self.issues.add(
+                    "corruption",
+                    "taxonomy_version_missing",
+                    dataset.value,
+                    "taxonomy definition row has no scalar taxonomy version",
+                )
+            else:
+                batch.taxonomy_versions[(family, taxonomy_version)] += 1
 
         family = TAXONOMY_USES.get(dataset)
         if family is not None:
@@ -580,16 +677,47 @@ class RestSemanticAuditor:
             if path is not None:
                 batch.taxonomies[(family, "use", path)] += 1
 
+        if dataset in _EXACT_ROW_DATASETS:
+            digest = _canonical_row_sha256(row)
+            if digest is None:
+                self.issues.add(
+                    "corruption",
+                    "row_not_canonical_json",
+                    dataset.value,
+                    "row cannot be represented as canonical JSON",
+                )
+            else:
+                batch.keys[(dataset.value, f"row:{digest.hex()}", digest)] += 1
+                metric.candidate_key_rows += 1
+
         if dataset is ProviderDataset.EDGAR_INDEX:
             accession = row.get("accession_number")
             if isinstance(accession, str) and accession.strip():
-                batch.accessions[(dataset.value, accession.strip())] += 1
+                batch.accessions[
+                    _accession_key(dataset, accession, row)
+                ] += 1
+            else:
+                metric.rows_without_accession += 1
+                self.issues.add(
+                    "corruption",
+                    "accession_number_missing",
+                    dataset.value,
+                    "EDGAR index row has no nonblank accession_number",
+                )
         elif dataset in ACCESSION_DETAILS:
             accession = row.get("accession_number")
             if isinstance(accession, str) and accession.strip():
-                batch.accessions[(dataset.value, accession.strip())] += 1
+                batch.accessions[
+                    _accession_key(dataset, accession, row)
+                ] += 1
             else:
                 metric.rows_without_accession += 1
+                self.issues.add(
+                    "corruption",
+                    "accession_number_missing",
+                    dataset.value,
+                    "detail filing row has no nonblank accession_number",
+                )
 
     def _collect_condition(
         self,
@@ -691,9 +819,20 @@ class RestSemanticAuditor:
             )
             connection.executemany(
                 """
-                INSERT INTO accessions(dataset, accession, occurrences)
+                INSERT INTO taxonomy_versions(family, version, occurrences)
                 VALUES (?, ?, ?)
-                ON CONFLICT(dataset, accession)
+                ON CONFLICT(family, version)
+                DO UPDATE SET occurrences = occurrences + excluded.occurrences
+                """,
+                [(*key, count) for key, count in batch.taxonomy_versions.items()],
+            )
+            connection.executemany(
+                """
+                INSERT INTO accessions(
+                    dataset, accession, filing_date, cik, form_type, occurrences
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(dataset, accession, filing_date, cik, form_type)
                 DO UPDATE SET occurrences = occurrences + excluded.occurrences
                 """,
                 [(*key, count) for key, count in batch.accessions.items()],
@@ -712,6 +851,11 @@ class RestSemanticAuditor:
             *[
                 dataset.value
                 for dataset in TAXONOMY_DEFINITIONS
+                if dataset in self.datasets
+            ],
+            *[
+                dataset.value
+                for dataset in _EXACT_ROW_DATASETS
                 if dataset in self.datasets
             ],
         }
@@ -816,7 +960,7 @@ class RestSemanticAuditor:
                 (dataset for dataset, observed in TAXONOMY_USES.items() if observed == family),
                 None,
             )
-            if definition_dataset not in self.datasets or use_dataset not in self.datasets:
+            if definition_dataset not in self.datasets:
                 result[family] = {"status": "not_run"}
                 continue
             definitions = int(
@@ -825,6 +969,29 @@ class RestSemanticAuditor:
                     (family,),
                 ).fetchone()[0]
             )
+            versions = [
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT version FROM taxonomy_versions WHERE family = ? ORDER BY version",
+                    (family,),
+                )
+            ]
+            if len(versions) != 1:
+                self.issues.add(
+                    "corruption",
+                    "taxonomy_version_ambiguous",
+                    definition_dataset.value,
+                    "authoritative taxonomy snapshot must contain exactly one version",
+                    count=max(1, len(versions)),
+                    example=versions,
+                )
+            if use_dataset not in self.datasets:
+                result[family] = {
+                    "status": "failed" if len(versions) != 1 else "definition_only",
+                    "definition_paths": definitions,
+                    "definition_versions": versions,
+                }
+                continue
             used_paths = int(
                 connection.execute(
                     "SELECT COUNT(*) FROM taxonomy_paths WHERE family = ? AND role = 'use'",
@@ -866,8 +1033,9 @@ class RestSemanticAuditor:
                     example=missing_paths[0] if missing_paths else None,
                 )
             result[family] = {
-                "status": "failed" if missing_rows else "matched",
+                "status": "failed" if missing_rows or len(versions) != 1 else "matched",
                 "definition_paths": definitions,
+                "definition_versions": versions,
                 "used_paths": used_paths,
                 "undecodable_usage_rows": missing_rows,
                 "undecodable_path_examples": missing_paths,
@@ -876,13 +1044,25 @@ class RestSemanticAuditor:
 
     def _finalize_accessions(self, connection: sqlite3.Connection) -> dict[str, object]:
         if ProviderDataset.EDGAR_INDEX not in self.datasets:
-            return {"status": "not_run", "datasets": {}}
+            rows_without_accession = sum(
+                self.metrics[dataset.value].rows_without_accession
+                for dataset in ACCESSION_DETAILS & self.datasets
+            )
+            return {
+                "status": "failed" if rows_without_accession else "not_run",
+                "rows_without_accession": rows_without_accession,
+                "datasets": {},
+            }
         datasets: dict[str, object] = {}
         missing_total = 0
+        filing_date_mismatch_total = 0
+        rows_without_accession_total = self.metrics[
+            ProviderDataset.EDGAR_INDEX.value
+        ].rows_without_accession
         for dataset in sorted(ACCESSION_DETAILS & self.datasets, key=lambda item: item.value):
             distinct_accessions = int(
                 connection.execute(
-                    "SELECT COUNT(*) FROM accessions WHERE dataset = ?",
+                    "SELECT COUNT(DISTINCT accession) FROM accessions WHERE dataset = ?",
                     (dataset.value,),
                 ).fetchone()[0]
             )
@@ -891,11 +1071,12 @@ class RestSemanticAuditor:
                     """
                     SELECT COALESCE(SUM(detail.occurrences), 0)
                     FROM accessions AS detail
-                    LEFT JOIN accessions AS edgar
-                      ON edgar.dataset = ? AND edgar.accession = detail.accession
-                    WHERE detail.dataset = ? AND edgar.accession IS NULL
+                    WHERE detail.dataset = ? AND NOT EXISTS (
+                        SELECT 1 FROM accessions AS edgar
+                        WHERE edgar.dataset = ? AND edgar.accession = detail.accession
+                    )
                     """,
-                    (ProviderDataset.EDGAR_INDEX.value, dataset.value),
+                    (dataset.value, ProviderDataset.EDGAR_INDEX.value),
                 ).fetchone()[0]
             )
             examples = [
@@ -904,15 +1085,68 @@ class RestSemanticAuditor:
                     """
                     SELECT detail.accession
                     FROM accessions AS detail
-                    LEFT JOIN accessions AS edgar
-                      ON edgar.dataset = ? AND edgar.accession = detail.accession
-                    WHERE detail.dataset = ? AND edgar.accession IS NULL
+                    WHERE detail.dataset = ? AND NOT EXISTS (
+                        SELECT 1 FROM accessions AS edgar
+                        WHERE edgar.dataset = ? AND edgar.accession = detail.accession
+                    )
                     ORDER BY detail.accession LIMIT ?
                     """,
-                    (ProviderDataset.EDGAR_INDEX.value, dataset.value, self.max_examples),
+                    (dataset.value, ProviderDataset.EDGAR_INDEX.value, self.max_examples),
+                )
+            ]
+            filing_date_mismatch_rows = int(
+                connection.execute(
+                    """
+                    SELECT COALESCE(SUM(detail.occurrences), 0)
+                    FROM accessions AS detail
+                    WHERE detail.dataset = ? AND detail.filing_date != ''
+                      AND EXISTS (
+                        SELECT 1 FROM accessions AS edgar
+                        WHERE edgar.dataset = ? AND edgar.accession = detail.accession
+                      )
+                      AND NOT EXISTS (
+                        SELECT 1 FROM accessions AS edgar
+                        WHERE edgar.dataset = ? AND edgar.accession = detail.accession
+                          AND edgar.filing_date = detail.filing_date
+                      )
+                    """,
+                    (
+                        dataset.value,
+                        ProviderDataset.EDGAR_INDEX.value,
+                        ProviderDataset.EDGAR_INDEX.value,
+                    ),
+                ).fetchone()[0]
+            )
+            filing_date_mismatch_examples = [
+                f"{row[0]}:{row[1]}"
+                for row in connection.execute(
+                    """
+                    SELECT detail.accession, detail.filing_date
+                    FROM accessions AS detail
+                    WHERE detail.dataset = ? AND detail.filing_date != ''
+                      AND EXISTS (
+                        SELECT 1 FROM accessions AS edgar
+                        WHERE edgar.dataset = ? AND edgar.accession = detail.accession
+                      )
+                      AND NOT EXISTS (
+                        SELECT 1 FROM accessions AS edgar
+                        WHERE edgar.dataset = ? AND edgar.accession = detail.accession
+                          AND edgar.filing_date = detail.filing_date
+                      )
+                    ORDER BY detail.accession, detail.filing_date LIMIT ?
+                    """,
+                    (
+                        dataset.value,
+                        ProviderDataset.EDGAR_INDEX.value,
+                        ProviderDataset.EDGAR_INDEX.value,
+                        self.max_examples,
+                    ),
                 )
             ]
             missing_total += missing_rows
+            filing_date_mismatch_total += filing_date_mismatch_rows
+            rows_without_accession = self.metrics[dataset.value].rows_without_accession
+            rows_without_accession_total += rows_without_accession
             if missing_rows:
                 self.issues.add(
                     "difference",
@@ -922,15 +1156,36 @@ class RestSemanticAuditor:
                     count=missing_rows,
                     example=examples[0] if examples else None,
                 )
+            if filing_date_mismatch_rows:
+                self.issues.add(
+                    "corruption",
+                    "accession_filing_date_mismatch",
+                    dataset.value,
+                    "detail filing_date differs from EDGAR for the same accession",
+                    count=filing_date_mismatch_rows,
+                    example=(
+                        filing_date_mismatch_examples[0]
+                        if filing_date_mismatch_examples
+                        else None
+                    ),
+                )
             datasets[dataset.value] = {
                 "distinct_accessions": distinct_accessions,
-                "rows_without_accession": self.metrics[dataset.value].rows_without_accession,
+                "rows_without_accession": rows_without_accession,
                 "missing_edgar_rows": missing_rows,
                 "missing_edgar_examples": examples,
+                "filing_date_mismatch_rows": filing_date_mismatch_rows,
+                "filing_date_mismatch_examples": filing_date_mismatch_examples,
             }
         return {
-            "status": "different" if missing_total else "matched",
+            "status": (
+                "failed"
+                if rows_without_accession_total or filing_date_mismatch_total
+                else ("different" if missing_total else "matched")
+            ),
+            "filing_date_mismatch_rows": filing_date_mismatch_total,
             "missing_edgar_rows": missing_total,
+            "rows_without_accession": rows_without_accession_total,
             "datasets": datasets,
         }
 
@@ -947,6 +1202,28 @@ def _canonical_row_sha256(row: dict[str, Any]) -> bytes | None:
     except (TypeError, ValueError):
         return None
     return hashlib.sha256(serialized).digest()
+
+
+def _normalized_scalar(value: object) -> str | None:
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return None
+    rendered = str(value).strip()
+    return rendered or None
+
+
+def _accession_key(
+    dataset: ProviderDataset,
+    accession: str,
+    row: dict[str, Any],
+) -> tuple[str, str, str, str, str]:
+    cik = row.get("cik") or row.get("issuer_cik") or row.get("filer_cik")
+    return (
+        dataset.value,
+        accession.strip(),
+        _normalized_scalar(row.get("filing_date")) or "",
+        _normalized_scalar(cik) or "",
+        _normalized_scalar(row.get("form_type")) or "",
+    )
 
 
 def _json_key(values: tuple[object, ...]) -> str:
