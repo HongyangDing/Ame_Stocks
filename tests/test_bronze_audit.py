@@ -38,6 +38,36 @@ class StaticProvider:
         )
 
 
+class PagedProvider:
+    name = "massive"
+    version = "audit-paged-fixture"
+
+    def __init__(self, pages: list[list[dict[str, object]]]) -> None:
+        self.payloads = [
+            json.dumps({"results": rows, "status": "OK"}).encode() for rows in pages
+        ]
+
+    async def fetch(
+        self,
+        request: ProviderRequest,
+        *,
+        checkpoint=None,
+    ) -> AsyncIterator[ProviderBatch]:
+        start = checkpoint.next_sequence if checkpoint else 0
+        for sequence in range(start, len(self.payloads)):
+            is_last = sequence == len(self.payloads) - 1
+            yield ProviderBatch(
+                provider=self.name,
+                provider_version=self.version,
+                dataset=request.dataset,
+                request_id=request.request_id,
+                sequence=sequence,
+                payload=self.payloads[sequence],
+                next_cursor=None if is_last else f"page-{sequence + 1}",
+                is_last=is_last,
+            )
+
+
 def _write_assets(root: Path, session: date, *, overlap: bool = False) -> None:
     requests = {
         dict(request.parameters)["active"]: request
@@ -296,3 +326,35 @@ def test_non_iso_nonblank_row_date_fails_semantic_gate(tmp_path: Path) -> None:
     assert report["status"] == "failed"
     assert report["gates"]["semantic_consistency"] == "failed"
     assert report["summary"]["issue_code_counts"]["invalid_date_value"] == 1
+
+
+def test_observed_date_bounds_accumulate_across_pages(tmp_path: Path) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    request = ProviderRequest(
+        dataset=ProviderDataset.SPLITS,
+        start=date(2003, 9, 10),
+        end=session,
+    )
+    asyncio.run(
+        BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
+            PagedProvider(
+                [
+                    [{"execution_date": "2004-01-02", "ticker": "OLD"}],
+                    [{"execution_date": session.isoformat(), "ticker": "NEW"}],
+                ]
+            ),
+            request,
+        )
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=MINIMAL_REQUIRED,
+    ).run()
+
+    stats = {item["dataset"]: item for item in report["datasets"]}
+    assert stats["splits"]["observed_min_date"] == "2004-01-02"
+    assert stats["splits"]["observed_max_date"] == session.isoformat()

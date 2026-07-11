@@ -982,8 +982,12 @@ class BronzeAuditor:
                 )
             )
         if observed_dates:
-            stats.observed_min_date = min(observed_dates)
-            stats.observed_max_date = max(observed_dates)
+            stats.observed_min_date = _min_optional(
+                stats.observed_min_date, min(observed_dates)
+            )
+            stats.observed_max_date = _max_optional(
+                stats.observed_max_date, max(observed_dates)
+            )
 
     def _audit_flat_manifest(self, path: Path) -> _ManifestResult:
         dataset = path.parent.name
