@@ -4,8 +4,11 @@ import json
 from collections.abc import AsyncIterator
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
-from ame_stocks_api.downloads import BronzeDownloader
+import pytest
+
+from ame_stocks_api.downloads import BronzeDownloader, BronzeStorageError
 from ame_stocks_core import FetchCheckpoint, ProviderBatch, ProviderDataset, ProviderRequest
 
 
@@ -63,7 +66,7 @@ def _payload(timestamp: int) -> bytes:
 
 def test_bronze_download_is_atomic_checksummed_and_idempotent(tmp_path: Path) -> None:
     provider = ScriptedProvider([_payload(1), _payload(2)])
-    downloader = BronzeDownloader(tmp_path)
+    downloader = BronzeDownloader(tmp_path, minimum_free_bytes=0)
 
     first = asyncio.run(downloader.download(provider, _request()))
     second_provider = ScriptedProvider([_payload(999)])
@@ -88,7 +91,7 @@ def test_bronze_download_is_atomic_checksummed_and_idempotent(tmp_path: Path) ->
 
 def test_interrupted_download_resumes_from_committed_continuation(tmp_path: Path) -> None:
     payloads = [_payload(1), _payload(2), _payload(3)]
-    downloader = BronzeDownloader(tmp_path)
+    downloader = BronzeDownloader(tmp_path, minimum_free_bytes=0)
     interrupted = ScriptedProvider(payloads, fail_after=1)
 
     try:
@@ -109,3 +112,25 @@ def test_interrupted_download_resumes_from_committed_continuation(tmp_path: Path
     manifest = json.loads(result.manifest_path.read_text())
     assert manifest["status"] == "complete"
     assert [artifact["sequence"] for artifact in manifest["artifacts"]] == [0, 1, 2]
+
+
+def test_nested_ticker_event_records_are_counted() -> None:
+    payload = json.dumps(
+        {"results": {"events": [{"type": "ticker_change"}, {"type": "ticker_change"}]}}
+    ).encode()
+
+    assert BronzeDownloader._record_count(payload) == 2
+
+
+def test_rest_bronze_download_refuses_to_cross_disk_floor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "ame_stocks_api.downloads.bronze.shutil.disk_usage",
+        lambda path: SimpleNamespace(free=100),
+    )
+    downloader = BronzeDownloader(tmp_path, minimum_free_bytes=100)
+
+    with pytest.raises(BronzeStorageError, match="safety floor"):
+        asyncio.run(downloader.download(ScriptedProvider([_payload(1)]), _request()))

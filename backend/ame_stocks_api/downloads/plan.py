@@ -9,6 +9,26 @@ import exchange_calendars as xcals
 
 from ame_stocks_core import ProviderDataset, ProviderRequest
 
+_ANNUAL_BULK_DATASETS = frozenset(
+    {
+        ProviderDataset.SHORT_INTEREST,
+        ProviderDataset.SHORT_VOLUME,
+        ProviderDataset.IPOS,
+        ProviderDataset.EDGAR_INDEX,
+        ProviderDataset.FORM_3,
+        ProviderDataset.FORM_4,
+        ProviderDataset.FORM_13F,
+        ProviderDataset.RISK_FACTORS,
+        ProviderDataset.TEN_K_SECTIONS,
+        ProviderDataset.EIGHT_K_TEXT,
+        ProviderDataset.NEWS,
+    }
+)
+_LATEST_SNAPSHOT_DATASETS = frozenset(
+    {ProviderDataset.FLOAT, ProviderDataset.TICKER_TYPES, ProviderDataset.EXCHANGES}
+)
+_FULL_MARKET_ONLY_DATASETS = frozenset({ProviderDataset.FORM_13F})
+
 
 @dataclass(frozen=True, slots=True)
 class DownloadPlan:
@@ -149,6 +169,51 @@ def build_download_plan(
             if normalized_tickers
             else (ProviderRequest(dataset=dataset, start=start, end=end),)
         )
+    elif dataset in _ANNUAL_BULK_DATASETS:
+        if normalized_tickers and dataset in _FULL_MARKET_ONLY_DATASETS:
+            raise ValueError(f"{dataset.value} only supports full-market requests")
+        identifiers: tuple[str | None, ...] = normalized_tickers or (None,)
+        requests = tuple(
+            ProviderRequest(
+                dataset=dataset,
+                start=chunk_start,
+                end=chunk_end,
+                asset_ids=(() if identifier is None else (identifier,)),
+            )
+            for chunk_start, chunk_end in calendar_year_ranges(start, end)
+            for identifier in identifiers
+        )
+    elif dataset in _LATEST_SNAPSHOT_DATASETS:
+        if start != end:
+            raise ValueError(f"{dataset.value} is latest-only; pass the same --start and --end")
+        if normalized_tickers and dataset is not ProviderDataset.FLOAT:
+            raise ValueError(f"{dataset.value} does not accept ticker filters")
+        requests = (
+            tuple(
+                ProviderRequest(
+                    dataset=dataset,
+                    start=start,
+                    end=end,
+                    asset_ids=(ticker,),
+                )
+                for ticker in normalized_tickers
+            )
+            if normalized_tickers
+            else (ProviderRequest(dataset=dataset, start=start, end=end),)
+        )
+    elif dataset is ProviderDataset.TICKER_EVENTS:
+        if not normalized_tickers:
+            raise ValueError("ticker_events requires at least one ticker, CUSIP, or Composite FIGI")
+        requests = tuple(
+            ProviderRequest(
+                dataset=dataset,
+                start=start,
+                end=end,
+                asset_ids=(identifier,),
+                parameters=(("types", "ticker_change"),),
+            )
+            for identifier in normalized_tickers
+        )
     else:
         raise ValueError(f"unsupported dataset: {dataset.value}")
 
@@ -161,7 +226,21 @@ def build_download_plan(
 
 def _normalize_tickers(tickers: tuple[str, ...]) -> tuple[str, ...]:
     # Duplicates are harmless for callers, but removing them avoids wasted requests.
-    return tuple(sorted({ticker.strip().upper() for ticker in tickers if ticker.strip()}))
+    return tuple(sorted({ticker.strip() for ticker in tickers if ticker.strip()}))
+
+
+def calendar_year_ranges(start: date, end: date) -> tuple[tuple[date, date], ...]:
+    """Split a range into chronological calendar-year chunks for bounded resume state."""
+
+    if start > end:
+        raise ValueError("start must be on or before end")
+    return tuple(
+        (
+            max(start, date(year, 1, 1)),
+            min(end, date(year, 12, 31)),
+        )
+        for year in range(start.year, end.year + 1)
+    )
 
 
 def market_session_dates(start: date, end: date) -> tuple[date, ...]:

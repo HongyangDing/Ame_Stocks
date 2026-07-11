@@ -6,6 +6,7 @@ import gzip
 import hashlib
 import json
 import os
+import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,6 +20,8 @@ from ame_stocks_core import (
     ProviderBatch,
     ProviderRequest,
 )
+
+DEFAULT_MINIMUM_FREE_BYTES = 40 * 1024**3
 
 
 class BronzeStorageError(RuntimeError):
@@ -39,8 +42,16 @@ class BronzeDownloader:
 
     manifest_schema_version = 1
 
-    def __init__(self, data_root: Path) -> None:
+    def __init__(
+        self,
+        data_root: Path,
+        *,
+        minimum_free_bytes: int = DEFAULT_MINIMUM_FREE_BYTES,
+    ) -> None:
+        if minimum_free_bytes < 0:
+            raise ValueError("minimum_free_bytes cannot be negative")
         self.data_root = data_root.expanduser().resolve()
+        self.minimum_free_bytes = minimum_free_bytes
 
     async def download(
         self,
@@ -137,6 +148,11 @@ class BronzeDownloader:
             if current_sha256 != stored_sha256:
                 raise BronzeStorageError(f"refusing to overwrite immutable Bronze page: {target}")
         else:
+            free_bytes = shutil.disk_usage(target.parent).free
+            if free_bytes - len(compressed) < self.minimum_free_bytes:
+                raise BronzeStorageError(
+                    "download would reduce free disk space below the configured safety floor"
+                )
             self._atomic_write(target, compressed)
 
         return {
@@ -290,9 +306,14 @@ class BronzeDownloader:
             document = json.loads(payload)
         except (UnicodeDecodeError, json.JSONDecodeError):
             return 0
-        if not isinstance(document, dict) or not isinstance(document.get("results"), list):
+        if not isinstance(document, dict):
             return 0
-        return len(document["results"])
+        results = document.get("results")
+        if isinstance(results, list):
+            return len(results)
+        if isinstance(results, dict) and isinstance(results.get("events"), list):
+            return len(results["events"])
+        return int(results is not None)
 
     @staticmethod
     def _load_manifest(path: Path) -> dict[str, Any] | None:

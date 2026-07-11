@@ -25,7 +25,7 @@ def test_plan_command_needs_no_api_key_or_network(monkeypatch, capsys) -> None:
     assert output["note"].endswith("never contacts Massive.")
 
 
-def test_rest_plan_defaults_to_five_years(monkeypatch, capsys) -> None:
+def test_rest_plan_defaults_to_ten_years(monkeypatch, capsys) -> None:
     monkeypatch.delenv("MASSIVE_API_KEY", raising=False)
 
     exit_code = main(
@@ -42,7 +42,7 @@ def test_rest_plan_defaults_to_five_years(monkeypatch, capsys) -> None:
 
     output = json.loads(capsys.readouterr().out)
     assert exit_code == 0
-    assert output["start"] == "2021-06-30"
+    assert output["start"] == "2016-06-30"
     assert output["end"] == "2026-06-30"
-    assert output["requests"][0]["start"] == "2021-06-30"
-    assert output["request_count"] > 2_400
+    assert output["requests"][0]["start"] == "2016-06-30"
+    assert output["request_count"] > 4_900

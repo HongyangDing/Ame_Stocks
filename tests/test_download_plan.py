@@ -11,11 +11,11 @@ def test_minute_plan_uses_one_full_range_request_per_ticker() -> None:
         dataset=ProviderDataset.MINUTE_BARS,
         start=date(2024, 7, 1),
         end=date(2026, 6, 30),
-        tickers=("msft", "AAPL", "AAPL"),
+        tickers=("BCpC", "AAPL", "AAPL"),
     )
 
     assert len(plan.requests) == 2
-    assert [request.asset_ids for request in plan.requests] == [("AAPL",), ("MSFT",)]
+    assert [request.asset_ids for request in plan.requests] == [("AAPL",), ("BCpC",)]
     assert all(request.start == date(2024, 7, 1) for request in plan.requests)
     assert all(request.end == date(2026, 6, 30) for request in plan.requests)
     assert all(request.adjusted is False for request in plan.requests)
@@ -109,4 +109,82 @@ def test_minute_plan_requires_tickers() -> None:
             dataset=ProviderDataset.MINUTE_BARS,
             start=date(2024, 7, 1),
             end=date(2026, 6, 30),
+        )
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    [
+        ProviderDataset.SHORT_INTEREST,
+        ProviderDataset.SHORT_VOLUME,
+        ProviderDataset.IPOS,
+        ProviderDataset.EDGAR_INDEX,
+        ProviderDataset.FORM_3,
+        ProviderDataset.FORM_4,
+        ProviderDataset.FORM_13F,
+        ProviderDataset.RISK_FACTORS,
+        ProviderDataset.TEN_K_SECTIONS,
+        ProviderDataset.EIGHT_K_TEXT,
+        ProviderDataset.NEWS,
+    ],
+)
+def test_bulk_research_plans_use_chronological_calendar_year_chunks(dataset) -> None:
+    plan = build_download_plan(
+        dataset=dataset,
+        start=date(2016, 7, 11),
+        end=date(2018, 2, 3),
+    )
+
+    assert [(request.start, request.end) for request in plan.requests] == [
+        (date(2016, 7, 11), date(2016, 12, 31)),
+        (date(2017, 1, 1), date(2017, 12, 31)),
+        (date(2018, 1, 1), date(2018, 2, 3)),
+    ]
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    [ProviderDataset.FLOAT, ProviderDataset.TICKER_TYPES, ProviderDataset.EXCHANGES],
+)
+def test_latest_snapshots_require_one_capture_date(dataset) -> None:
+    with pytest.raises(ValueError, match="latest-only"):
+        build_download_plan(
+            dataset=dataset,
+            start=date(2026, 7, 8),
+            end=date(2026, 7, 9),
+        )
+
+    plan = build_download_plan(
+        dataset=dataset,
+        start=date(2026, 7, 9),
+        end=date(2026, 7, 9),
+    )
+    assert len(plan.requests) == 1
+
+
+def test_ticker_events_require_identifiers_and_preserve_exact_case() -> None:
+    with pytest.raises(ValueError, match="CUSIP"):
+        build_download_plan(
+            dataset=ProviderDataset.TICKER_EVENTS,
+            start=date(2003, 9, 10),
+            end=date(2026, 7, 9),
+        )
+
+    plan = build_download_plan(
+        dataset=ProviderDataset.TICKER_EVENTS,
+        start=date(2003, 9, 10),
+        end=date(2026, 7, 9),
+        tickers=("BCpC", "BBG000B9XRY4", "BCpC"),
+    )
+    assert [request.asset_ids[0] for request in plan.requests] == ["BBG000B9XRY4", "BCpC"]
+    assert all(dict(request.parameters) == {"types": "ticker_change"} for request in plan.requests)
+
+
+def test_13f_rejects_ticker_filter() -> None:
+    with pytest.raises(ValueError, match="full-market"):
+        build_download_plan(
+            dataset=ProviderDataset.FORM_13F,
+            start=date(2026, 1, 1),
+            end=date(2026, 7, 9),
+            tickers=("AAPL",),
         )

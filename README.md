@@ -98,9 +98,9 @@ scripts/install_hooks.sh
 If a network failure interrupts synchronization, the commit remains local. Fix the connection
 and rerun `scripts/sync_progress.sh`; the script never force-pushes or resets either checkout.
 
-## Massive Starter hybrid downloader review
+## Massive Developer hybrid downloader
 
-Full-market minute and day backfills use Starter Flat Files. This offline plan reads no
+Full-market minute and day backfills use Developer Flat Files. This offline plan reads no
 credentials and contacts no network service:
 
 ```bash
@@ -109,8 +109,8 @@ credentials and contacts no network service:
   --end 2026-06-30
 ```
 
-When `--start` is omitted, every market-data CLI derives a five-calendar-year window
-from `--end` (the example starts on 2021-06-30). An explicit `--start` remains available
+When `--start` is omitted, every market-data CLI derives a ten-calendar-year window
+from `--end` (the example starts on 2016-06-30). An explicit `--start` remains available
 for the required one-day and short pilot reviews.
 
 The live S3 command is intentionally distinct and requires an explicit storage root:
@@ -124,10 +124,11 @@ The live S3 command is intentionally distinct and requires an explicit storage r
 
 Daily survivorship-safe membership is downloaded separately through REST using both
 `active=true` and `active=false`. Flat Files retain historical activity from companies
-that later delist, but their rows are never treated as listing status. Do not run either
-live path until review. See
+that later delist, but their rows are never treated as listing status. See
 [docs/massive-downloader.md](docs/massive-downloader.md) for the evidence, storage
-layout, credential separation, and resume behavior.
+layout, credential separation, and resume behavior. The versioned
+[research-data catalog](docs/massive-research-catalog.md) records which non-trade datasets
+are queued, excluded as reconstructible, unavailable on the account, or latest-only.
 
 After reviewed downloads, `ame-materialize universe` builds one active/inactive security
 master per date. `ame-flatfiles convert` preserves each daily unadjusted CSV as Parquet,

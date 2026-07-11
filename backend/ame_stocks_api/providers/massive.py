@@ -8,6 +8,7 @@ import os
 import random
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qsl, quote, urljoin, urlsplit, urlunsplit
 
@@ -27,6 +28,70 @@ _ALLOWED_PARAMETERS = {
     ProviderDataset.MINUTE_BARS: frozenset(),
     ProviderDataset.SPLITS: frozenset({"adjustment_type"}),
     ProviderDataset.DIVIDENDS: frozenset({"distribution_type", "frequency"}),
+    ProviderDataset.SHORT_INTEREST: frozenset({"avg_daily_volume", "days_to_cover"}),
+    ProviderDataset.SHORT_VOLUME: frozenset({"short_volume_ratio"}),
+    ProviderDataset.FLOAT: frozenset({"free_float_percent"}),
+    ProviderDataset.IPOS: frozenset({"ipo_status", "isin", "us_code"}),
+    ProviderDataset.TICKER_EVENTS: frozenset({"types"}),
+    ProviderDataset.TICKER_TYPES: frozenset(),
+    ProviderDataset.EXCHANGES: frozenset(),
+    ProviderDataset.EDGAR_INDEX: frozenset({"cik", "form_type"}),
+    ProviderDataset.FORM_3: frozenset({"form_type", "issuer_cik", "owner_cik"}),
+    ProviderDataset.FORM_4: frozenset(
+        {"form_type", "issuer_cik", "owner_cik", "transaction_code"}
+    ),
+    ProviderDataset.FORM_13F: frozenset({"filer_cik"}),
+    ProviderDataset.RISK_FACTORS: frozenset({"cik"}),
+    ProviderDataset.TEN_K_SECTIONS: frozenset({"cik", "period_end", "section"}),
+    ProviderDataset.EIGHT_K_TEXT: frozenset({"cik", "form_type"}),
+    ProviderDataset.NEWS: frozenset(),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class _BulkEndpoint:
+    path: str
+    date_field: str
+    limit: int
+    sort: str
+    asset_parameter: str | None = "ticker"
+    order: str | None = None
+
+
+_BULK_ENDPOINTS = {
+    ProviderDataset.SHORT_INTEREST: _BulkEndpoint(
+        "/stocks/v1/short-interest", "settlement_date", 50_000, "settlement_date.asc,ticker.asc"
+    ),
+    ProviderDataset.SHORT_VOLUME: _BulkEndpoint(
+        "/stocks/v1/short-volume", "date", 50_000, "date.asc,ticker.asc"
+    ),
+    ProviderDataset.IPOS: _BulkEndpoint(
+        "/vX/reference/ipos", "listing_date", 1_000, "listing_date", order="asc"
+    ),
+    ProviderDataset.EDGAR_INDEX: _BulkEndpoint(
+        "/stocks/filings/vX/index", "filing_date", 10_000, "filing_date.asc"
+    ),
+    ProviderDataset.FORM_3: _BulkEndpoint(
+        "/stocks/filings/vX/form-3", "filing_date", 10_000, "filing_date.asc", "tickers"
+    ),
+    ProviderDataset.FORM_4: _BulkEndpoint(
+        "/stocks/filings/vX/form-4", "filing_date", 10_000, "filing_date.asc", "tickers"
+    ),
+    ProviderDataset.FORM_13F: _BulkEndpoint(
+        "/stocks/filings/vX/13-F", "filing_date", 1_000, "filing_date.asc", None
+    ),
+    ProviderDataset.RISK_FACTORS: _BulkEndpoint(
+        "/stocks/filings/vX/risk-factors", "filing_date", 49_999, "filing_date.asc"
+    ),
+    ProviderDataset.TEN_K_SECTIONS: _BulkEndpoint(
+        "/stocks/filings/10-K/vX/sections", "filing_date", 100, "filing_date.asc"
+    ),
+    ProviderDataset.EIGHT_K_TEXT: _BulkEndpoint(
+        "/stocks/filings/8-K/vX/text", "filing_date", 100, "filing_date.asc"
+    ),
+    ProviderDataset.NEWS: _BulkEndpoint(
+        "/v2/reference/news", "published_utc", 1_000, "published_utc", order="asc"
+    ),
 }
 
 Sleep = Callable[[float], Awaitable[None]]
@@ -267,6 +332,62 @@ class MassiveProvider:
             if request.asset_ids:
                 parameters["ticker"] = request.asset_ids[0]
             return "/stocks/v1/dividends", parameters
+
+        endpoint = _BULK_ENDPOINTS.get(request.dataset)
+        if endpoint is not None:
+            self._require_at_most_one_asset(request)
+            if request.asset_ids and endpoint.asset_parameter is None:
+                raise MassiveConfigurationError(
+                    f"{request.dataset.value} only supports full-market requests"
+                )
+            parameters = {
+                f"{endpoint.date_field}.gte": request.start.isoformat(),
+                f"{endpoint.date_field}.lte": request.end.isoformat(),
+                "limit": str(endpoint.limit),
+                "sort": endpoint.sort,
+                **extras,
+            }
+            if endpoint.order:
+                parameters["order"] = endpoint.order
+            if request.asset_ids:
+                parameters[str(endpoint.asset_parameter)] = request.asset_ids[0]
+            return endpoint.path, parameters
+
+        if request.dataset is ProviderDataset.FLOAT:
+            if request.start != request.end:
+                raise MassiveConfigurationError("float is a latest-only snapshot")
+            self._require_at_most_one_asset(request)
+            parameters = {"limit": "5000", "sort": "ticker.asc", **extras}
+            if request.asset_ids:
+                parameters["ticker"] = request.asset_ids[0]
+            return "/stocks/vX/float", parameters
+
+        if request.dataset is ProviderDataset.TICKER_EVENTS:
+            self._require_exactly_one_asset(request)
+            identifier = quote(request.asset_ids[0], safe="")
+            return f"/vX/reference/tickers/{identifier}/events", extras
+
+        if request.dataset is ProviderDataset.TICKER_TYPES:
+            if request.start != request.end:
+                raise MassiveConfigurationError("ticker_types is a latest-only snapshot")
+            self._require_at_most_one_asset(request)
+            if request.asset_ids:
+                raise MassiveConfigurationError("ticker_types does not accept asset_ids")
+            return "/v3/reference/tickers/types", {
+                "asset_class": "stocks",
+                "locale": "us",
+            }
+
+        if request.dataset is ProviderDataset.EXCHANGES:
+            if request.start != request.end:
+                raise MassiveConfigurationError("exchanges is a latest-only snapshot")
+            self._require_at_most_one_asset(request)
+            if request.asset_ids:
+                raise MassiveConfigurationError("exchanges does not accept asset_ids")
+            return "/v3/reference/exchanges", {
+                "asset_class": "stocks",
+                "locale": "us",
+            }
 
         raise MassiveConfigurationError(f"unsupported Massive dataset: {request.dataset.value}")
 

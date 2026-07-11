@@ -1,26 +1,23 @@
-# Massive Starter hybrid downloader review guide
+# Massive Developer hybrid downloader review guide
 
-This checkpoint is code-only. No REST or S3 market-data request has been executed, and
-no real credential is stored in Git.
+Live downloads are explicit, resumable, and stored only under the configured data root.
+No real credential is stored in Git, manifests, or logs.
 
-## Confirmed Starter capabilities
+## Confirmed Developer capabilities
 
-Stocks Starter includes the `us_stocks_sip/minute_aggs_v1` and
+Stocks Developer includes the `us_stocks_sip/minute_aggs_v1` and
 `us_stocks_sip/day_aggs_v1` Flat File datasets. Minute aggregate files are:
 
 - one gzip CSV object per U.S. trading day;
 - end-of-day, normally finalized around 11:00 AM ET the following day;
-- available for five years on Starter;
+- available for a rolling ten-year window on Developer;
 - unadjusted for splits, dividends, and other corporate actions;
 - market-activity files with OHLCV, ticker, timestamp, and transaction count.
 
-The official compressed minute archives are about 5.03 GB (2021), 5.01 GB (2022),
-4.57 GB (2023), 4.70 GB (2024), and 5.40 GB (2025). A rolling five-year Bronze minute
-archive should therefore be roughly 25–27 GB, depending on the exact cutoff. Until a
-short conversion pilot measures the real Parquet ratio, reserve 50–70 GB for Bronze plus
-Silver as a deliberately conservative planning range. This remains compatible with the
-186 GB volume and 40 GiB safety floor, but the estimate is not a substitute for the
-pilot.
+The completed newer five-year Bronze minute archive occupies about 25.6 GB compressed.
+The older five-year extension is measured while downloading rather than estimated from a
+different schema. REST and Flat File writes both refuse to reduce free space below the
+40 GiB safety floor; Silver conversion remains a separate, reviewed operation.
 
 ## Flat Files do not solve survivorship by themselves
 
@@ -113,7 +110,7 @@ to remain under 100 requests per second; 429 responses continue to back off and 
 
 ## VWAP limitation
 
-Starter minute aggregate Flat Files do not contain a VWAP column. OHLCV alone cannot
+Minute aggregate Flat Files do not contain a VWAP column. OHLCV alone cannot
 reconstruct exact trade-level 09:30–10:00 VWAP. The backtest must therefore later choose
 one explicitly named method:
 
@@ -167,7 +164,7 @@ All `plan`, `convert`, `coverage`, and `ame-materialize` commands are offline. O
 explicit `download` action contacts Massive.
 
 All three CLIs use the same date rule: `--end` is required, while omitting `--start`
-defaults to the inclusive five-calendar-year window ending on that date. Use an explicit
+defaults to the inclusive ten-calendar-year window ending on that date. Use an explicit
 `--start` for a one-day or short pilot. `--years N` can request another lookback, but it
 cannot be combined with `--start`.
 
@@ -206,10 +203,9 @@ cannot be combined with `--start`.
   --data-root /mnt/HC_Volume_106309665/american_stocks
 ```
 
-The first live checkpoint remains one trading day. Its coverage report will provide the
-first account-specific evidence about inactive tickers appearing in the selected Flat
-File before any five-year backfill is authorized. For that checkpoint, pass the same
-date to both `--start` and `--end`; the default does not override an explicit start.
+For a one-day checkpoint, pass the same date to both `--start` and `--end`; the default
+does not override an explicit start. High-volume research endpoints are divided into
+calendar-year requests so they can resume independently and begin with the oldest year.
 
 ## Official references
 

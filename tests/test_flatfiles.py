@@ -128,7 +128,7 @@ def _write_reference_bronze(
     results: list[dict[str, object]],
 ) -> None:
     provider = StaticMassiveProvider({"results": results, "status": "OK"})
-    asyncio.run(BronzeDownloader(root).download(provider, request))
+    asyncio.run(BronzeDownloader(root, minimum_free_bytes=0).download(provider, request))
 
 
 def _download_fixture(
@@ -184,7 +184,7 @@ def test_flat_file_plan_cli_needs_no_s3_credentials(monkeypatch, capsys) -> None
     assert output["note"].startswith("Plan output is offline")
 
 
-def test_flat_file_plan_cli_defaults_to_five_years(monkeypatch, capsys) -> None:
+def test_flat_file_plan_cli_defaults_to_ten_years(monkeypatch, capsys) -> None:
     monkeypatch.delenv("MASSIVE_S3_ACCESS_KEY_ID", raising=False)
     monkeypatch.delenv("MASSIVE_S3_SECRET_ACCESS_KEY", raising=False)
 
@@ -200,11 +200,11 @@ def test_flat_file_plan_cli_defaults_to_five_years(monkeypatch, capsys) -> None:
 
     output = json.loads(capsys.readouterr().out)
     assert result == 0
-    assert output["start"] == "2021-06-30"
+    assert output["start"] == "2016-06-30"
     assert output["end"] == "2026-06-30"
-    assert output["objects"][0]["session_date"] == "2021-06-30"
-    assert output["objects"][-1]["session_date"] == "2021-07-14"
-    assert output["object_count"] > 1_200
+    assert output["objects"][0]["session_date"] == "2016-06-30"
+    assert output["objects"][-1]["session_date"] == "2016-07-14"
+    assert output["object_count"] > 2_400
 
 
 def test_flat_file_download_is_checksummed_idempotent_and_resumable(tmp_path: Path) -> None:

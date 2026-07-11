@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from datetime import date
 
-DEFAULT_HISTORY_YEARS = 5
+DEFAULT_HISTORY_YEARS = 10
 
 
 def add_history_range_arguments(parser: argparse.ArgumentParser) -> None:
@@ -14,7 +14,7 @@ def add_history_range_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--start",
         type=parse_date,
-        help="inclusive start date; overrides the default five-year lookback",
+        help="inclusive start date; overrides the default ten-year lookback",
     )
     parser.add_argument(
         "--end",

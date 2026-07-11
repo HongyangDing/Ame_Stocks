@@ -152,6 +152,206 @@ def test_dataset_endpoint_mapping(
     assert len(batches) == 1
 
 
+@pytest.mark.parametrize(
+    (
+        "dataset",
+        "expected_path",
+        "date_field",
+        "limit",
+        "sort",
+        "asset_ids",
+        "asset_parameter",
+    ),
+    [
+        (
+            ProviderDataset.SHORT_INTEREST,
+            "/stocks/v1/short-interest",
+            "settlement_date",
+            "50000",
+            "settlement_date.asc,ticker.asc",
+            ("AAPL",),
+            "ticker",
+        ),
+        (
+            ProviderDataset.SHORT_VOLUME,
+            "/stocks/v1/short-volume",
+            "date",
+            "50000",
+            "date.asc,ticker.asc",
+            ("AAPL",),
+            "ticker",
+        ),
+        (
+            ProviderDataset.IPOS,
+            "/vX/reference/ipos",
+            "listing_date",
+            "1000",
+            "listing_date",
+            ("AAPL",),
+            "ticker",
+        ),
+        (
+            ProviderDataset.EDGAR_INDEX,
+            "/stocks/filings/vX/index",
+            "filing_date",
+            "10000",
+            "filing_date.asc",
+            ("AAPL",),
+            "ticker",
+        ),
+        (
+            ProviderDataset.FORM_3,
+            "/stocks/filings/vX/form-3",
+            "filing_date",
+            "10000",
+            "filing_date.asc",
+            ("AAPL",),
+            "tickers",
+        ),
+        (
+            ProviderDataset.FORM_4,
+            "/stocks/filings/vX/form-4",
+            "filing_date",
+            "10000",
+            "filing_date.asc",
+            ("AAPL",),
+            "tickers",
+        ),
+        (
+            ProviderDataset.FORM_13F,
+            "/stocks/filings/vX/13-F",
+            "filing_date",
+            "1000",
+            "filing_date.asc",
+            (),
+            None,
+        ),
+        (
+            ProviderDataset.RISK_FACTORS,
+            "/stocks/filings/vX/risk-factors",
+            "filing_date",
+            "49999",
+            "filing_date.asc",
+            ("AAPL",),
+            "ticker",
+        ),
+        (
+            ProviderDataset.TEN_K_SECTIONS,
+            "/stocks/filings/10-K/vX/sections",
+            "filing_date",
+            "100",
+            "filing_date.asc",
+            ("AAPL",),
+            "ticker",
+        ),
+        (
+            ProviderDataset.EIGHT_K_TEXT,
+            "/stocks/filings/8-K/vX/text",
+            "filing_date",
+            "100",
+            "filing_date.asc",
+            ("AAPL",),
+            "ticker",
+        ),
+        (
+            ProviderDataset.NEWS,
+            "/v2/reference/news",
+            "published_utc",
+            "1000",
+            "published_utc",
+            ("AAPL",),
+            "ticker",
+        ),
+    ],
+)
+def test_bulk_research_endpoint_mapping(
+    dataset: ProviderDataset,
+    expected_path: str,
+    date_field: str,
+    limit: str,
+    sort: str,
+    asset_ids: tuple[str, ...],
+    asset_parameter: str | None,
+) -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert request.url.path == expected_path
+        assert request.url.params[f"{date_field}.gte"] == "2024-07-01"
+        assert request.url.params[f"{date_field}.lte"] == "2026-06-30"
+        assert request.url.params["limit"] == limit
+        assert request.url.params["sort"] == sort
+        if asset_parameter:
+            assert request.url.params[asset_parameter] == "AAPL"
+        if dataset in {ProviderDataset.IPOS, ProviderDataset.NEWS}:
+            assert request.url.params["order"] == "asc"
+        return httpx2.Response(200, json={"results": [], "status": "OK"})
+
+    request = ProviderRequest(
+        dataset=dataset,
+        start=date(2024, 7, 1),
+        end=date(2026, 6, 30),
+        asset_ids=asset_ids,
+    )
+    assert len(asyncio.run(_collect(_provider(handler), request))) == 1
+
+
+@pytest.mark.parametrize(
+    ("dataset", "expected_path", "expected_query"),
+    [
+        (
+            ProviderDataset.FLOAT,
+            "/stocks/vX/float",
+            {"limit": "5000", "sort": "ticker.asc"},
+        ),
+        (
+            ProviderDataset.TICKER_TYPES,
+            "/v3/reference/tickers/types",
+            {"asset_class": "stocks", "locale": "us"},
+        ),
+        (
+            ProviderDataset.EXCHANGES,
+            "/v3/reference/exchanges",
+            {"asset_class": "stocks", "locale": "us"},
+        ),
+    ],
+)
+def test_latest_snapshot_endpoint_mapping(
+    dataset: ProviderDataset,
+    expected_path: str,
+    expected_query: dict[str, str],
+) -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert request.url.path == expected_path
+        for key, value in expected_query.items():
+            assert request.url.params[key] == value
+        return httpx2.Response(200, json={"results": [], "status": "OK"})
+
+    request = ProviderRequest(
+        dataset=dataset,
+        start=date(2026, 7, 9),
+        end=date(2026, 7, 9),
+    )
+    assert len(asyncio.run(_collect(_provider(handler), request))) == 1
+
+
+def test_ticker_events_quote_identifier_and_count_event_rows() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert "/vX/reference/tickers/BRK%2FB/events" in str(request.url)
+        assert request.url.params["types"] == "ticker_change"
+        return httpx2.Response(
+            200,
+            json={"results": {"events": [{"type": "ticker_change"}]}, "status": "OK"},
+        )
+
+    request = ProviderRequest(
+        dataset=ProviderDataset.TICKER_EVENTS,
+        start=date(2003, 9, 10),
+        end=date(2026, 7, 9),
+        asset_ids=("BRK/B",),
+        parameters=(("types", "ticker_change"),),
+    )
+    assert len(asyncio.run(_collect(_provider(handler), request))) == 1
+
+
 def test_checkpoint_resumes_at_exact_relative_next_url() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         assert request.url.path.endswith("/1719792000000/2026-06-30")

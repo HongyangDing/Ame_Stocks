@@ -5,15 +5,15 @@ import pytest
 from ame_stocks_api.cli.date_range import DEFAULT_HISTORY_YEARS, resolve_history_range
 
 
-def test_default_history_range_is_five_calendar_years() -> None:
+def test_default_history_range_is_ten_calendar_years() -> None:
     start, end = resolve_history_range(
         start=None,
         end=date(2026, 6, 30),
         years=None,
     )
 
-    assert DEFAULT_HISTORY_YEARS == 5
-    assert start == date(2021, 6, 30)
+    assert DEFAULT_HISTORY_YEARS == 10
+    assert start == date(2016, 6, 30)
     assert end == date(2026, 6, 30)
 
 

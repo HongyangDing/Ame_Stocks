@@ -25,6 +25,21 @@ class ProviderDataset(StrEnum):
     MINUTE_BARS = "minute_bars"
     SPLITS = "splits"
     DIVIDENDS = "dividends"
+    SHORT_INTEREST = "short_interest"
+    SHORT_VOLUME = "short_volume"
+    FLOAT = "float"
+    IPOS = "ipos"
+    TICKER_EVENTS = "ticker_events"
+    TICKER_TYPES = "ticker_types"
+    EXCHANGES = "exchanges"
+    EDGAR_INDEX = "edgar_index"
+    FORM_3 = "form_3"
+    FORM_4 = "form_4"
+    FORM_13F = "form_13f"
+    RISK_FACTORS = "risk_factors"
+    TEN_K_SECTIONS = "ten_k_sections"
+    EIGHT_K_TEXT = "eight_k_text"
+    NEWS = "news"
 
 
 @dataclass(frozen=True, slots=True)
