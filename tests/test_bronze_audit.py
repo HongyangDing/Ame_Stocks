@@ -12,6 +12,8 @@ from ame_stocks_api.downloads import BronzeDownloader, build_download_plan
 from ame_stocks_api.flatfiles import FlatFileDataset, FlatFileObject
 from ame_stocks_core import ProviderBatch, ProviderDataset, ProviderRequest
 
+MINIMAL_REQUIRED = (ProviderDataset.ASSETS,)
+
 
 class StaticProvider:
     name = "massive"
@@ -129,6 +131,7 @@ def test_full_audit_verifies_complete_fixture(tmp_path: Path) -> None:
         end=session,
         mode="full",
         workers=2,
+        required_rest_datasets=MINIMAL_REQUIRED,
     ).run()
 
     assert report["status"] == "passed"
@@ -145,7 +148,13 @@ def test_full_audit_detects_file_corruption(tmp_path: Path) -> None:
     content[len(content) // 2] ^= 0x01
     minute.write_bytes(content)
 
-    report = BronzeAuditor(tmp_path, start=session, end=session, workers=1).run()
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=MINIMAL_REQUIRED,
+    ).run()
 
     assert report["status"] == "failed"
     codes = report["summary"]["issue_code_counts"]
@@ -156,7 +165,13 @@ def test_full_audit_detects_file_corruption(tmp_path: Path) -> None:
 def test_full_audit_detects_active_inactive_overlap(tmp_path: Path) -> None:
     session, _ = _complete_fixture(tmp_path, overlap=True)
 
-    report = BronzeAuditor(tmp_path, start=session, end=session, workers=1).run()
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=MINIMAL_REQUIRED,
+    ).run()
 
     assert report["status"] == "failed"
     assert report["summary"]["issue_code_counts"]["asset_active_inactive_overlap"] == 1
@@ -198,10 +213,86 @@ def test_ticker_event_404_is_accounted_terminal_gap(tmp_path: Path) -> None:
     receipt.parent.mkdir(parents=True)
     receipt.write_text("BBG000MISSING\n", encoding="utf-8")
 
-    report = BronzeAuditor(tmp_path, start=session, end=session, workers=1).run()
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=MINIMAL_REQUIRED,
+    ).run()
 
     assert report["status"] == "passed_with_warnings"
     stats = {item["dataset"]: item for item in report["datasets"]}
     assert stats["ticker_events"]["missing_expected"] == 0
     assert stats["ticker_events"]["unavailable_expected"] == 1
     assert report["summary"]["issue_code_counts"] == {"ticker_event_identifier_not_found": 1}
+
+
+def test_required_dataset_is_not_silently_dropped_when_its_directory_is_missing(
+    tmp_path: Path,
+) -> None:
+    session, _ = _complete_fixture(tmp_path)
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=(ProviderDataset.ASSETS, ProviderDataset.CONDITION_CODES),
+    ).run()
+
+    assert report["status"] == "failed"
+    assert report["gates"]["authoritative_plan"] == "failed"
+    stats = {item["dataset"]: item for item in report["datasets"]}
+    assert stats["condition_codes"]["expected_objects"] == 1
+    assert stats["condition_codes"]["missing_expected"] == 1
+    assert report["required_profile"]["rest_datasets"] == ["assets", "condition_codes"]
+
+
+def test_corrupt_asset_page_returns_a_failed_report_instead_of_aborting(tmp_path: Path) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    manifest_path = next((tmp_path / "manifests" / "massive" / "assets").glob("*.json"))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    artifact_path = tmp_path / manifest["artifacts"][0]["path"]
+    content = bytearray(artifact_path.read_bytes())
+    content[len(content) // 2] ^= 0x01
+    artifact_path.write_bytes(content)
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=MINIMAL_REQUIRED,
+    ).run()
+
+    assert report["status"] == "failed"
+    codes = report["summary"]["issue_code_counts"]
+    assert codes["gzip_corrupt"] == 1
+    assert codes["asset_reconciliation_unreadable"] == 1
+
+
+def test_non_iso_nonblank_row_date_fails_semantic_gate(tmp_path: Path) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    request = ProviderRequest(
+        dataset=ProviderDataset.SPLITS,
+        start=date(2003, 9, 10),
+        end=session,
+    )
+    asyncio.run(
+        BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
+            StaticProvider([{"execution_date": "not-a-date", "ticker": "AAPL"}]), request
+        )
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=MINIMAL_REQUIRED,
+    ).run()
+
+    assert report["status"] == "failed"
+    assert report["gates"]["semantic_consistency"] == "failed"
+    assert report["summary"]["issue_code_counts"]["invalid_date_value"] == 1

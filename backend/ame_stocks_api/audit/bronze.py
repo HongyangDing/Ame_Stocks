@@ -91,12 +91,56 @@ _SNAPSHOT_DATASETS = (
     ProviderDataset.RISK_TAXONOMY,
     ProviderDataset.DISCLOSURE_TAXONOMY,
 )
+# This is the authoritative Bronze catalog already acquired for the research platform.
+# Financial statements and ratios are intentionally absent: the current account returned
+# HTTP 403 for that separate entitlement, so their absence must not make the storage audit
+# fail.  If any optional dataset is present, it is still audited and reconciled below.
+_REQUIRED_REST_DATASETS = frozenset(
+    {
+        ProviderDataset.ASSETS,
+        ProviderDataset.SPLITS,
+        ProviderDataset.DIVIDENDS,
+        ProviderDataset.SHORT_INTEREST,
+        ProviderDataset.SHORT_VOLUME,
+        ProviderDataset.FLOAT,
+        ProviderDataset.IPOS,
+        ProviderDataset.TICKER_OVERVIEW,
+        ProviderDataset.TICKER_EVENTS,
+        ProviderDataset.TICKER_TYPES,
+        ProviderDataset.EXCHANGES,
+        ProviderDataset.CONDITION_CODES,
+        ProviderDataset.EDGAR_INDEX,
+        ProviderDataset.FORM_3,
+        ProviderDataset.FORM_4,
+        ProviderDataset.FORM_13F,
+        ProviderDataset.RISK_FACTORS,
+        ProviderDataset.TEN_K_SECTIONS,
+        ProviderDataset.EIGHT_K_TEXT,
+        ProviderDataset.EIGHT_K_DISCLOSURES,
+        ProviderDataset.DISCLOSURE_TAXONOMY,
+        ProviderDataset.NEWS,
+        ProviderDataset.TREASURY_YIELDS,
+        ProviderDataset.INFLATION,
+        ProviderDataset.INFLATION_EXPECTATIONS,
+        ProviderDataset.LABOR_MARKET,
+        ProviderDataset.RISK_TAXONOMY,
+    }
+)
+_OPTIONAL_ENTITLEMENT_DATASETS = frozenset(
+    {
+        ProviderDataset.INCOME_STATEMENTS,
+        ProviderDataset.BALANCE_SHEETS,
+        ProviderDataset.CASH_FLOW_STATEMENTS,
+        ProviderDataset.RATIOS,
+    }
+)
 _DATE_FIELDS: dict[str, str] = {
     ProviderDataset.SPLITS.value: "execution_date",
     ProviderDataset.DIVIDENDS.value: "ex_dividend_date",
     ProviderDataset.SHORT_INTEREST.value: "settlement_date",
     ProviderDataset.SHORT_VOLUME.value: "date",
     ProviderDataset.IPOS.value: "listing_date",
+    ProviderDataset.TICKER_EVENTS.value: "date",
     ProviderDataset.INCOME_STATEMENTS.value: "filing_date",
     ProviderDataset.BALANCE_SHEETS.value: "filing_date",
     ProviderDataset.CASH_FLOW_STATEMENTS.value: "filing_date",
@@ -122,6 +166,7 @@ _REQUIRED_ROW_FIELDS: dict[str, tuple[str, ...]] = {
     ProviderDataset.SHORT_VOLUME.value: ("ticker", "date"),
     ProviderDataset.FLOAT.value: ("ticker",),
     ProviderDataset.IPOS.value: ("listing_date",),
+    ProviderDataset.TICKER_EVENTS.value: ("date", "type"),
     ProviderDataset.INCOME_STATEMENTS.value: ("filing_date",),
     ProviderDataset.BALANCE_SHEETS.value: ("filing_date",),
     ProviderDataset.CASH_FLOW_STATEMENTS.value: ("filing_date",),
@@ -147,6 +192,7 @@ _REQUIRED_ROW_FIELDS: dict[str, tuple[str, ...]] = {
 _PHYSICAL_FAILURE_CODES = frozenset(
     {
         "artifact_missing",
+        "asset_reconciliation_unreadable",
         "audit_internal_error",
         "compressed_bytes_mismatch",
         "flat_schema_mismatch",
@@ -178,6 +224,7 @@ _SEMANTIC_FAILURE_CODES = frozenset(
         "asset_active_flag_mismatch",
         "asset_active_inactive_overlap",
         "asset_duplicate_ticker",
+        "invalid_date_value",
         "required_fields_missing",
         "response_shape_invalid",
         "response_status_not_ok",
@@ -298,7 +345,7 @@ class _HashingReader:
 class BronzeAuditor:
     """Perform a bounded-memory audit of all Massive Bronze files under one root."""
 
-    report_schema_version = 1
+    report_schema_version = 2
 
     def __init__(
         self,
@@ -311,6 +358,7 @@ class BronzeAuditor:
         ticker_overview_plan: Path | None = None,
         ticker_event_plan: Path | None = None,
         ticker_event_start: date = date(2003, 9, 10),
+        required_rest_datasets: tuple[ProviderDataset, ...] | None = None,
     ) -> None:
         if start > end:
             raise ValueError("start must be on or before end")
@@ -326,6 +374,11 @@ class BronzeAuditor:
         self.ticker_overview_plan = ticker_overview_plan
         self.ticker_event_plan = ticker_event_plan
         self.ticker_event_start = ticker_event_start
+        self.required_rest_datasets = frozenset(
+            _REQUIRED_REST_DATASETS
+            if required_rest_datasets is None
+            else required_rest_datasets
+        )
         self._issues = _IssueCollector()
         self._stats: dict[str, DatasetStats] = {}
         self._rest_results: list[_ManifestResult] = []
@@ -363,6 +416,13 @@ class BronzeAuditor:
             "mode": self.mode,
             "data_root": str(self.data_root),
             "expected_window": {"start": self.start.isoformat(), "end": self.end.isoformat()},
+            "required_profile": {
+                "rest_datasets": sorted(dataset.value for dataset in self.required_rest_datasets),
+                "flat_file_datasets": sorted(dataset.value for dataset in FlatFileDataset),
+                "optional_entitlement_datasets": sorted(
+                    dataset.value for dataset in _OPTIONAL_ENTITLEMENT_DATASETS
+                ),
+            },
             "started_at": started.isoformat(),
             "completed_at": finished.isoformat(),
             "duration_seconds": round((finished - started).total_seconds(), 3),
@@ -867,6 +927,7 @@ class BronzeAuditor:
 
         required = _REQUIRED_ROW_FIELDS.get(dataset, ())
         missing_required = 0
+        invalid_dates = 0
         observed_dates: list[str] = []
         date_field = _DATE_FIELDS.get(dataset)
         for row in rows:
@@ -886,7 +947,8 @@ class BronzeAuditor:
             ):
                 missing_required += 1
             if date_field:
-                normalized = _iso_date(row.get(date_field))
+                raw_date = row.get(date_field)
+                normalized = _iso_date(raw_date)
                 if normalized:
                     observed_dates.append(normalized)
                     if request and not _inside_request(normalized, request):
@@ -899,12 +961,24 @@ class BronzeAuditor:
                                 str(payload_path),
                             )
                         )
+                elif raw_date is not None and raw_date != "":
+                    invalid_dates += 1
         if missing_required:
             issues.append(
                 AuditIssue(
                     "error",
                     "required_fields_missing",
                     f"{missing_required} rows omit one or more required audit fields",
+                    dataset,
+                    str(payload_path),
+                )
+            )
+        if invalid_dates:
+            issues.append(
+                AuditIssue(
+                    "error",
+                    "invalid_date_value",
+                    f"{invalid_dates} rows contain a non-ISO {date_field} value",
                     dataset,
                     str(payload_path),
                 )
@@ -1065,6 +1139,12 @@ class BronzeAuditor:
         return _ManifestResult(stats, issues, referenced, status=status)
 
     def _reconcile_expected_plans(self) -> None:
+        # Seed the required catalog before looking at observed manifests.  Without this,
+        # deleting an entire dataset directory made it disappear from both sides of the
+        # comparison and the audit could falsely pass.
+        for dataset in self.required_rest_datasets:
+            self._stats.setdefault(dataset.value, DatasetStats(dataset.value))
+
         sessions = set(market_session_dates(self.start, self.end))
         flat_by_dataset: dict[str, set[date]] = defaultdict(set)
         for result in self._flat_results:
@@ -1299,8 +1379,23 @@ class BronzeAuditor:
             pair = by_date.get(session.isoformat(), {})
             if set(pair) != {"true", "false"}:
                 continue
-            active_tickers, active_bad, active_duplicates = self._asset_tickers(pair["true"])
-            inactive_tickers, inactive_bad, inactive_duplicates = self._asset_tickers(pair["false"])
+            try:
+                active_tickers, active_bad, active_duplicates = self._asset_tickers(pair["true"])
+                inactive_tickers, inactive_bad, inactive_duplicates = self._asset_tickers(
+                    pair["false"]
+                )
+            except Exception as exc:  # already-invalid bytes must not suppress the JSON report
+                self._issues.add(
+                    AuditIssue(
+                        "critical",
+                        "asset_reconciliation_unreadable",
+                        "active/inactive reconciliation could not reread the verified pages: "
+                        f"{type(exc).__name__}: {exc}",
+                        ProviderDataset.ASSETS.value,
+                        session.isoformat(),
+                    )
+                )
+                continue
             if active_bad or inactive_bad:
                 self._issues.add(
                     AuditIssue(
@@ -1486,6 +1581,8 @@ def _stream_gzip_file(path: Path) -> dict[str, object]:
 
 def _iso_date(value: object) -> str | None:
     if not isinstance(value, str) or len(value) < 10:
+        return None
+    if len(value) > 10 and value[10] not in {"T", " "}:
         return None
     candidate = value[:10]
     try:

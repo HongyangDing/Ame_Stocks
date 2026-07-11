@@ -30,8 +30,8 @@ from ame_stocks_api.artifacts import (
 from ame_stocks_api.downloads import market_session_dates
 from ame_stocks_api.flatfiles import FlatFileDataset, FlatFileObject
 
-MARKET_AUDIT_SCHEMA_VERSION = 3
-CACHE_SCHEMA_VERSION = 3
+MARKET_AUDIT_SCHEMA_VERSION = 4
+CACHE_SCHEMA_VERSION = 4
 EXPECTED_COLUMNS = (
     "ticker",
     "volume",
@@ -95,6 +95,7 @@ class _Source:
     manifest_sha256: str
     artifact_path: Path
     artifact_sha256: str
+    observed_sha256: str
     artifact_bytes: int
     artifact_mtime_ns: int
 
@@ -104,6 +105,7 @@ class _Source:
             "artifact_mtime_ns": self.artifact_mtime_ns,
             "artifact_path": str(self.artifact_path.relative_to(root)),
             "artifact_sha256": self.artifact_sha256,
+            "observed_sha256": self.observed_sha256,
             "manifest_path": str(self.manifest_path.relative_to(root)),
             "manifest_sha256": self.manifest_sha256,
         }
@@ -344,12 +346,14 @@ class MarketCrossAuditor:
                 f"artifact size {stat.st_size} differs from manifest {expected_bytes}: "
                 f"{artifact_path}"
             )
+        observed_sha256 = sha256_file(artifact_path)
         return _Source(
             dataset=dataset.value,
             manifest_path=manifest_path,
             manifest_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
             artifact_path=artifact_path,
             artifact_sha256=str(output["sha256"]),
+            observed_sha256=observed_sha256,
             artifact_bytes=stat.st_size,
             artifact_mtime_ns=stat.st_mtime_ns,
         )
@@ -361,8 +365,7 @@ class MarketCrossAuditor:
         for label in ("minute", "day"):
             source = sources[label]
             try:
-                observed_sha256 = sha256_file(source.artifact_path)
-                if observed_sha256 != source.artifact_sha256:
+                if source.observed_sha256 != source.artifact_sha256:
                     issues.append(
                         _issue(
                             "artifact_sha256_mismatch",
@@ -660,6 +663,10 @@ class MarketCrossAuditor:
         minute_only = joined.filter(pl.col("_in_day").is_null())["ticker"].to_list()
         day_only = joined.filter(pl.col("_in_minute").is_null())["ticker"].to_list()
         both = joined.filter(pl.col("_in_minute").is_not_null() & pl.col("_in_day").is_not_null())
+        no_regular_session = both.filter(
+            pl.col("regular_minute_count").is_null()
+            | pl.col("regular_minute_count").eq(0)
+        )["ticker"].to_list()
 
         issues: list[dict[str, object]] = []
         if minute_only:
@@ -680,6 +687,17 @@ class MarketCrossAuditor:
                     len(day_only),
                     "day aggregate tickers are absent from minute aggregates",
                     day_only[: self.max_examples],
+                )
+            )
+        if no_regular_session:
+            issues.append(
+                _issue(
+                    "ticker_without_regular_session_minutes",
+                    "cross_table",
+                    len(no_regular_session),
+                    "ticker has a day aggregate and minute activity but no XNYS "
+                    "regular-session bars",
+                    no_regular_session[: self.max_examples],
                 )
             )
 
@@ -740,6 +758,7 @@ class MarketCrossAuditor:
                     "day_only": day_only,
                     "minute_only": minute_only,
                 },
+                "regular_session_missing": no_regular_session,
                 "status": "different" if issues else "matched",
                 "tolerance": self.tolerance.to_dict(),
                 "reconstruction": {

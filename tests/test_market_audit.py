@@ -1,6 +1,7 @@
 import gzip
 import hashlib
 import json
+import os
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -177,7 +178,7 @@ def test_second_run_reuses_cache_bound_to_both_manifest_hashes(tmp_path: Path) -
             / "manifests"
             / "audits"
             / "market_crosscheck"
-            / "schema=v3"
+            / "schema=v4"
             / f"{SESSION.isoformat()}.json"
         ).read_text()
     )
@@ -193,6 +194,27 @@ def test_second_run_reuses_cache_bound_to_both_manifest_hashes(tmp_path: Path) -
     changed = _audit(tmp_path)
     assert changed["sessions"][0]["cache_status"] == "computed"
     assert changed["status"] == "passed_with_differences"
+
+
+def test_cache_rehashes_artifact_even_when_size_and_mtime_are_preserved(
+    tmp_path: Path,
+) -> None:
+    _valid_fixture(tmp_path)
+    first = _audit(tmp_path)
+    minute_path = tmp_path / str(
+        first["sessions"][0]["sources"]["minute"]["artifact_path"]
+    )
+    stat = minute_path.stat()
+    damaged = bytearray(minute_path.read_bytes())
+    damaged[len(damaged) // 2] ^= 0x01
+    minute_path.write_bytes(damaged)
+    os.utime(minute_path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+
+    second = _audit(tmp_path)
+
+    assert second["sessions"][0]["cache_status"] == "computed"
+    assert second["status"] == "failed"
+    assert second["summary"]["issue_code_counts"]["artifact_sha256_mismatch"] == 1
 
 
 def test_extended_hours_prices_do_not_replace_regular_session_ohlc(tmp_path: Path) -> None:
@@ -221,3 +243,27 @@ def test_extended_hours_prices_do_not_replace_regular_session_ohlc(tmp_path: Pat
     assert report["status"] == "passed"
     reconstruction = report["sessions"][0]["comparison"]["reconstruction"]
     assert reconstruction["ohlc"].startswith("XNYS regular-session")
+
+
+def test_extended_hours_only_ticker_is_not_silently_matched(tmp_path: Path) -> None:
+    _write_flat_file(
+        tmp_path,
+        FlatFileDataset.MINUTE_AGGREGATES,
+        [f"AAPL,10,5,5,5,5,{_timestamp(12, 0)},1\n"],
+    )
+    _write_flat_file(
+        tmp_path,
+        FlatFileDataset.DAY_AGGREGATES,
+        [f"AAPL,10,5,5,5,5,{_timestamp(4, 0)},1\n"],
+    )
+
+    report = _audit(tmp_path)
+
+    assert report["status"] == "passed_with_differences"
+    assert (
+        report["summary"]["issue_code_counts"][
+            "ticker_without_regular_session_minutes"
+        ]
+        == 1
+    )
+    assert report["sessions"][0]["comparison"]["regular_session_missing"] == ["AAPL"]
