@@ -51,7 +51,8 @@ def test_lifecycle_overview_allowlist_quarantines_market_cap_and_shares(
     tmp_path: Path,
 ) -> None:
     start = date(2026, 6, 29)
-    end = date(2026, 6, 30)
+    middle = date(2026, 6, 30)
+    end = date(2026, 7, 1)
     asset_plan = build_download_plan(
         dataset=ProviderDataset.ASSETS,
         start=start,
@@ -94,6 +95,24 @@ def test_lifecycle_overview_allowlist_quarantines_market_cap_and_shares(
             },
         ],
     )
+    _write_bronze(
+        tmp_path,
+        asset_plan.requests[2],
+        [
+            {
+                "active": True,
+                "ticker": "AAPL",
+                "share_class_figi": "FIGI-AAPL",
+                "cik": "0000320193",
+            },
+            {
+                "active": True,
+                "ticker": "REUSE",
+                "share_class_figi": "FIGI-OLD",
+                "cik": "0000000001",
+            },
+        ],
+    )
 
     lifecycle = materialize_ticker_overview_lifecycles(tmp_path, start=start, end=end)
     lifecycle_rerun = materialize_ticker_overview_lifecycles(tmp_path, start=start, end=end)
@@ -105,9 +124,9 @@ def test_lifecycle_overview_allowlist_quarantines_market_cap_and_shares(
     assert lifecycle.request_count == 3
     assert lifecycle.request_file.read_text(encoding="utf-8").splitlines() == [
         "ticker,query_date",
-        "REUSE,2026-06-29",
-        "AAPL,2026-06-30",
         "REUSE,2026-06-30",
+        "AAPL,2026-07-01",
+        "REUSE,2026-07-01",
     ]
     assert lifecycles.filter(pl.col("ticker") == "AAPL")["first_active_date"].item() == start
 
@@ -122,9 +141,9 @@ def test_lifecycle_overview_allowlist_quarantines_market_cap_and_shares(
         ticker_dates=ticker_dates,
     )
     overview_results = {
-        ("REUSE", start): {
+        ("REUSE", end): {
             "ticker": "REUSE",
-            "active": False,
+            "active": True,
             "share_class_figi": "FIGI-OLD",
             "cik": "0000000001",
             "sic_code": "1000",
@@ -148,7 +167,7 @@ def test_lifecycle_overview_allowlist_quarantines_market_cap_and_shares(
             "share_class_shares_outstanding": 14_900,
             "total_employees": 999_999,
         },
-        ("REUSE", end): {
+        ("REUSE", middle): {
             "ticker": "REUSE",
             "active": True,
             "share_class_figi": "FIGI-NEW",

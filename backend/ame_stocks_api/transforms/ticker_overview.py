@@ -25,7 +25,7 @@ from ame_stocks_api.downloads.bronze import BronzeStorageError
 from ame_stocks_api.transforms.materialize import MaterializationError
 from ame_stocks_core import ProviderDataset, ProviderRequest
 
-TICKER_LIFECYCLE_SCHEMA_VERSION = 1
+TICKER_LIFECYCLE_SCHEMA_VERSION = 2
 TICKER_OVERVIEW_SAFE_SCHEMA_VERSION = 1
 
 # These values are retained only in the immutable Bronze response. They are current-looking
@@ -123,11 +123,17 @@ def materialize_ticker_overview_lifecycles(
     sources = [reader.source_entry(request) for request in plan.requests]
     source_digest = stable_digest(sources)
     window = f"{start.isoformat()}_{end.isoformat()}"
-    staging_root = root / "staging" / "ticker_overview" / f"window={window}"
+    schema_directory = f"schema=v{TICKER_LIFECYCLE_SCHEMA_VERSION}"
+    staging_root = root / "staging" / "ticker_overview" / schema_directory / f"window={window}"
     lifecycle_path = staging_root / "lifecycles.parquet"
     request_file = staging_root / "requests.csv"
     manifest_path = (
-        root / "manifests" / "materialized" / "ticker_overview_lifecycles" / f"{window}.json"
+        root
+        / "manifests"
+        / "materialized"
+        / "ticker_overview_lifecycles"
+        / schema_directory
+        / f"{window}.json"
     )
     existing = load_reusable_manifest(
         root,
@@ -207,8 +213,14 @@ def materialize_ticker_overview_safe(
 
     root = data_root.expanduser().resolve()
     window = f"{start.isoformat()}_{end.isoformat()}"
+    lifecycle_schema_directory = f"schema=v{TICKER_LIFECYCLE_SCHEMA_VERSION}"
     lifecycle_manifest_path = (
-        root / "manifests" / "materialized" / "ticker_overview_lifecycles" / f"{window}.json"
+        root
+        / "manifests"
+        / "materialized"
+        / "ticker_overview_lifecycles"
+        / lifecycle_schema_directory
+        / f"{window}.json"
     )
     lifecycle_manifest = _load_complete_artifact_manifest(root, lifecycle_manifest_path)
     lifecycle_path = root / str(lifecycle_manifest["lifecycle_file"])
@@ -365,8 +377,8 @@ def _update_lifecycle_state(
 ) -> None:
     ticker = str(row["ticker"])
     records = state.setdefault(ticker, [])
-    current = records[-1] if records else None
-    if current is None or _has_identity_conflict(current, row):
+    current = _matching_lifecycle(records, row)
+    if current is None:
         current = {
             "ticker": ticker,
             "first_active_date": snapshot_date,
@@ -385,11 +397,45 @@ def _update_lifecycle_state(
             current[field] = row[field]
 
 
-def _has_identity_conflict(current: dict[str, Any], row: dict[str, Any]) -> bool:
+def _matching_lifecycle(
+    records: list[dict[str, Any]],
+    row: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not records:
+        return None
+    populated_fields = [field for field in _IDENTITY_FIELDS if row.get(field) is not None]
+    if not populated_fields:
+        return max(records, key=lambda record: record["last_active_date"])
+
+    matches: list[tuple[int, date, dict[str, Any]]] = []
+    for record in records:
+        if _has_identity_conflict(record, row):
+            continue
+        score = sum(
+            weight
+            for weight, field in enumerate(reversed(_IDENTITY_FIELDS), start=1)
+            if row.get(field) is not None and row.get(field) == record.get(field)
+        )
+        if score:
+            matches.append((score, record["last_active_date"], record))
+    if matches:
+        return max(matches, key=lambda item: (item[0], item[1]))[2]
+
+    identityless = [
+        record
+        for record in records
+        if all(record.get(field) is None for field in _IDENTITY_FIELDS)
+    ]
+    if identityless:
+        return max(identityless, key=lambda record: record["last_active_date"])
+    return None
+
+
+def _has_identity_conflict(record: dict[str, Any], row: dict[str, Any]) -> bool:
     return any(
-        current.get(field) is not None
+        record.get(field) is not None
         and row.get(field) is not None
-        and current[field] != row[field]
+        and record[field] != row[field]
         for field in _IDENTITY_FIELDS
     )
 
