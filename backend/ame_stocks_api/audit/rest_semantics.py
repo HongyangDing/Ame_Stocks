@@ -1,0 +1,938 @@
+"""Bounded-memory semantic QA for authoritative Massive REST Bronze requests.
+
+The byte-level Bronze audit remains the source of truth for physical integrity.  This
+module deliberately has a smaller job: select only deterministic production request IDs,
+stream their response pages, and use a temporary SQLite database to find cross-page key
+conflicts and cross-dataset reference mismatches without retaining the corpus in memory.
+Non-authoritative pilot manifests are counted but never opened.
+"""
+
+from __future__ import annotations
+
+import gzip
+import hashlib
+import json
+import sqlite3
+import tempfile
+from collections import Counter, defaultdict
+from dataclasses import asdict, dataclass
+from datetime import UTC, date, datetime
+from pathlib import Path
+from typing import Any, Literal
+
+from ame_stocks_api.artifacts import ArtifactError, safe_relative_path, stable_digest
+from ame_stocks_api.downloads import build_download_plan
+from ame_stocks_core import ProviderDataset, ProviderRequest
+
+IssueKind = Literal["corruption", "difference"]
+
+REST_SEMANTIC_AUDIT_SCHEMA_VERSION = 1
+
+KEY_DATASETS: dict[ProviderDataset, str] = {
+    ProviderDataset.SPLITS: "id",
+    ProviderDataset.DIVIDENDS: "id",
+    ProviderDataset.NEWS: "id",
+    ProviderDataset.EDGAR_INDEX: "accession_number",
+}
+TAXONOMY_DEFINITIONS: dict[ProviderDataset, str] = {
+    ProviderDataset.DISCLOSURE_TAXONOMY: "disclosure",
+    ProviderDataset.RISK_TAXONOMY: "risk",
+}
+TAXONOMY_USES: dict[ProviderDataset, str] = {
+    ProviderDataset.EIGHT_K_DISCLOSURES: "disclosure",
+    ProviderDataset.RISK_FACTORS: "risk",
+}
+ACCESSION_DETAILS = frozenset(
+    {
+        ProviderDataset.FORM_3,
+        ProviderDataset.FORM_4,
+        ProviderDataset.EIGHT_K_TEXT,
+        ProviderDataset.EIGHT_K_DISCLOSURES,
+    }
+)
+AUDITED_DATASETS = frozenset(
+    {
+        *KEY_DATASETS,
+        ProviderDataset.CONDITION_CODES,
+        *TAXONOMY_DEFINITIONS,
+        *TAXONOMY_USES,
+        *ACCESSION_DETAILS,
+    }
+)
+
+_EARLIEST_STARTS = {
+    ProviderDataset.SPLITS: date(2003, 9, 10),
+    ProviderDataset.DIVIDENDS: date(2003, 9, 10),
+    ProviderDataset.NEWS: date(2016, 6, 22),
+}
+_SNAPSHOTS = frozenset(
+    {
+        ProviderDataset.CONDITION_CODES,
+        ProviderDataset.DISCLOSURE_TAXONOMY,
+        ProviderDataset.RISK_TAXONOMY,
+    }
+)
+_TAXONOMY_FIELDS = ("primary_category", "secondary_category", "tertiary_category")
+
+
+class RestSemanticAuditError(RuntimeError):
+    """Raised when the semantic audit cannot be configured or started safely."""
+
+
+@dataclass(slots=True)
+class DatasetMetrics:
+    dataset: str
+    expected_manifests: int = 0
+    complete_manifests: int = 0
+    missing_manifests: int = 0
+    invalid_manifests: int = 0
+    ignored_non_authoritative_manifests: int = 0
+    pages: int = 0
+    rows: int = 0
+    rows_without_accession: int = 0
+    candidate_key_rows: int = 0
+    exact_duplicate_excess_rows: int = 0
+    conflicting_keys: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class _Issue:
+    kind: IssueKind
+    code: str
+    dataset: str
+    count: int
+    message: str
+    examples: tuple[str, ...] = ()
+
+
+class _Issues:
+    def __init__(self, max_examples: int) -> None:
+        self.max_examples = max_examples
+        self._counts: Counter[tuple[IssueKind, str, str, str]] = Counter()
+        self._examples: dict[tuple[IssueKind, str, str, str], list[str]] = defaultdict(list)
+
+    def add(
+        self,
+        kind: IssueKind,
+        code: str,
+        dataset: str,
+        message: str,
+        *,
+        count: int = 1,
+        example: object | None = None,
+    ) -> None:
+        if count <= 0:
+            return
+        key = (kind, code, dataset, message)
+        self._counts[key] += count
+        if example is not None and len(self._examples[key]) < self.max_examples:
+            rendered = str(example)
+            if rendered not in self._examples[key]:
+                self._examples[key].append(rendered[:500])
+
+    def report(self) -> list[dict[str, object]]:
+        issues = [
+            _Issue(
+                kind=kind,
+                code=code,
+                dataset=dataset,
+                count=count,
+                message=message,
+                examples=tuple(self._examples[(kind, code, dataset, message)]),
+            )
+            for (kind, code, dataset, message), count in self._counts.items()
+        ]
+        return [
+            {key: value for key, value in asdict(issue).items() if value != ()}
+            for issue in sorted(issues, key=lambda item: (item.kind, item.dataset, item.code))
+        ]
+
+    def total(self, kind: IssueKind) -> int:
+        return sum(count for key, count in self._counts.items() if key[0] == kind)
+
+    def code_counts(self, kind: IssueKind) -> dict[str, int]:
+        counts: Counter[str] = Counter()
+        for (observed_kind, code, _dataset, _message), count in self._counts.items():
+            if observed_kind == kind:
+                counts[code] += count
+        return dict(sorted(counts.items()))
+
+
+@dataclass(slots=True)
+class _PageBatch:
+    keys: Counter[tuple[str, str, bytes]]
+    taxonomies: Counter[tuple[str, str, str]]
+    accessions: Counter[tuple[str, str]]
+
+    @classmethod
+    def empty(cls) -> _PageBatch:
+        return cls(Counter(), Counter(), Counter())
+
+
+class RestSemanticAuditor:
+    """Audit semantic identities using only authoritative production request IDs."""
+
+    def __init__(
+        self,
+        data_root: Path,
+        *,
+        start: date,
+        end: date,
+        datasets: tuple[ProviderDataset, ...] | None = None,
+        max_examples: int = 20,
+        temp_dir: Path | None = None,
+    ) -> None:
+        if start > end:
+            raise ValueError("start must be on or before end")
+        if max_examples < 1:
+            raise ValueError("max_examples must be positive")
+        selected = AUDITED_DATASETS if datasets is None else frozenset(datasets)
+        unsupported = selected - AUDITED_DATASETS
+        if unsupported:
+            names = ", ".join(sorted(dataset.value for dataset in unsupported))
+            raise ValueError(f"unsupported semantic-audit datasets: {names}")
+        self.data_root = data_root.expanduser().resolve()
+        self.start = start
+        self.end = end
+        self.datasets = frozenset(selected)
+        self.max_examples = max_examples
+        self.temp_dir = (
+            temp_dir.expanduser().resolve()
+            if temp_dir
+            else self.data_root / "tmp" / "rest_semantics_audit"
+        )
+        self.issues = _Issues(max_examples)
+        self.metrics = {
+            dataset.value: DatasetMetrics(dataset.value)
+            for dataset in sorted(self.datasets, key=lambda item: item.value)
+        }
+
+    def run(self) -> dict[str, object]:
+        if not self.data_root.is_dir():
+            raise RestSemanticAuditError(f"data root is missing: {self.data_root}")
+        try:
+            self.temp_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise RestSemanticAuditError(
+                f"temporary directory is unavailable: {self.temp_dir}"
+            ) from exc
+
+        started = datetime.now(UTC)
+        with tempfile.TemporaryDirectory(
+            prefix="ame-rest-semantics-", dir=str(self.temp_dir)
+        ) as temporary:
+            database_path = Path(temporary) / "semantic-audit.sqlite3"
+            with sqlite3.connect(database_path) as connection:
+                self._initialize_database(connection)
+                for dataset in sorted(self.datasets, key=lambda item: item.value):
+                    self._scan_dataset(connection, dataset)
+                uniqueness = self._finalize_uniqueness(connection)
+                taxonomy = self._finalize_taxonomy(connection)
+                accessions = self._finalize_accessions(connection)
+
+        completed = datetime.now(UTC)
+        corruption = self.issues.total("corruption")
+        differences = self.issues.total("difference")
+        status = (
+            "failed"
+            if corruption
+            else ("passed_with_differences" if differences else "passed")
+        )
+        return {
+            "audit_schema_version": REST_SEMANTIC_AUDIT_SCHEMA_VERSION,
+            "status": status,
+            "data_root": str(self.data_root),
+            "window": {"start": self.start.isoformat(), "end": self.end.isoformat()},
+            "datasets": [
+                asdict(self.metrics[key]) for key in sorted(self.metrics)
+            ],
+            "gates": {
+                "semantic_corruption": "failed" if corruption else "passed",
+                "accession_coverage": (
+                    "different" if differences else accessions["status"]
+                ),
+            },
+            "summary": {
+                "corruption_count": corruption,
+                "difference_count": differences,
+                "corruption_code_counts": self.issues.code_counts("corruption"),
+                "difference_code_counts": self.issues.code_counts("difference"),
+                "expected_manifests": sum(
+                    metric.expected_manifests for metric in self.metrics.values()
+                ),
+                "ignored_non_authoritative_manifests": sum(
+                    metric.ignored_non_authoritative_manifests
+                    for metric in self.metrics.values()
+                ),
+                "pages": sum(metric.pages for metric in self.metrics.values()),
+                "rows": sum(metric.rows for metric in self.metrics.values()),
+            },
+            "uniqueness": uniqueness,
+            "taxonomy_coverage": taxonomy,
+            "accession_coverage": accessions,
+            "issues": self.issues.report(),
+            "started_at": started.isoformat(),
+            "completed_at": completed.isoformat(),
+            "duration_seconds": round((completed - started).total_seconds(), 3),
+            "method": (
+                "Only request IDs rebuilt from the authoritative plan are opened. Each gzip JSON "
+                "page is decoded independently; candidate keys, canonical row SHA-256 values, "
+                "taxonomy paths, and accession sets are aggregated in an automatically removed "
+                "temporary SQLite database. Form 13-F is intentionally outside this audit."
+            ),
+        }
+
+    @staticmethod
+    def _initialize_database(connection: sqlite3.Connection) -> None:
+        connection.executescript(
+            """
+            PRAGMA journal_mode = OFF;
+            PRAGMA synchronous = OFF;
+            PRAGMA temp_store = FILE;
+            CREATE TABLE key_records (
+                dataset TEXT NOT NULL,
+                candidate_key TEXT NOT NULL,
+                row_sha256 BLOB NOT NULL,
+                occurrences INTEGER NOT NULL,
+                PRIMARY KEY (dataset, candidate_key, row_sha256)
+            ) WITHOUT ROWID;
+            CREATE TABLE taxonomy_paths (
+                family TEXT NOT NULL,
+                role TEXT NOT NULL,
+                path TEXT NOT NULL,
+                occurrences INTEGER NOT NULL,
+                PRIMARY KEY (family, role, path)
+            ) WITHOUT ROWID;
+            CREATE TABLE accessions (
+                dataset TEXT NOT NULL,
+                accession TEXT NOT NULL,
+                occurrences INTEGER NOT NULL,
+                PRIMARY KEY (dataset, accession)
+            ) WITHOUT ROWID;
+            """
+        )
+
+    def _scan_dataset(self, connection: sqlite3.Connection, dataset: ProviderDataset) -> None:
+        plan = self._authoritative_plan(dataset)
+        metric = self.metrics[dataset.value]
+        metric.expected_manifests = len(plan)
+        manifest_root = self.data_root / "manifests" / "massive" / dataset.value
+        expected_ids = {request.request_id for request in plan}
+        actual_paths = set(manifest_root.glob("*.json")) if manifest_root.is_dir() else set()
+        ignored = sorted(path for path in actual_paths if path.stem not in expected_ids)
+        metric.ignored_non_authoritative_manifests = len(ignored)
+
+        for request in plan:
+            path = manifest_root / f"{request.request_id}.json"
+            if not path.is_file():
+                metric.missing_manifests += 1
+                self.issues.add(
+                    "corruption",
+                    "missing_authoritative_manifest",
+                    dataset.value,
+                    "an authoritative production request has no manifest",
+                    example=request.request_id,
+                )
+                continue
+            self._scan_manifest(connection, dataset, request, path)
+        if (
+            dataset in _SNAPSHOTS
+            and metric.complete_manifests == metric.expected_manifests
+            and metric.rows == 0
+        ):
+            self.issues.add(
+                "corruption",
+                "empty_reference_snapshot",
+                dataset.value,
+                "authoritative reference snapshot contains no rows",
+            )
+
+    def _authoritative_plan(self, dataset: ProviderDataset) -> tuple[ProviderRequest, ...]:
+        if dataset in _SNAPSHOTS:
+            start = end = self.end
+        else:
+            start = _EARLIEST_STARTS.get(dataset, self.start)
+            end = self.end
+        return build_download_plan(dataset=dataset, start=start, end=end).requests
+
+    def _scan_manifest(
+        self,
+        connection: sqlite3.Connection,
+        dataset: ProviderDataset,
+        request: ProviderRequest,
+        path: Path,
+    ) -> None:
+        metric = self.metrics[dataset.value]
+        try:
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            metric.invalid_manifests += 1
+            self.issues.add(
+                "corruption",
+                "manifest_unreadable",
+                dataset.value,
+                "authoritative manifest is not valid JSON",
+                example=f"{path.name}: {type(exc).__name__}",
+            )
+            return
+        if not isinstance(manifest, dict):
+            self._invalid_manifest(metric, dataset, path, "manifest root is not an object")
+            return
+        if (
+            manifest.get("status") != "complete"
+            or manifest.get("dataset") != dataset.value
+            or manifest.get("request_id") != request.request_id
+            or manifest.get("request") != request.canonical_dict()
+            or path.stem != request.request_id
+            or stable_digest(manifest.get("request")) != request.request_id
+        ):
+            self._invalid_manifest(
+                metric, dataset, path, "status, dataset, or canonical request identity differs"
+            )
+            return
+        artifacts = manifest.get("artifacts")
+        if not isinstance(artifacts, list) or not artifacts:
+            self._invalid_manifest(metric, dataset, path, "complete manifest has no artifacts")
+            return
+        sequences = [item.get("sequence") for item in artifacts if isinstance(item, dict)]
+        if sequences != list(range(len(artifacts))):
+            self._invalid_manifest(metric, dataset, path, "artifact sequence is not contiguous")
+            return
+
+        metric.complete_manifests += 1
+        for artifact in artifacts:
+            if not isinstance(artifact, dict):
+                self.issues.add(
+                    "corruption",
+                    "artifact_metadata_invalid",
+                    dataset.value,
+                    "artifact metadata is not an object",
+                    example=path.name,
+                )
+                continue
+            self._scan_page(connection, dataset, artifact, metric)
+
+    def _invalid_manifest(
+        self,
+        metric: DatasetMetrics,
+        dataset: ProviderDataset,
+        path: Path,
+        detail: str,
+    ) -> None:
+        metric.invalid_manifests += 1
+        self.issues.add(
+            "corruption",
+            "authoritative_manifest_invalid",
+            dataset.value,
+            detail,
+            example=path.name,
+        )
+
+    def _scan_page(
+        self,
+        connection: sqlite3.Connection,
+        dataset: ProviderDataset,
+        artifact: dict[str, Any],
+        metric: DatasetMetrics,
+    ) -> None:
+        try:
+            page_path = safe_relative_path(self.data_root, artifact.get("path"))
+            with gzip.open(page_path, "rt", encoding="utf-8") as handle:
+                document = json.load(handle)
+        except (
+            ArtifactError,
+            OSError,
+            EOFError,
+            UnicodeError,
+            json.JSONDecodeError,
+        ) as exc:
+            self.issues.add(
+                "corruption",
+                "page_unreadable",
+                dataset.value,
+                "authoritative gzip JSON page cannot be decoded",
+                example=f"{artifact.get('path')}: {type(exc).__name__}",
+            )
+            return
+        if not isinstance(document, dict) or (
+            document.get("status") is not None
+            and str(document.get("status")).upper() != "OK"
+        ):
+            self.issues.add(
+                "corruption",
+                "response_envelope_invalid",
+                dataset.value,
+                "provider response root/status is invalid",
+                example=artifact.get("path"),
+            )
+            return
+        rows = document.get("results")
+        if rows is None:
+            rows = []
+        if not isinstance(rows, list):
+            self.issues.add(
+                "corruption",
+                "results_not_array",
+                dataset.value,
+                "provider results is not an array",
+                example=artifact.get("path"),
+            )
+            return
+        declared_count = artifact.get("record_count")
+        if isinstance(declared_count, bool) or not isinstance(declared_count, int):
+            declared_count = -1
+        if declared_count != len(rows):
+            self.issues.add(
+                "corruption",
+                "semantic_record_count_mismatch",
+                dataset.value,
+                "manifest record_count differs from decoded results length",
+                example=artifact.get("path"),
+            )
+
+        batch = _PageBatch.empty()
+        for row in rows:
+            metric.rows += 1
+            if not isinstance(row, dict):
+                self.issues.add(
+                    "corruption",
+                    "row_not_object",
+                    dataset.value,
+                    "result row is not an object",
+                    example=artifact.get("path"),
+                )
+                continue
+            self._collect_row(dataset, row, batch, metric)
+        self._flush_page(connection, batch)
+        metric.pages += 1
+
+    def _collect_row(
+        self,
+        dataset: ProviderDataset,
+        row: dict[str, Any],
+        batch: _PageBatch,
+        metric: DatasetMetrics,
+    ) -> None:
+        if dataset in KEY_DATASETS:
+            field = KEY_DATASETS[dataset]
+            key = row.get(field)
+            if not isinstance(key, str) or not key.strip():
+                self.issues.add(
+                    "corruption",
+                    "missing_candidate_key",
+                    dataset.value,
+                    f"row has no nonblank {field}",
+                )
+            else:
+                digest = _canonical_row_sha256(row)
+                if digest is None:
+                    self.issues.add(
+                        "corruption",
+                        "row_not_canonical_json",
+                        dataset.value,
+                        "row cannot be represented as canonical JSON",
+                        example=key,
+                    )
+                else:
+                    batch.keys[(dataset.value, _json_key((key.strip(),)), digest)] += 1
+                    metric.candidate_key_rows += 1
+
+        if dataset is ProviderDataset.CONDITION_CODES:
+            self._collect_condition(row, batch, metric)
+
+        family = TAXONOMY_DEFINITIONS.get(dataset)
+        if family is not None:
+            path = self._taxonomy_path(dataset, row)
+            if path is not None:
+                digest = _canonical_row_sha256(row)
+                if digest is not None:
+                    batch.keys[(dataset.value, path, digest)] += 1
+                    batch.taxonomies[(family, "definition", path)] += 1
+                    metric.candidate_key_rows += 1
+
+        family = TAXONOMY_USES.get(dataset)
+        if family is not None:
+            path = self._taxonomy_path(dataset, row)
+            if path is not None:
+                batch.taxonomies[(family, "use", path)] += 1
+
+        if dataset is ProviderDataset.EDGAR_INDEX:
+            accession = row.get("accession_number")
+            if isinstance(accession, str) and accession.strip():
+                batch.accessions[(dataset.value, accession.strip())] += 1
+        elif dataset in ACCESSION_DETAILS:
+            accession = row.get("accession_number")
+            if isinstance(accession, str) and accession.strip():
+                batch.accessions[(dataset.value, accession.strip())] += 1
+            else:
+                metric.rows_without_accession += 1
+
+    def _collect_condition(
+        self,
+        row: dict[str, Any],
+        batch: _PageBatch,
+        metric: DatasetMetrics,
+    ) -> None:
+        asset_class = row.get("asset_class")
+        condition_id = row.get("id")
+        data_types = row.get("data_types")
+        if (
+            not isinstance(asset_class, str)
+            or not asset_class.strip()
+            or isinstance(condition_id, bool)
+            or not isinstance(condition_id, (str, int))
+            or not isinstance(data_types, list)
+            or not data_types
+        ):
+            self.issues.add(
+                "corruption",
+                "condition_identity_invalid",
+                ProviderDataset.CONDITION_CODES.value,
+                "condition needs asset_class, id, and a nonempty data_types array",
+            )
+            return
+        normalized_types: list[str] = []
+        for value in data_types:
+            if not isinstance(value, str) or not value.strip():
+                self.issues.add(
+                    "corruption",
+                    "condition_data_type_invalid",
+                    ProviderDataset.CONDITION_CODES.value,
+                    "condition data_types contains a non-string or blank value",
+                    example=condition_id,
+                )
+                continue
+            normalized_types.append(value.strip())
+        if len(normalized_types) != len(set(normalized_types)):
+            self.issues.add(
+                "corruption",
+                "condition_data_type_duplicate",
+                ProviderDataset.CONDITION_CODES.value,
+                "one condition repeats the same data_type",
+                example=condition_id,
+            )
+        digest = _canonical_row_sha256(row)
+        if digest is None:
+            self.issues.add(
+                "corruption",
+                "row_not_canonical_json",
+                ProviderDataset.CONDITION_CODES.value,
+                "condition row cannot be represented as canonical JSON",
+                example=condition_id,
+            )
+            return
+        for data_type in sorted(set(normalized_types)):
+            key = _json_key((asset_class.strip(), data_type, condition_id))
+            batch.keys[(ProviderDataset.CONDITION_CODES.value, key, digest)] += 1
+            metric.candidate_key_rows += 1
+
+    def _taxonomy_path(
+        self, dataset: ProviderDataset, row: dict[str, Any]
+    ) -> str | None:
+        values: list[str] = []
+        for field in _TAXONOMY_FIELDS:
+            value = row.get(field)
+            if not isinstance(value, str) or not value.strip():
+                self.issues.add(
+                    "corruption",
+                    "taxonomy_path_invalid",
+                    dataset.value,
+                    "taxonomy path needs three nonblank category strings",
+                    example=field,
+                )
+                return None
+            values.append(value.strip())
+        return _json_key(tuple(values))
+
+    @staticmethod
+    def _flush_page(connection: sqlite3.Connection, batch: _PageBatch) -> None:
+        with connection:
+            connection.executemany(
+                """
+                INSERT INTO key_records(dataset, candidate_key, row_sha256, occurrences)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(dataset, candidate_key, row_sha256)
+                DO UPDATE SET occurrences = occurrences + excluded.occurrences
+                """,
+                [(*key, count) for key, count in batch.keys.items()],
+            )
+            connection.executemany(
+                """
+                INSERT INTO taxonomy_paths(family, role, path, occurrences)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(family, role, path)
+                DO UPDATE SET occurrences = occurrences + excluded.occurrences
+                """,
+                [(*key, count) for key, count in batch.taxonomies.items()],
+            )
+            connection.executemany(
+                """
+                INSERT INTO accessions(dataset, accession, occurrences)
+                VALUES (?, ?, ?)
+                ON CONFLICT(dataset, accession)
+                DO UPDATE SET occurrences = occurrences + excluded.occurrences
+                """,
+                [(*key, count) for key, count in batch.accessions.items()],
+            )
+
+    def _finalize_uniqueness(
+        self, connection: sqlite3.Connection
+    ) -> dict[str, dict[str, object]]:
+        audited = {
+            *[dataset.value for dataset in KEY_DATASETS if dataset in self.datasets],
+            *(
+                [ProviderDataset.CONDITION_CODES.value]
+                if ProviderDataset.CONDITION_CODES in self.datasets
+                else []
+            ),
+            *[
+                dataset.value
+                for dataset in TAXONOMY_DEFINITIONS
+                if dataset in self.datasets
+            ],
+        }
+        result: dict[str, dict[str, object]] = {}
+        for dataset in sorted(audited):
+            excess = int(
+                connection.execute(
+                    """
+                    SELECT COALESCE(SUM(occurrences - 1), 0)
+                    FROM key_records
+                    WHERE dataset = ? AND occurrences > 1
+                    """,
+                    (dataset,),
+                ).fetchone()[0]
+            )
+            conflicts = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*) FROM (
+                        SELECT candidate_key
+                        FROM key_records
+                        WHERE dataset = ?
+                        GROUP BY candidate_key
+                        HAVING COUNT(*) > 1
+                    )
+                    """,
+                    (dataset,),
+                ).fetchone()[0]
+            )
+            distinct_keys = int(
+                connection.execute(
+                    "SELECT COUNT(DISTINCT candidate_key) FROM key_records WHERE dataset = ?",
+                    (dataset,),
+                ).fetchone()[0]
+            )
+            duplicate_examples = [
+                str(row[0])
+                for row in connection.execute(
+                    """
+                    SELECT candidate_key FROM key_records
+                    WHERE dataset = ? AND occurrences > 1
+                    ORDER BY candidate_key LIMIT ?
+                    """,
+                    (dataset, self.max_examples),
+                )
+            ]
+            conflict_examples = [
+                str(row[0])
+                for row in connection.execute(
+                    """
+                    SELECT candidate_key FROM key_records
+                    WHERE dataset = ?
+                    GROUP BY candidate_key HAVING COUNT(*) > 1
+                    ORDER BY candidate_key LIMIT ?
+                    """,
+                    (dataset, self.max_examples),
+                )
+            ]
+            metric = self.metrics[dataset]
+            metric.exact_duplicate_excess_rows = excess
+            metric.conflicting_keys = conflicts
+            if excess:
+                self.issues.add(
+                    "corruption",
+                    "exact_duplicate_rows",
+                    dataset,
+                    "candidate key and canonical row repeat exactly",
+                    count=excess,
+                    example=duplicate_examples[0] if duplicate_examples else None,
+                )
+            if conflicts:
+                self.issues.add(
+                    "corruption",
+                    "conflicting_candidate_keys",
+                    dataset,
+                    "one candidate key maps to multiple canonical rows",
+                    count=conflicts,
+                    example=conflict_examples[0] if conflict_examples else None,
+                )
+            result[dataset] = {
+                "distinct_candidate_keys": distinct_keys,
+                "exact_duplicate_excess_rows": excess,
+                "conflicting_keys": conflicts,
+                "duplicate_examples": duplicate_examples,
+                "conflict_examples": conflict_examples,
+            }
+        return result
+
+    def _finalize_taxonomy(self, connection: sqlite3.Connection) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for family in ("disclosure", "risk"):
+            definition_dataset = next(
+                (
+                    dataset
+                    for dataset, observed in TAXONOMY_DEFINITIONS.items()
+                    if observed == family
+                ),
+                None,
+            )
+            use_dataset = next(
+                (dataset for dataset, observed in TAXONOMY_USES.items() if observed == family),
+                None,
+            )
+            if definition_dataset not in self.datasets or use_dataset not in self.datasets:
+                result[family] = {"status": "not_run"}
+                continue
+            definitions = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM taxonomy_paths WHERE family = ? AND role = 'definition'",
+                    (family,),
+                ).fetchone()[0]
+            )
+            used_paths = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM taxonomy_paths WHERE family = ? AND role = 'use'",
+                    (family,),
+                ).fetchone()[0]
+            )
+            missing_rows = int(
+                connection.execute(
+                    """
+                    SELECT COALESCE(SUM(u.occurrences), 0)
+                    FROM taxonomy_paths AS u
+                    LEFT JOIN taxonomy_paths AS d
+                      ON d.family = u.family AND d.role = 'definition' AND d.path = u.path
+                    WHERE u.family = ? AND u.role = 'use' AND d.path IS NULL
+                    """,
+                    (family,),
+                ).fetchone()[0]
+            )
+            missing_paths = [
+                str(row[0])
+                for row in connection.execute(
+                    """
+                    SELECT u.path FROM taxonomy_paths AS u
+                    LEFT JOIN taxonomy_paths AS d
+                      ON d.family = u.family AND d.role = 'definition' AND d.path = u.path
+                    WHERE u.family = ? AND u.role = 'use' AND d.path IS NULL
+                    ORDER BY u.path LIMIT ?
+                    """,
+                    (family, self.max_examples),
+                )
+            ]
+            if missing_rows:
+                self.issues.add(
+                    "corruption",
+                    "taxonomy_path_not_decodable",
+                    use_dataset.value,
+                    "used taxonomy path is absent from its authoritative taxonomy",
+                    count=missing_rows,
+                    example=missing_paths[0] if missing_paths else None,
+                )
+            result[family] = {
+                "status": "failed" if missing_rows else "matched",
+                "definition_paths": definitions,
+                "used_paths": used_paths,
+                "undecodable_usage_rows": missing_rows,
+                "undecodable_path_examples": missing_paths,
+            }
+        return result
+
+    def _finalize_accessions(self, connection: sqlite3.Connection) -> dict[str, object]:
+        if ProviderDataset.EDGAR_INDEX not in self.datasets:
+            return {"status": "not_run", "datasets": {}}
+        datasets: dict[str, object] = {}
+        missing_total = 0
+        for dataset in sorted(ACCESSION_DETAILS & self.datasets, key=lambda item: item.value):
+            distinct_accessions = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM accessions WHERE dataset = ?",
+                    (dataset.value,),
+                ).fetchone()[0]
+            )
+            missing_rows = int(
+                connection.execute(
+                    """
+                    SELECT COALESCE(SUM(detail.occurrences), 0)
+                    FROM accessions AS detail
+                    LEFT JOIN accessions AS edgar
+                      ON edgar.dataset = ? AND edgar.accession = detail.accession
+                    WHERE detail.dataset = ? AND edgar.accession IS NULL
+                    """,
+                    (ProviderDataset.EDGAR_INDEX.value, dataset.value),
+                ).fetchone()[0]
+            )
+            examples = [
+                str(row[0])
+                for row in connection.execute(
+                    """
+                    SELECT detail.accession
+                    FROM accessions AS detail
+                    LEFT JOIN accessions AS edgar
+                      ON edgar.dataset = ? AND edgar.accession = detail.accession
+                    WHERE detail.dataset = ? AND edgar.accession IS NULL
+                    ORDER BY detail.accession LIMIT ?
+                    """,
+                    (ProviderDataset.EDGAR_INDEX.value, dataset.value, self.max_examples),
+                )
+            ]
+            missing_total += missing_rows
+            if missing_rows:
+                self.issues.add(
+                    "difference",
+                    "accession_absent_from_edgar_index",
+                    dataset.value,
+                    "detail filing accession is absent from the downloaded EDGAR index",
+                    count=missing_rows,
+                    example=examples[0] if examples else None,
+                )
+            datasets[dataset.value] = {
+                "distinct_accessions": distinct_accessions,
+                "rows_without_accession": self.metrics[dataset.value].rows_without_accession,
+                "missing_edgar_rows": missing_rows,
+                "missing_edgar_examples": examples,
+            }
+        return {
+            "status": "different" if missing_total else "matched",
+            "missing_edgar_rows": missing_total,
+            "datasets": datasets,
+        }
+
+
+def _canonical_row_sha256(row: dict[str, Any]) -> bytes | None:
+    try:
+        serialized = json.dumps(
+            row,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    except (TypeError, ValueError):
+        return None
+    return hashlib.sha256(serialized).digest()
+
+
+def _json_key(values: tuple[object, ...]) -> str:
+    return json.dumps(values, ensure_ascii=False, separators=(",", ":"))
+
+
+__all__ = [
+    "ACCESSION_DETAILS",
+    "AUDITED_DATASETS",
+    "KEY_DATASETS",
+    "REST_SEMANTIC_AUDIT_SCHEMA_VERSION",
+    "RestSemanticAuditError",
+    "RestSemanticAuditor",
+]
