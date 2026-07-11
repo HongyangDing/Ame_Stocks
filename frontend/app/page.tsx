@@ -43,7 +43,7 @@ export default function Home() {
             transformation, factor version, and backtest assumption inspectable.
           </p>
           <div className="contract-row" aria-label="Contract versions">
-            <span>Provider contract v1.0</span>
+            <span>Provider contract v1.1</span>
             <span>Factor contract v1.0</span>
             <span>Mock data only</span>
           </div>

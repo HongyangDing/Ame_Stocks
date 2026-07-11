@@ -11,19 +11,22 @@ requires-python = ">=3.12,<3.14"
 dependencies = [
   "celery[redis]>=5.6,<5.7",
   "fastapi>=0.139,<0.140",
+  "httpx2>=2.5,<3",
   "polars>=1.42,<1.43",
   "uvicorn[standard]>=0.51,<0.52",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "httpx2>=2.5,<3",
   "pytest>=9.1,<10",
   "ruff>=0.15,<0.16",
 ]
 
 [tool.setuptools.packages.find]
 where = ["packages", "backend", "worker"]
+
+[project.scripts]
+ame-massive = "ame_stocks_api.cli.massive:main"
 
 [tool.pytest.ini_options]
 addopts = "-q"

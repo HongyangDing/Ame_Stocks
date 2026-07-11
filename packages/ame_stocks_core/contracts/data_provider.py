@@ -14,13 +14,14 @@ from datetime import date
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
-PROVIDER_CONTRACT_VERSION = "1.0"
+PROVIDER_CONTRACT_VERSION = "1.1"
 
 
 class ProviderDataset(StrEnum):
     """Datasets that every market-data provider may expose."""
 
     ASSETS = "assets"
+    DAILY_BARS = "daily_bars"
     MINUTE_BARS = "minute_bars"
     SPLITS = "splits"
     DIVIDENDS = "dividends"
@@ -82,6 +83,7 @@ class ProviderBatch:
     sequence: int
     payload: bytes
     content_type: str = "application/json"
+    # Opaque, provider-owned continuation. It must never contain credentials.
     next_cursor: str | None = None
     is_last: bool = True
 
@@ -106,6 +108,20 @@ class ProviderBatch:
         return hashlib.sha256(self.payload).hexdigest()
 
 
+@dataclass(frozen=True, slots=True)
+class FetchCheckpoint:
+    """Provider-owned continuation state for exact page-level resume."""
+
+    continuation: str
+    next_sequence: int
+
+    def __post_init__(self) -> None:
+        if not self.continuation.strip():
+            raise ValueError("continuation cannot be blank")
+        if self.next_sequence < 1:
+            raise ValueError("next_sequence must be positive")
+
+
 @runtime_checkable
 class DataProvider(Protocol):
     """Protocol implemented by MockProvider now and MassiveProvider later."""
@@ -113,7 +129,12 @@ class DataProvider(Protocol):
     name: str
     version: str
 
-    def fetch(self, request: ProviderRequest) -> AsyncIterator[ProviderBatch]:
+    def fetch(
+        self,
+        request: ProviderRequest,
+        *,
+        checkpoint: FetchCheckpoint | None = None,
+    ) -> AsyncIterator[ProviderBatch]:
         """Stream raw response pages for a deterministic request."""
 
         ...

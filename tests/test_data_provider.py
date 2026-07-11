@@ -5,7 +5,7 @@ from datetime import date
 import pytest
 
 from ame_stocks_api.providers import MockProvider
-from ame_stocks_core import DataProvider, ProviderDataset, ProviderRequest
+from ame_stocks_core import DataProvider, FetchCheckpoint, ProviderDataset, ProviderRequest
 
 
 async def _fetch_once(provider: MockProvider, request: ProviderRequest):
@@ -60,3 +60,31 @@ def test_provider_request_rejects_invalid_ranges() -> None:
             start=date(2026, 1, 3),
             end=date(2026, 1, 2),
         )
+
+
+def test_mock_provider_accepts_resume_checkpoint() -> None:
+    provider = MockProvider()
+    request = ProviderRequest(
+        dataset=ProviderDataset.DAILY_BARS,
+        start=date(2026, 1, 2),
+        end=date(2026, 1, 3),
+        asset_ids=("AAPL",),
+    )
+
+    batches = asyncio.run(
+        _fetch_once_with_checkpoint(
+            provider,
+            request,
+            FetchCheckpoint(continuation="/mock?cursor=next", next_sequence=3),
+        )
+    )
+
+    assert batches[0].sequence == 3
+
+
+async def _fetch_once_with_checkpoint(
+    provider: MockProvider,
+    request: ProviderRequest,
+    checkpoint: FetchCheckpoint,
+):
+    return [batch async for batch in provider.fetch(request, checkpoint=checkpoint)]

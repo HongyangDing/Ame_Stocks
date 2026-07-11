@@ -6,10 +6,10 @@ A resume-grade U.S. equity factor research and backtesting platform. The project
 
 Step 1 establishes the application skeleton and the two public Python contracts:
 
-- `DataProvider`: an asynchronous, paginated source adapter that returns immutable raw payload batches.
+- `DataProvider`: an asynchronous, resumable source adapter that returns immutable raw payload batches.
 - `FactorSpec`: a Git-managed Polars factor plugin that emits `signal_date`, `asset_id`, and `raw_value`.
 
-The current `MockProvider` is deterministic and returns an empty JSON payload. It does not call Massive, SEC, or any external market-data service. Synthetic market generation begins in Step 3.
+The current `MockProvider` is deterministic and returns an empty JSON payload. A reviewed Massive downloader is also available, but it contacts the API only through the explicit `download` command. Synthetic market generation begins in Step 3.
 
 ## Repository layout
 
@@ -68,7 +68,7 @@ The Celery application can be imported without a broker. Running a worker will r
 
 ## Configuration and secrets
 
-Copy `.env.example` only when local overrides are needed. No API keys are present or required in Step 1. Future Massive credentials will be supplied through an untracked `MASSIVE_API_KEY` environment variable.
+Copy `.env.example` only when local overrides are needed. Planning requires no API key. An approved live download will read Massive credentials only from an untracked `MASSIVE_API_KEY` environment variable.
 
 The future remote data root is reserved as:
 
@@ -77,3 +77,29 @@ The future remote data root is reserved as:
 ```
 
 No remote directories, services, domains, or legacy applications are changed by Step 1.
+
+## Massive downloader review
+
+Planning never reads `MASSIVE_API_KEY` and never contacts Massive:
+
+```bash
+.venv/bin/ame-massive plan \
+  --dataset daily_bars \
+  --ticker AAPL \
+  --ticker MSFT \
+  --start 2024-07-01 \
+  --end 2026-06-30
+```
+
+The live command is intentionally distinct and requires an explicit storage root:
+
+```bash
+MASSIVE_API_KEY='set-in-your-shell' .venv/bin/ame-massive download \
+  --dataset minute_bars \
+  --ticker-file tickers.txt \
+  --start 2024-07-01 \
+  --end 2026-06-30 \
+  --data-root /mnt/HC_Volume_106309665/american_stocks
+```
+
+Do not run the live command until the downloader has been reviewed. See [docs/massive-downloader.md](docs/massive-downloader.md) for endpoints, rate limits, storage layout, and resume behavior.

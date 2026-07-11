@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 
-from ame_stocks_core import ProviderBatch, ProviderRequest
+from ame_stocks_core import FetchCheckpoint, ProviderBatch, ProviderRequest
 
 
 class MockProvider:
@@ -17,7 +17,12 @@ class MockProvider:
     def __init__(self, *, seed: int = 20260711) -> None:
         self.seed = seed
 
-    async def fetch(self, request: ProviderRequest) -> AsyncIterator[ProviderBatch]:
+    async def fetch(
+        self,
+        request: ProviderRequest,
+        *,
+        checkpoint: FetchCheckpoint | None = None,
+    ) -> AsyncIterator[ProviderBatch]:
         payload = json.dumps(
             {
                 "provider": self.name,
@@ -34,6 +39,6 @@ class MockProvider:
             provider_version=self.version,
             dataset=request.dataset,
             request_id=request.request_id,
-            sequence=0,
+            sequence=checkpoint.next_sequence if checkpoint else 0,
             payload=payload,
         )

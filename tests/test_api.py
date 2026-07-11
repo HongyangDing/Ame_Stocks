@@ -23,6 +23,12 @@ def test_contract_endpoint_is_explicit_and_versioned() -> None:
     assert response.json() == {
         "factor_contract_version": "1.0",
         "factor_output_columns": ["signal_date", "asset_id", "raw_value"],
-        "provider_contract_version": "1.0",
-        "provider_datasets": ["assets", "minute_bars", "splits", "dividends"],
+        "provider_contract_version": "1.1",
+        "provider_datasets": [
+            "assets",
+            "daily_bars",
+            "minute_bars",
+            "splits",
+            "dividends",
+        ],
     }

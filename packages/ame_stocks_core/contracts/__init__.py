@@ -3,6 +3,7 @@
 from ame_stocks_core.contracts.data_provider import (
     PROVIDER_CONTRACT_VERSION,
     DataProvider,
+    FetchCheckpoint,
     ProviderBatch,
     ProviderDataset,
     ProviderRequest,
@@ -23,6 +24,7 @@ __all__ = [
     "FactorDirection",
     "FactorFrequency",
     "FactorSpec",
+    "FetchCheckpoint",
     "ProviderBatch",
     "ProviderDataset",
     "ProviderRequest",
