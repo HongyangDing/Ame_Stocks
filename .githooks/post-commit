@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+repository_root=$(git rev-parse --show-toplevel)
+exec "$repository_root/scripts/sync_progress.sh"

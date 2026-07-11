@@ -80,6 +80,24 @@ The future remote data root is reserved as:
 
 No remote directories, services, domains, or legacy applications are changed by Step 1.
 
+## Automatic progress synchronization
+
+This checkout uses a versioned `post-commit` hook. After every focused commit on `main`, it:
+
+1. refuses to proceed if task files remain uncommitted;
+2. pushes `main` to `git@github.com:HongyangDing/Ame_Stocks.git`;
+3. runs `git pull --ff-only origin main` in `/opt/american_stocks` on the remote server;
+4. verifies that local, GitHub, and remote commit IDs are identical.
+
+Enable the hook once per clone:
+
+```bash
+scripts/install_hooks.sh
+```
+
+If a network failure interrupts synchronization, the commit remains local. Fix the connection
+and rerun `scripts/sync_progress.sh`; the script never force-pushes or resets either checkout.
+
 ## Massive Starter hybrid downloader review
 
 Full-market minute and day backfills use Starter Flat Files. This offline plan reads no
