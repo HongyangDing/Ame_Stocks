@@ -69,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
             write_json_atomic(output.resolve(), report)
             report["report_path"] = str(output.resolve())
         print(json.dumps(report, indent=2, sort_keys=True))
-        return 0 if report["status"] == "passed" else 1
+        return 0 if report["status"] in {"passed", "passed_with_differences"} else 1
     except (MarketAuditError, OSError, ValueError) as exc:
         parser.exit(2, f"ame-audit-market: {exc}\n")
 

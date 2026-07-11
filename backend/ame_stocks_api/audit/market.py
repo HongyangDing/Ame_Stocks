@@ -30,8 +30,8 @@ from ame_stocks_api.artifacts import (
 from ame_stocks_api.downloads import market_session_dates
 from ame_stocks_api.flatfiles import FlatFileDataset, FlatFileObject
 
-MARKET_AUDIT_SCHEMA_VERSION = 2
-CACHE_SCHEMA_VERSION = 2
+MARKET_AUDIT_SCHEMA_VERSION = 3
+CACHE_SCHEMA_VERSION = 3
 EXPECTED_COLUMNS = (
     "ticker",
     "volume",
@@ -166,25 +166,33 @@ class MarketCrossAuditor:
                         if isinstance(details, dict):
                             mismatch_counts[str(field)] += int(details.get("count", 0))
         failed = sum(result["status"] == "failed" for result in results)
+        differences = sum(
+            result["status"] == "passed_with_differences" for result in results
+        )
         summary = {
             "cache_reused": sum(result["cache_status"] == "reused" for result in results),
             "day_rows": sum(
                 int(result["datasets"].get("day", {}).get("rows", 0)) for result in results
             ),
+            "difference_sessions": differences,
             "failed_sessions": failed,
             "field_mismatch_counts": dict(sorted(mismatch_counts.items())),
             "issue_code_counts": dict(sorted(issue_counts.items())),
             "minute_rows": sum(
                 int(result["datasets"].get("minute", {}).get("rows", 0)) for result in results
             ),
-            "passed_sessions": len(results) - failed,
+            "passed_sessions": len(results) - failed - differences,
             "sessions": len(results),
         }
         return {
             "audit_schema_version": MARKET_AUDIT_SCHEMA_VERSION,
             "config": self._config(),
             "sessions": results,
-            "status": "failed" if failed else "passed",
+            "status": (
+                "failed"
+                if failed
+                else ("passed_with_differences" if differences else "passed")
+            ),
             "summary": summary,
         }
 
@@ -392,6 +400,15 @@ class MarketCrossAuditor:
             )
             issues.extend(comparison_issues)
         issues = _sort_issues(issues)
+        integrity_issues = [issue for issue in issues if issue["dataset"] != "cross_table"]
+        reconciliation_issues = [
+            issue for issue in issues if issue["dataset"] == "cross_table"
+        ]
+        status = (
+            "failed"
+            if integrity_issues
+            else ("passed_with_differences" if reconciliation_issues else "passed")
+        )
         return {
             "audit_schema_version": MARKET_AUDIT_SCHEMA_VERSION,
             "comparison": comparison,
@@ -401,7 +418,7 @@ class MarketCrossAuditor:
             "sources": {
                 label: source.binding(self.data_root) for label, source in sorted(sources.items())
             },
-            "status": "failed" if issues else "passed",
+            "status": status,
         }
 
     def _validate_frame(
@@ -723,7 +740,7 @@ class MarketCrossAuditor:
                     "day_only": day_only,
                     "minute_only": minute_only,
                 },
-                "status": "failed" if issues else "passed",
+                "status": "different" if issues else "matched",
                 "tolerance": self.tolerance.to_dict(),
                 "reconstruction": {
                     "ohlc": "XNYS regular-session minute bars [open, close)",

@@ -103,12 +103,16 @@ def test_matching_minute_and_day_files_pass(tmp_path: Path) -> None:
     )
 
 
-def test_numeric_mismatch_is_reported_and_cli_returns_nonzero(tmp_path: Path, capsys) -> None:
-    _valid_fixture(tmp_path, day_close=11.5)
+def test_numeric_mismatch_is_reported_separately_from_integrity(
+    tmp_path: Path, capsys
+) -> None:
+    _valid_fixture(tmp_path, day_close=10.75)
 
     report = _audit(tmp_path)
 
-    assert report["status"] == "failed"
+    assert report["status"] == "passed_with_differences"
+    assert report["summary"]["difference_sessions"] == 1
+    assert report["summary"]["failed_sessions"] == 0
     assert report["summary"]["issue_code_counts"]["close_mismatch"] == 1
     mismatch = report["sessions"][0]["comparison"]["field_mismatches"]["close"]
     assert mismatch["count"] == 1
@@ -124,9 +128,9 @@ def test_numeric_mismatch_is_reported_and_cli_returns_nonzero(tmp_path: Path, ca
                 SESSION.isoformat(),
             ]
         )
-        == 1
+        == 0
     )
-    assert json.loads(capsys.readouterr().out)["status"] == "failed"
+    assert json.loads(capsys.readouterr().out)["status"] == "passed_with_differences"
 
 
 def test_invalid_minute_alignment_and_duplicate_conflict_fail(tmp_path: Path) -> None:
@@ -173,7 +177,7 @@ def test_second_run_reuses_cache_bound_to_both_manifest_hashes(tmp_path: Path) -
             / "manifests"
             / "audits"
             / "market_crosscheck"
-            / "schema=v2"
+            / "schema=v3"
             / f"{SESSION.isoformat()}.json"
         ).read_text()
     )
@@ -188,7 +192,7 @@ def test_second_run_reuses_cache_bound_to_both_manifest_hashes(tmp_path: Path) -
     assert day_manifest.is_file()
     changed = _audit(tmp_path)
     assert changed["sessions"][0]["cache_status"] == "computed"
-    assert changed["status"] == "failed"
+    assert changed["status"] == "passed_with_differences"
 
 
 def test_extended_hours_prices_do_not_replace_regular_session_ohlc(tmp_path: Path) -> None:
