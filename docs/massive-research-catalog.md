@@ -29,6 +29,10 @@ HTTP status and response size; credentials and response bodies were not logged.
 | 8-K text | 2016-07-11 project window | calendar-year gzip JSON streams | event-driven disclosure factors |
 | Risk-factor taxonomy | 2016-07-11 project window | calendar-year gzip JSON streams | standardized disclosure-risk features |
 | News | 2016-06-22 | calendar-year gzip JSON streams | point-in-time sentiment and attention features |
+| Treasury yields | 1962-01-02 | one gzip JSON stream | yield-curve and rate-regime controls |
+| Inflation | 1947-01-01 | one gzip JSON stream | realized inflation regime controls |
+| Inflation expectations | 1982-01-01 | one gzip JSON stream | market/model inflation-risk controls |
+| Labor market | 1948-01-01 | one gzip JSON stream | employment-cycle controls |
 
 Every date-ranged REST request uses the dataset's disclosure or event date, not report-period
 date. Bronze stores the provider response unchanged; later Silver jobs must deduplicate by the
@@ -93,3 +97,4 @@ Official endpoint documentation:
 - [8-K text](https://massive.com/docs/rest/stocks/filings/8-k-text)
 - [Risk factors](https://massive.com/docs/rest/stocks/filings/risk-factors)
 - [News](https://massive.com/docs/rest/stocks/news)
+- [Economy overview](https://massive.com/docs/rest/economy/overview)

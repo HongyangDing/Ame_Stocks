@@ -40,6 +40,10 @@ class ProviderDataset(StrEnum):
     TEN_K_SECTIONS = "ten_k_sections"
     EIGHT_K_TEXT = "eight_k_text"
     NEWS = "news"
+    TREASURY_YIELDS = "treasury_yields"
+    INFLATION = "inflation"
+    INFLATION_EXPECTATIONS = "inflation_expectations"
+    LABOR_MARKET = "labor_market"
 
 
 @dataclass(frozen=True, slots=True)

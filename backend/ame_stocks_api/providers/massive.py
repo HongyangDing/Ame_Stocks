@@ -45,6 +45,10 @@ _ALLOWED_PARAMETERS = {
     ProviderDataset.TEN_K_SECTIONS: frozenset({"cik", "period_end", "section"}),
     ProviderDataset.EIGHT_K_TEXT: frozenset({"cik", "form_type"}),
     ProviderDataset.NEWS: frozenset(),
+    ProviderDataset.TREASURY_YIELDS: frozenset(),
+    ProviderDataset.INFLATION: frozenset(),
+    ProviderDataset.INFLATION_EXPECTATIONS: frozenset(),
+    ProviderDataset.LABOR_MARKET: frozenset(),
 }
 
 
@@ -91,6 +95,18 @@ _BULK_ENDPOINTS = {
     ),
     ProviderDataset.NEWS: _BulkEndpoint(
         "/v2/reference/news", "published_utc", 1_000, "published_utc", order="asc"
+    ),
+    ProviderDataset.TREASURY_YIELDS: _BulkEndpoint(
+        "/fed/v1/treasury-yields", "date", 50_000, "date.asc", None
+    ),
+    ProviderDataset.INFLATION: _BulkEndpoint(
+        "/fed/v1/inflation", "date", 50_000, "date.asc", None
+    ),
+    ProviderDataset.INFLATION_EXPECTATIONS: _BulkEndpoint(
+        "/fed/v1/inflation-expectations", "date", 50_000, "date.asc", None
+    ),
+    ProviderDataset.LABOR_MARKET: _BulkEndpoint(
+        "/fed/v1/labor-market", "date", 50_000, "date.asc", None
     ),
 }
 

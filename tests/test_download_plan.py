@@ -188,3 +188,25 @@ def test_13f_rejects_ticker_filter() -> None:
             end=date(2026, 7, 9),
             tickers=("AAPL",),
         )
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    [
+        ProviderDataset.TREASURY_YIELDS,
+        ProviderDataset.INFLATION,
+        ProviderDataset.INFLATION_EXPECTATIONS,
+        ProviderDataset.LABOR_MARKET,
+    ],
+)
+def test_macro_history_uses_one_full_range_stream(dataset) -> None:
+    plan = build_download_plan(
+        dataset=dataset,
+        start=date(1947, 1, 1),
+        end=date(2026, 7, 9),
+    )
+
+    assert len(plan.requests) == 1
+    assert plan.requests[0].start == date(1947, 1, 1)
+    assert plan.requests[0].end == date(2026, 7, 9)
+    assert plan.requests[0].asset_ids == ()

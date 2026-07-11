@@ -45,5 +45,9 @@ def test_contract_endpoint_is_explicit_and_versioned() -> None:
             "ten_k_sections",
             "eight_k_text",
             "news",
+            "treasury_yields",
+            "inflation",
+            "inflation_expectations",
+            "labor_market",
         ],
     }

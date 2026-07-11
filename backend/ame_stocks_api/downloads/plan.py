@@ -27,7 +27,17 @@ _ANNUAL_BULK_DATASETS = frozenset(
 _LATEST_SNAPSHOT_DATASETS = frozenset(
     {ProviderDataset.FLOAT, ProviderDataset.TICKER_TYPES, ProviderDataset.EXCHANGES}
 )
-_FULL_MARKET_ONLY_DATASETS = frozenset({ProviderDataset.FORM_13F})
+_SINGLE_STREAM_BULK_DATASETS = frozenset(
+    {
+        ProviderDataset.TREASURY_YIELDS,
+        ProviderDataset.INFLATION,
+        ProviderDataset.INFLATION_EXPECTATIONS,
+        ProviderDataset.LABOR_MARKET,
+    }
+)
+_FULL_MARKET_ONLY_DATASETS = frozenset(
+    {ProviderDataset.FORM_13F, *_SINGLE_STREAM_BULK_DATASETS}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +193,10 @@ def build_download_plan(
             for chunk_start, chunk_end in calendar_year_ranges(start, end)
             for identifier in identifiers
         )
+    elif dataset in _SINGLE_STREAM_BULK_DATASETS:
+        if normalized_tickers:
+            raise ValueError(f"{dataset.value} only supports full-market requests")
+        requests = (ProviderRequest(dataset=dataset, start=start, end=end),)
     elif dataset in _LATEST_SNAPSHOT_DATASETS:
         if start != end:
             raise ValueError(f"{dataset.value} is latest-only; pass the same --start and --end")
