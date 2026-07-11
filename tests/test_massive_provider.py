@@ -240,7 +240,7 @@ def test_dataset_endpoint_mapping(
             "/stocks/filings/10-K/vX/sections",
             "filing_date",
             "100",
-            "filing_date.asc",
+            "period_end.asc",
             ("AAPL",),
             "ticker",
         ),

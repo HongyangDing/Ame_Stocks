@@ -84,7 +84,7 @@ _BULK_ENDPOINTS = {
         "/stocks/filings/vX/risk-factors", "filing_date", 49_999, "filing_date.asc"
     ),
     ProviderDataset.TEN_K_SECTIONS: _BulkEndpoint(
-        "/stocks/filings/10-K/vX/sections", "filing_date", 100, "filing_date.asc"
+        "/stocks/filings/10-K/vX/sections", "filing_date", 100, "period_end.asc"
     ),
     ProviderDataset.EIGHT_K_TEXT: _BulkEndpoint(
         "/stocks/filings/8-K/vX/text", "filing_date", 100, "filing_date.asc"
