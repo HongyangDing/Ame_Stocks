@@ -5,7 +5,7 @@ It is intentionally narrower than "every endpoint": data that is reconstructible
 immutable bars, only describes the live market, leaks future information, or requires a
 different paid expansion is not bulk-downloaded.
 
-Account access was probed on 2026-07-11 with one-record requests. The probe printed only
+Account access was probed again on 2026-07-12 with one-record requests. The probe printed only
 HTTP status and response size; credentials and response bodies were not logged.
 
 ## Download catalog
@@ -23,6 +23,7 @@ HTTP status and response size; credentials and response bodies were not logged.
 | Ticker events | 2003-09-10 | one request per FIGI/CUSIP/ticker | symbol continuity and entity identity QA |
 | Ticker Overview | one request per ticker/identity lifecycle | gzip JSON plus allowlisted Parquet | SIC, listing date, and identity reference inputs |
 | Exchanges + ticker types | capture date only | two small snapshots | decode reference classifications |
+| Condition codes | capture date only | one small snapshot | explain trade/quote eligibility and provider OHLCV update rules |
 | EDGAR index | 2016-07-11 project window | calendar-year gzip JSON streams | authoritative filing availability timestamp |
 | Forms 3 and 4 | 2016-07-11 project window | calendar-year gzip JSON streams | insider ownership and transaction factors |
 | Form 13-F | 2016-07-11 project window | calendar-quarter gzip JSON streams | institutional holdings and crowding factors |
@@ -42,13 +43,34 @@ Every date-ranged REST request uses the dataset's disclosure or event date, not 
 date. Bronze stores the provider response unchanged; later Silver jobs must deduplicate by the
 provider record key and enforce publication-time lags.
 
+## Entitlement-blocked additions
+
+Massive's current official plan table says Stocks Advanced includes end-of-day access and all
+history back to 2009-03-29 for the three statement endpoints. The live remote key nevertheless
+returns HTTP 403 for all four new v1 endpoints below. This is an account/key entitlement mismatch,
+not a reason to use the retired vX financials endpoint. The download contracts and annual
+`filing_date` plans are already implemented; no failed response body or credential is persisted.
+
+| Dataset | Intended storage | Research use | Current action |
+| --- | --- | --- | --- |
+| Income statements | annual `filing_date` chunks from 2009-03-29 | earnings yield, growth, profitability, weighted-share proxy | download immediately after entitlement is restored |
+| Balance sheets | annual `filing_date` chunks from 2009-03-29 | book-to-price, leverage, balance-sheet quality | download immediately after entitlement is restored |
+| Cash-flow statements | annual `filing_date` chunks from 2009-03-29 | cash-flow yield, accruals, quality | download immediately after entitlement is restored |
+| Ratios | one current full-market snapshot | current cross-section QA only; not historical Barra | download once after entitlement is restored |
+
+Historical ratios must be recomputed point-in-time from statements and prices; the provider Ratios
+endpoint explicitly has no history. Even after statements are available, weighted-average shares
+are only a labelled proxy for exact period-end shares, and the safe Ticker Overview table covers
+SIC for only 16,682 / 30,739 identity lifecycles. Full classic Barra therefore still requires an
+explicit market-cap proxy policy and either a point-in-time industry source or a documented
+coverage restriction. Price/volume styles do not depend on those blocked inputs.
+
 ## Explicit exclusions
 
 | Dataset | Reason not queued |
 | --- | --- |
 | Trades | User-excluded and roughly multi-terabyte at ten-year scale |
-| Quotes | Not included in Stocks Developer and materially larger than aggregates |
-| Financial statements + ratios | Live account probe returned HTTP 403; requires Stocks Advanced or the Financials expansion |
+| Quotes | User-excluded as oversized and unnecessary for daily-factor/Barra research |
 | Per-ticker aggregate bars | Duplicates full-market Flat Files; retained only for tiny validation samples |
 | SMA/EMA/MACD/RSI | Deterministically reconstructed from stored bars |
 | Live snapshots, movers, last trade/quote | Not historical research inputs |
@@ -84,6 +106,12 @@ provider record key and enforce publication-time lags.
   --start 2026-07-09 \
   --end 2026-07-09
 
+# Condition codes are a small current dictionary, not a historical series.
+.venv/bin/ame-massive plan \
+  --dataset condition_codes \
+  --start 2026-07-09 \
+  --end 2026-07-09
+
 # Ticker events accept exact-case tickers, CUSIPs, or Composite FIGIs.
 .venv/bin/ame-massive plan \
   --dataset ticker_events \
@@ -116,6 +144,11 @@ Official endpoint documentation:
 - [Float](https://massive.com/docs/rest/stocks/fundamentals/float)
 - [IPOs](https://massive.com/docs/rest/stocks/corporate-actions)
 - [Ticker events](https://massive.com/docs/rest/stocks/corporate-actions/ticker-events)
+- [Condition codes](https://massive.com/docs/rest/stocks/market-operations/condition-codes/)
+- [Income statements](https://massive.com/docs/rest/stocks/fundamentals/income-statements)
+- [Balance sheets](https://massive.com/docs/rest/stocks/fundamentals/balance-sheets)
+- [Cash-flow statements](https://massive.com/docs/rest/stocks/fundamentals/cash-flow-statements)
+- [Ratios](https://massive.com/docs/rest/stocks/fundamentals/ratios)
 - [SEC EDGAR index](https://massive.com/docs/rest/stocks/filings/index)
 - [Form 4](https://massive.com/docs/rest/stocks/filings/form-4)
 - [13-F](https://massive.com/docs/rest/stocks/filings/13-f-filings)

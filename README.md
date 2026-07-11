@@ -98,9 +98,9 @@ scripts/install_hooks.sh
 If a network failure interrupts synchronization, the commit remains local. Fix the connection
 and rerun `scripts/sync_progress.sh`; the script never force-pushes or resets either checkout.
 
-## Massive Developer hybrid downloader
+## Massive Advanced hybrid downloader
 
-Full-market minute and day backfills use Developer Flat Files. This offline plan reads no
+Full-market minute and day backfills use Advanced Flat Files. This offline plan reads no
 credentials and contacts no network service:
 
 ```bash
