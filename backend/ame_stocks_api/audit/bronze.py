@@ -180,17 +180,10 @@ _REQUIRED_ROW_FIELDS: dict[str, tuple[str, ...]] = {
     ProviderDataset.FORM_4.value: ("accession_number", "filing_date"),
     ProviderDataset.FORM_13F.value: (
         "accession_number",
-        "cusip",
         "filer_cik",
         "filing_date",
         "form_type",
-        "investment_discretion",
-        "issuer_name",
-        "market_value",
         "period",
-        "shares_or_principal_amount",
-        "shares_or_principal_type",
-        "title_of_class",
     ),
     ProviderDataset.RISK_FACTORS.value: ("filing_date",),
     ProviderDataset.TEN_K_SECTIONS.value: ("filing_date",),
@@ -202,6 +195,15 @@ _REQUIRED_ROW_FIELDS: dict[str, tuple[str, ...]] = {
     ProviderDataset.INFLATION_EXPECTATIONS.value: ("date",),
     ProviderDataset.LABOR_MARKET.value: ("date",),
 }
+_FORM_13F_HOLDING_FIELDS = (
+    "cusip",
+    "investment_discretion",
+    "issuer_name",
+    "market_value",
+    "shares_or_principal_amount",
+    "shares_or_principal_type",
+    "title_of_class",
+)
 _PHYSICAL_FAILURE_CODES = frozenset(
     {
         "artifact_missing",
@@ -1090,11 +1092,17 @@ class BronzeAuditor:
                     )
                 )
                 continue
+            row_required = required
+            if (
+                dataset == ProviderDataset.FORM_13F.value
+                and row.get("form_type") in {"13F-HR", "13F-HR/A"}
+            ):
+                row_required = (*required, *_FORM_13F_HOLDING_FIELDS)
             if any(
                 field_name not in row
                 or row[field_name] is None
                 or row[field_name] == ""
-                for field_name in required
+                for field_name in row_required
             ):
                 missing_required += 1
             if dataset == ProviderDataset.TICKER_EVENTS.value:
@@ -1766,6 +1774,13 @@ def _result_rows(document: dict[str, Any], dataset: str) -> list[Any] | None:
 
 
 def _valid_form_13f_values(row: dict[str, Any]) -> bool:
+    if _iso_date(row.get("period")) is None:
+        return False
+    form_type = row.get("form_type")
+    if form_type in {"13F-NT", "13F-NT/A"}:
+        return True
+    if form_type not in {"13F-HR", "13F-HR/A"}:
+        return False
     for field_name in ("market_value", "shares_or_principal_amount"):
         value = row.get(field_name)
         if (
@@ -1775,7 +1790,7 @@ def _valid_form_13f_values(row: dict[str, Any]) -> bool:
         ):
             return False
     share_type = row.get("shares_or_principal_type")
-    return share_type in {"PRN", "SH"} and _iso_date(row.get("period")) is not None
+    return share_type in {"PRN", "SH"}
 
 
 def _safe_continuation(value: object) -> str | None:

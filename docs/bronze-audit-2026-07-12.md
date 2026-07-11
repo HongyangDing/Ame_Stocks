@@ -32,7 +32,7 @@
 | Flat File | 2 × 2,513 sessions | header、类型、UTC 分钟边界、OHLC 不变量、唯一 `(ticker, window_start)`、manifest-bound cache | 通过 |
 | Universe | 每日 active + inactive | 两次请求身份、flag、交集、ticker 唯一性及重复版本字段级比较 | 发现可处理的上游版本行 |
 | REST 语义 | 82 个正式 manifests、7,697 pages、20,553,455 行 | 候选键、整行 hash、taxonomy path、SEC accession，用临时 SQLite 有界聚合 | 无 corruption；有 provider differences |
-| 代码 | 下载器、三套审计器及计划构造 | Ruff、179 项 pytest、边界/故障注入和三轮独立对抗复核 | 通过；最终远程复跑中 |
+| 代码 | 下载器、三套审计器及计划构造 | Ruff、180 项 pytest、边界/故障注入和三轮独立对抗复核 | 通过；最终远程复跑中 |
 
 全量校验是只读操作。审计报告写入数据盘的 `manifests/audits/`；没有重写 Bronze、删除旧
 文件或触碰 Mogikabu。

@@ -859,6 +859,38 @@ def test_form_13f_rejects_noninteger_values_and_malformed_period(tmp_path: Path)
     assert report["summary"]["issue_code_counts"]["invalid_form_13f_value"] == 1
 
 
+def test_form_13f_notice_does_not_require_holding_fields(tmp_path: Path) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    request = build_download_plan(
+        dataset=ProviderDataset.FORM_13F,
+        start=session,
+        end=session,
+    ).requests[0]
+    notice = {
+        "accession_number": "0000000001-26-000001",
+        "filer_cik": "0000000001",
+        "filing_date": session.isoformat(),
+        "form_type": "13F-NT",
+        "period": session.isoformat(),
+    }
+    asyncio.run(
+        BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
+            StaticProvider([notice]), request
+        )
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=(ProviderDataset.ASSETS, ProviderDataset.FORM_13F),
+    ).run()
+
+    assert report["status"] == "passed"
+    assert report["summary"]["issue_counts"] == {}
+
+
 def test_bronze_cli_persists_the_same_report_it_prints(tmp_path: Path, capsys) -> None:
     session, _ = _complete_fixture(tmp_path)
     relative_output = Path("manifests/audits/bronze-cli.json")
