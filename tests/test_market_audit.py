@@ -283,6 +283,28 @@ def test_extended_hours_only_ticker_is_not_silently_matched(tmp_path: Path) -> N
     }
 
 
+def test_material_no_regular_session_coverage_fails_coverage_gate(tmp_path: Path) -> None:
+    premarket = _timestamp(12, 0)
+    tickers = ("AAA", "BBB", "CCC")
+    _write_flat_file(
+        tmp_path,
+        FlatFileDataset.MINUTE_AGGREGATES,
+        [f"{ticker},10,5,5,5,5,{premarket},1\n" for ticker in tickers],
+    )
+    _write_flat_file(
+        tmp_path,
+        FlatFileDataset.DAY_AGGREGATES,
+        [f"{ticker},10,5,5,5,5,{_timestamp(4, 0)},1\n" for ticker in tickers],
+    )
+
+    report = _audit(tmp_path)
+
+    assert report["status"] == "failed"
+    assert report["gates"]["ticker_coverage"] == "failed"
+    coverage = report["sessions"][0]["comparison"]["coverage"]
+    assert coverage["no_regular_session_fraction"] == 1.0
+
+
 def test_noncanonical_day_timestamp_fails_source_and_row_integrity(tmp_path: Path) -> None:
     _valid_fixture(tmp_path)
     _write_flat_file(

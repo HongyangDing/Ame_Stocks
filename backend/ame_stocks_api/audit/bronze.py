@@ -265,6 +265,7 @@ _SEMANTIC_FAILURE_CODES = frozenset(
         "invalid_timestamp_value",
         "invalid_form_13f_value",
         "required_fields_missing",
+        "response_request_id_missing",
         "response_shape_invalid",
         "response_status_not_ok",
         "results_shape_invalid",
@@ -272,7 +273,7 @@ _SEMANTIC_FAILURE_CODES = frozenset(
         "row_shape_invalid",
         "ticker_event_contract_invalid",
         "ticker_event_duplicate",
-        "ticker_event_future_date",
+        "ticker_event_identity_mismatch",
         "ticker_overview_identity_mismatch",
         "ticker_overview_result_count",
     }
@@ -923,12 +924,24 @@ class BronzeAuditor:
                 )
             )
             return
-        if document.get("status") is not None and str(document.get("status")).upper() != "OK":
+        if str(document.get("status", "")).upper() != "OK":
             issues.append(
                 AuditIssue(
                     "critical",
                     "response_status_not_ok",
                     "provider response status is not OK",
+                    dataset,
+                    str(payload_path),
+                )
+            )
+        if not isinstance(document.get("request_id"), str) or not str(
+            document["request_id"]
+        ).strip():
+            issues.append(
+                AuditIssue(
+                    "critical",
+                    "response_request_id_missing",
+                    "provider response has no nonblank request_id",
                     dataset,
                     str(payload_path),
                 )
@@ -945,6 +958,33 @@ class BronzeAuditor:
                 )
             )
             rows = []
+        if dataset == ProviderDataset.TICKER_EVENTS.value:
+            requested = request.get("asset_ids") if request else None
+            requested_identifier = (
+                str(requested[0])
+                if isinstance(requested, list) and len(requested) == 1
+                else None
+            )
+            results_object = document.get("results")
+            returned_figi = (
+                results_object.get("composite_figi")
+                if isinstance(results_object, dict)
+                else None
+            )
+            if (
+                requested_identifier is not None
+                and requested_identifier.startswith("BBG")
+                and returned_figi != requested_identifier
+            ):
+                issues.append(
+                    AuditIssue(
+                        "error",
+                        "ticker_event_identity_mismatch",
+                        "returned composite_figi does not match the requested FIGI",
+                        dataset,
+                        str(payload_path),
+                    )
+                )
         actual_count = len(rows)
         stats.verified_records += actual_count
         stats.verified_files += 1
@@ -1092,16 +1132,6 @@ class BronzeAuditor:
                             )
                         )
                     ticker_event_keys.add(event_key)
-                    if event_date > self.end.isoformat():
-                        issues.append(
-                            AuditIssue(
-                                "error",
-                                "ticker_event_future_date",
-                                f"event date {event_date} is after the audit snapshot",
-                                dataset,
-                                str(payload_path),
-                            )
-                        )
             if dataset == ProviderDataset.FORM_13F.value and not _valid_form_13f_values(row):
                 invalid_form_13f += 1
             if date_field:
@@ -1738,10 +1768,14 @@ def _result_rows(document: dict[str, Any], dataset: str) -> list[Any] | None:
 def _valid_form_13f_values(row: dict[str, Any]) -> bool:
     for field_name in ("market_value", "shares_or_principal_amount"):
         value = row.get(field_name)
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < 0
+        ):
             return False
     share_type = row.get("shares_or_principal_type")
-    return share_type in {"PRN", "SH"}
+    return share_type in {"PRN", "SH"} and _iso_date(row.get("period")) is not None
 
 
 def _safe_continuation(value: object) -> str | None:
@@ -1798,13 +1832,10 @@ def _stream_gzip_file(path: Path) -> dict[str, object]:
 
 
 def _iso_date(value: object) -> str | None:
-    if not isinstance(value, str) or len(value) < 10:
+    if not isinstance(value, str) or len(value) != 10:
         return None
-    if len(value) > 10 and value[10] not in {"T", " "}:
-        return None
-    candidate = value[:10]
     try:
-        return date.fromisoformat(candidate).isoformat()
+        return date.fromisoformat(value).isoformat()
     except ValueError:
         return None
 

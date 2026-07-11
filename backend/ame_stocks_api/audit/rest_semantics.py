@@ -276,6 +276,7 @@ class RestSemanticAuditor:
         completed = datetime.now(UTC)
         corruption = self.issues.total("corruption")
         differences = self.issues.total("difference")
+        corruption_code_counts = self.issues.code_counts("corruption")
         status = (
             "failed"
             if corruption
@@ -297,6 +298,10 @@ class RestSemanticAuditor:
             )
             for dataset, details in uniqueness.items()
         )
+        candidate_key_corruption = any(
+            corruption_code_counts.get(code, 0)
+            for code in ("missing_candidate_key", "row_not_canonical_json")
+        )
         return {
             "audit_schema_version": REST_SEMANTIC_AUDIT_SCHEMA_VERSION,
             "status": status,
@@ -309,7 +314,7 @@ class RestSemanticAuditor:
                 "semantic_corruption": "failed" if corruption else "passed",
                 "candidate_key_consistency": (
                     "failed"
-                    if hard_key_failures
+                    if hard_key_failures or candidate_key_corruption
                     else ("different" if diagnostic_key_differences else "matched")
                 ),
                 "accession_coverage": accessions["status"],
@@ -317,7 +322,7 @@ class RestSemanticAuditor:
             "summary": {
                 "corruption_count": corruption,
                 "difference_count": differences,
-                "corruption_code_counts": self.issues.code_counts("corruption"),
+                "corruption_code_counts": corruption_code_counts,
                 "difference_code_counts": self.issues.code_counts("difference"),
                 "expected_manifests": sum(
                     metric.expected_manifests for metric in self.metrics.values()
@@ -555,9 +560,11 @@ class RestSemanticAuditor:
                 example=f"{artifact.get('path')}: {type(exc).__name__}",
             )
             return
-        if not isinstance(document, dict) or (
-            document.get("status") is not None
-            and str(document.get("status")).upper() != "OK"
+        if (
+            not isinstance(document, dict)
+            or str(document.get("status", "")).upper() != "OK"
+            or not isinstance(document.get("request_id"), str)
+            or not str(document["request_id"]).strip()
         ):
             self.issues.add(
                 "corruption",

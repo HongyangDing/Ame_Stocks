@@ -94,15 +94,23 @@ class MarketCoveragePolicy:
     """Escalate a material cross-product ticker loss without failing on sparse edge cases."""
 
     max_missing_fraction: float = 0.10
+    max_no_regular_session_fraction: float = 0.10
     minimum_missing_tickers: int = 2
+    minimum_no_regular_session_tickers: int = 2
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.max_missing_fraction) or not (
             0 <= self.max_missing_fraction <= 1
         ):
             raise ValueError("max_missing_fraction must be between zero and one")
+        if not math.isfinite(self.max_no_regular_session_fraction) or not (
+            0 <= self.max_no_regular_session_fraction <= 1
+        ):
+            raise ValueError("max_no_regular_session_fraction must be between zero and one")
         if self.minimum_missing_tickers < 1:
             raise ValueError("minimum_missing_tickers must be positive")
+        if self.minimum_no_regular_session_tickers < 1:
+            raise ValueError("minimum_no_regular_session_tickers must be positive")
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -306,7 +314,7 @@ class MarketCrossAuditor:
         }
         if self.use_cache:
             cached = self._load_cache(session, binding)
-            if cached is not None:
+            if cached is not None and _sources_unchanged(sources):
                 cached["cache_status"] = "reused"
                 return cached
 
@@ -435,6 +443,12 @@ class MarketCrossAuditor:
                 f"remote content length differs from output bytes: {manifest_path}"
             )
         observed_sha256 = sha256_file(artifact_path)
+        post_hash_stat = artifact_path.stat()
+        if (
+            post_hash_stat.st_size != stat.st_size
+            or post_hash_stat.st_mtime_ns != stat.st_mtime_ns
+        ):
+            raise MarketAuditError(f"artifact changed while hashing: {artifact_path}")
         return _Source(
             dataset=dataset.value,
             manifest_path=manifest_path,
@@ -807,8 +821,16 @@ class MarketCrossAuditor:
             len(no_regular_session) / ticker_pairs_in_both if ticker_pairs_in_both else 0.0
         )
         coverage_failed = (
-            missing_tickers >= self.coverage_policy.minimum_missing_tickers
-            and missing_fraction > self.coverage_policy.max_missing_fraction
+            (
+                missing_tickers >= self.coverage_policy.minimum_missing_tickers
+                and missing_fraction > self.coverage_policy.max_missing_fraction
+            )
+            or (
+                len(no_regular_session)
+                >= self.coverage_policy.minimum_no_regular_session_tickers
+                and no_regular_fraction
+                > self.coverage_policy.max_no_regular_session_fraction
+            )
         )
         coverage_status = (
             "failed"
@@ -1070,6 +1092,20 @@ def _package_version(package: str) -> str:
         return version(package)
     except PackageNotFoundError:
         return "not-installed"
+
+
+def _sources_unchanged(sources: dict[str, _Source]) -> bool:
+    try:
+        for source in sources.values():
+            observed = source.artifact_path.stat()
+            if (
+                observed.st_size != source.artifact_bytes
+                or observed.st_mtime_ns != source.artifact_mtime_ns
+            ):
+                return False
+        return True
+    except OSError:
+        return False
 
 
 def _count(frame: pl.DataFrame, expression: pl.Expr) -> int:

@@ -23,7 +23,9 @@ class StaticProvider:
     version = "audit-fixture"
 
     def __init__(self, results: list[dict[str, object]]) -> None:
-        self.payload = json.dumps({"results": results, "status": "OK"}).encode()
+        self.payload = json.dumps(
+            {"request_id": "fixture", "results": results, "status": "OK"}
+        ).encode()
 
     async def fetch(
         self,
@@ -47,7 +49,10 @@ class PagedProvider:
 
     def __init__(self, pages: list[list[dict[str, object]]]) -> None:
         self.payloads = [
-            json.dumps({"results": rows, "status": "OK"}).encode() for rows in pages
+            json.dumps(
+                {"request_id": f"fixture-{index}", "results": rows, "status": "OK"}
+            ).encode()
+            for index, rows in enumerate(pages)
         ]
 
     async def fetch(
@@ -162,6 +167,7 @@ def _rewrite_single_page(
     *,
     record_count: int,
 ) -> None:
+    document.setdefault("request_id", "fixture")
     manifest_path = (
         root
         / "manifests"
@@ -505,6 +511,66 @@ def test_non_iso_nonblank_row_date_fails_semantic_gate(tmp_path: Path) -> None:
     assert report["summary"]["issue_code_counts"]["invalid_date_value"] == 1
 
 
+def test_date_fields_reject_datetime_or_garbage_suffixes(tmp_path: Path) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    request = ProviderRequest(
+        dataset=ProviderDataset.SPLITS,
+        start=date(2003, 9, 10),
+        end=session,
+    )
+    asyncio.run(
+        BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
+            StaticProvider(
+                [{"execution_date": f"{session.isoformat()}Tgarbage", "ticker": "AAPL"}]
+            ),
+            request,
+        )
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=MINIMAL_REQUIRED,
+    ).run()
+
+    assert report["status"] == "failed"
+    assert report["summary"]["issue_code_counts"]["invalid_date_value"] == 1
+
+
+def test_response_envelope_requires_status_and_provider_request_id(tmp_path: Path) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    active_request = next(
+        request
+        for request in build_download_plan(
+            dataset=ProviderDataset.ASSETS,
+            start=session,
+            end=session,
+            active="both",
+        ).requests
+        if dict(request.parameters)["active"] == "true"
+    )
+    _rewrite_single_page(
+        tmp_path,
+        active_request,
+        {"request_id": "", "results": [{"active": True, "ticker": "AAPL"}]},
+        record_count=1,
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=MINIMAL_REQUIRED,
+    ).run()
+
+    assert report["status"] == "failed"
+    assert report["summary"]["issue_code_counts"]["response_status_not_ok"] == 1
+    assert report["summary"]["issue_code_counts"]["response_request_id_missing"] == 1
+
+
 def test_news_published_utc_requires_a_full_timezone_aware_datetime(tmp_path: Path) -> None:
     session, _ = _complete_fixture(tmp_path)
     request = build_download_plan(
@@ -642,6 +708,54 @@ def test_ticker_events_require_the_endpoint_envelope_and_event_contract(
     assert report["summary"]["issue_code_counts"]["ticker_event_contract_invalid"] == 1
 
 
+def test_ticker_event_response_must_match_requested_composite_figi(tmp_path: Path) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    identifier = "BBG000REQUESTED"
+    request = build_download_plan(
+        dataset=ProviderDataset.TICKER_EVENTS,
+        start=date(2003, 9, 10),
+        end=session,
+        tickers=(identifier,),
+    ).requests[0]
+    asyncio.run(
+        BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
+            StaticProvider([{}]), request
+        )
+    )
+    _rewrite_single_page(
+        tmp_path,
+        request,
+        {
+            "status": "OK",
+            "results": {
+                "composite_figi": "BBG000WRONG",
+                "events": [
+                    {
+                        "date": session.isoformat(),
+                        "ticker_change": {"ticker": "AAPL"},
+                        "type": "ticker_change",
+                    }
+                ],
+            },
+        },
+        record_count=1,
+    )
+    receipt = tmp_path / "manifests" / "plans" / "ticker_events" / "identifiers.txt"
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text(f"{identifier}\n", encoding="utf-8")
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=(ProviderDataset.ASSETS, ProviderDataset.TICKER_EVENTS),
+    ).run()
+
+    assert report["status"] == "failed"
+    assert report["summary"]["issue_code_counts"]["ticker_event_identity_mismatch"] == 1
+
+
 def test_ticker_overview_response_must_match_requested_ticker(tmp_path: Path) -> None:
     session, _ = _complete_fixture(tmp_path)
     request = build_download_plan(
@@ -704,6 +818,45 @@ def test_form_13f_requires_research_identity_and_holding_fields(tmp_path: Path) 
     assert report["status"] == "failed"
     assert report["gates"]["semantic_consistency"] == "failed"
     assert report["summary"]["issue_code_counts"]["required_fields_missing"] == 1
+
+
+def test_form_13f_rejects_noninteger_values_and_malformed_period(tmp_path: Path) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    request = build_download_plan(
+        dataset=ProviderDataset.FORM_13F,
+        start=session,
+        end=session,
+    ).requests[0]
+    row = {
+        "accession_number": "0000000001-26-000001",
+        "cusip": "000000001",
+        "filer_cik": "0000000001",
+        "filing_date": session.isoformat(),
+        "form_type": "13F-HR",
+        "investment_discretion": "SOLE",
+        "issuer_name": "Fixture",
+        "market_value": 1.5,
+        "period": f"{session.isoformat()}Tgarbage",
+        "shares_or_principal_amount": 1,
+        "shares_or_principal_type": "SH",
+        "title_of_class": "COM",
+    }
+    asyncio.run(
+        BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
+            StaticProvider([row]), request
+        )
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=(ProviderDataset.ASSETS, ProviderDataset.FORM_13F),
+    ).run()
+
+    assert report["status"] == "failed"
+    assert report["summary"]["issue_code_counts"]["invalid_form_13f_value"] == 1
 
 
 def test_bronze_cli_persists_the_same_report_it_prints(tmp_path: Path, capsys) -> None:

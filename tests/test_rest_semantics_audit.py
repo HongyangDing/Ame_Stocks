@@ -35,7 +35,10 @@ def _write_request(
     request: ProviderRequest,
     rows: list[dict[str, object]],
 ) -> Path:
-    raw = json.dumps({"results": rows, "status": "OK"}, sort_keys=True).encode()
+    raw = json.dumps(
+        {"request_id": "fixture", "results": rows, "status": "OK"},
+        sort_keys=True,
+    ).encode()
     compressed = gzip.compress(raw, mtime=0)
     relative = (
         f"bronze/massive/{request.dataset.value}/request_id={request.request_id}/"
@@ -439,3 +442,33 @@ def test_taxonomy_snapshot_must_have_one_explicit_version(tmp_path: Path) -> Non
     assert report["summary"]["corruption_code_counts"][
         "taxonomy_version_ambiguous"
     ] == 2
+
+
+def test_missing_candidate_key_fails_candidate_key_gate(tmp_path: Path) -> None:
+    _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.FLOAT),
+        [{"effective_date": "2026-06-30", "free_float": 100}],
+    )
+
+    report = _audit(tmp_path, ProviderDataset.FLOAT)
+
+    assert report["status"] == "failed"
+    assert report["gates"]["candidate_key_consistency"] == "failed"
+    assert report["summary"]["corruption_code_counts"]["missing_candidate_key"] == 1
+
+
+def test_semantic_response_envelope_requires_status_and_request_id(tmp_path: Path) -> None:
+    manifest_path = _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.SPLITS),
+        [{"id": "split-1"}],
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    artifact_path = tmp_path / manifest["artifacts"][0]["path"]
+    artifact_path.write_bytes(gzip.compress(b'{"results": [{"id": "split-1"}]}', mtime=0))
+
+    report = _audit(tmp_path, ProviderDataset.SPLITS)
+
+    assert report["status"] == "failed"
+    assert report["summary"]["corruption_code_counts"]["response_envelope_invalid"] == 1

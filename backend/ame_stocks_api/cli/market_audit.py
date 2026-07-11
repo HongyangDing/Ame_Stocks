@@ -36,7 +36,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--volume-absolute-tolerance", type=float, default=1e-6)
     parser.add_argument("--volume-relative-tolerance", type=float, default=1e-9)
     parser.add_argument("--max-missing-ticker-fraction", type=float, default=0.10)
+    parser.add_argument("--max-no-rth-ticker-fraction", type=float, default=0.10)
     parser.add_argument("--minimum-missing-tickers", type=int, default=2)
+    parser.add_argument("--minimum-no-rth-tickers", type=int, default=2)
     parser.add_argument(
         "--output",
         type=Path,
@@ -57,7 +59,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         coverage_policy = MarketCoveragePolicy(
             max_missing_fraction=arguments.max_missing_ticker_fraction,
+            max_no_regular_session_fraction=arguments.max_no_rth_ticker_fraction,
             minimum_missing_tickers=arguments.minimum_missing_tickers,
+            minimum_no_regular_session_tickers=arguments.minimum_no_rth_tickers,
         )
         report = MarketCrossAuditor(
             arguments.data_root,
