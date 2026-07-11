@@ -173,7 +173,7 @@ def test_second_run_reuses_cache_bound_to_both_manifest_hashes(tmp_path: Path) -
             / "manifests"
             / "audits"
             / "market_crosscheck"
-            / "schema=v1"
+            / "schema=v2"
             / f"{SESSION.isoformat()}.json"
         ).read_text()
     )
@@ -189,3 +189,31 @@ def test_second_run_reuses_cache_bound_to_both_manifest_hashes(tmp_path: Path) -
     changed = _audit(tmp_path)
     assert changed["sessions"][0]["cache_status"] == "computed"
     assert changed["status"] == "failed"
+
+
+def test_extended_hours_prices_do_not_replace_regular_session_ohlc(tmp_path: Path) -> None:
+    premarket = _timestamp(12, 0)
+    open_time = _timestamp(13, 30)
+    close_time = _timestamp(19, 59)
+    after_hours = _timestamp(21, 0)
+    _write_flat_file(
+        tmp_path,
+        FlatFileDataset.MINUTE_AGGREGATES,
+        [
+            f"AAPL,10,5,5,5,5,{premarket},1\n",
+            f"AAPL,100,10,10.5,10.75,9.75,{open_time},4\n",
+            f"AAPL,150,10.5,11,11.25,10.25,{close_time},6\n",
+            f"AAPL,20,20,20,20,20,{after_hours},2\n",
+        ],
+    )
+    _write_flat_file(
+        tmp_path,
+        FlatFileDataset.DAY_AGGREGATES,
+        [f"AAPL,280,10,11,11.25,9.75,{_timestamp(4, 0)},13\n"],
+    )
+
+    report = _audit(tmp_path)
+
+    assert report["status"] == "passed"
+    reconstruction = report["sessions"][0]["comparison"]["reconstruction"]
+    assert reconstruction["ohlc"].startswith("XNYS regular-session")

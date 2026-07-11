@@ -17,6 +17,7 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import exchange_calendars as xcals
 import polars as pl
 
 from ame_stocks_api.artifacts import (
@@ -29,8 +30,8 @@ from ame_stocks_api.artifacts import (
 from ame_stocks_api.downloads import market_session_dates
 from ame_stocks_api.flatfiles import FlatFileDataset, FlatFileObject
 
-MARKET_AUDIT_SCHEMA_VERSION = 1
-CACHE_SCHEMA_VERSION = 1
+MARKET_AUDIT_SCHEMA_VERSION = 2
+CACHE_SCHEMA_VERSION = 2
 EXPECTED_COLUMNS = (
     "ticker",
     "volume",
@@ -46,6 +47,7 @@ VALUE_FIELDS = (*PRICE_FIELDS, "volume", "transactions")
 KEY_FIELDS = ("ticker", "window_start")
 NS_PER_MINUTE = 60_000_000_000
 _NEW_YORK = ZoneInfo("America/New_York")
+_XNYS = xcals.get_calendar("XNYS")
 _CSV_SCHEMA = {
     "ticker": pl.String,
     "volume": pl.Float64,
@@ -385,7 +387,9 @@ class MarketCrossAuditor:
         if set(frames) == {"minute", "day"} and all(
             set(EXPECTED_COLUMNS).issubset(frame.columns) for frame in frames.values()
         ):
-            comparison, comparison_issues = self._compare(frames["minute"], frames["day"])
+            comparison, comparison_issues = self._compare(
+                session, frames["minute"], frames["day"]
+            )
             issues.extend(comparison_issues)
         issues = _sort_issues(issues)
         return {
@@ -587,23 +591,44 @@ class MarketCrossAuditor:
         return stats, issues
 
     def _compare(
-        self, minute: pl.DataFrame, day: pl.DataFrame
+        self,
+        session: date,
+        minute: pl.DataFrame,
+        day: pl.DataFrame,
     ) -> tuple[dict[str, object], list[dict[str, object]]]:
         minute = _canonicalize(minute)
         day = _canonicalize(day)
-        minute_daily = (
+        market_open = int(_XNYS.session_open(session.isoformat()).value)
+        market_close = int(_XNYS.session_close(session.isoformat()).value)
+        minute_all_day = (
             minute.sort(["ticker", "window_start"])
+            .group_by("ticker", maintain_order=True)
+            .agg(
+                pl.col("volume").sum().alias("minute_volume"),
+                pl.col("transactions").sum().alias("minute_transactions"),
+                pl.len().alias("minute_count"),
+            )
+            .with_columns(pl.lit(True).alias("_in_minute"))
+        )
+        minute_regular = (
+            minute.filter(
+                pl.col("window_start").ge(market_open)
+                & pl.col("window_start").lt(market_close)
+            )
+            .sort(["ticker", "window_start"])
             .group_by("ticker", maintain_order=True)
             .agg(
                 pl.col("open").first().alias("minute_open"),
                 pl.col("high").max().alias("minute_high"),
                 pl.col("low").min().alias("minute_low"),
                 pl.col("close").last().alias("minute_close"),
-                pl.col("volume").sum().alias("minute_volume"),
-                pl.col("transactions").sum().alias("minute_transactions"),
-                pl.len().alias("minute_count"),
+                pl.len().alias("regular_minute_count"),
             )
-            .with_columns(pl.lit(True).alias("_in_minute"))
+        )
+        minute_daily = minute_all_day.join(
+            minute_regular,
+            on="ticker",
+            how="left",
         )
         day_daily = (
             day.sort(["ticker", "window_start"])
@@ -700,6 +725,10 @@ class MarketCrossAuditor:
                 },
                 "status": "failed" if issues else "passed",
                 "tolerance": self.tolerance.to_dict(),
+                "reconstruction": {
+                    "ohlc": "XNYS regular-session minute bars [open, close)",
+                    "volume_and_transactions": "all minute bars in the ET session date",
+                },
             },
             issues,
         )
