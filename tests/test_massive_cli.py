@@ -150,8 +150,49 @@ def test_continue_on_error_finishes_independent_request_streams(
     exit_code = asyncio.run(massive._execute_downloads(arguments, requests))
     output = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
 
-    assert exit_code == 0
+    assert exit_code == 1
     assert attempted == ["MISSING", "AAPL"]
     assert output[-1]["status"] == "complete_with_failures"
     assert output[-1]["failed_requests"] == 1
     assert output[-1]["downloaded_requests"] == 1
+
+
+def test_partial_success_requires_explicit_exit_code_override(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    class FakeProvider:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+    class FailingDownloader:
+        def __init__(self, data_root):
+            pass
+
+        async def download(self, provider, request):
+            raise MassiveRequestError("fixture 404", status_code=404)
+
+    monkeypatch.setattr(massive, "BronzeDownloader", FailingDownloader)
+    monkeypatch.setattr(massive.MassiveProvider, "from_env", lambda **kwargs: FakeProvider())
+    arguments = SimpleNamespace(
+        allow_partial_success=True,
+        concurrency=1,
+        continue_on_error=True,
+        data_root=tmp_path,
+        max_attempts=1,
+        requests_per_minute=600.0,
+        timeout_seconds=1.0,
+    )
+    request = ProviderRequest(
+        dataset=ProviderDataset.TICKER_EVENTS,
+        start=date(2003, 9, 10),
+        end=date(2026, 7, 9),
+        asset_ids=("MISSING",),
+    )
+
+    assert asyncio.run(massive._execute_downloads(arguments, (request,))) == 0
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])["failed_requests"] == 1

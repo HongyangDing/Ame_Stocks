@@ -160,3 +160,48 @@ def test_full_audit_detects_active_inactive_overlap(tmp_path: Path) -> None:
 
     assert report["status"] == "failed"
     assert report["summary"]["issue_code_counts"]["asset_active_inactive_overlap"] == 1
+
+
+def test_ticker_event_404_is_accounted_terminal_gap(tmp_path: Path) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    request = ProviderRequest(
+        dataset=ProviderDataset.TICKER_EVENTS,
+        start=date(2003, 9, 10),
+        end=session,
+        asset_ids=("BBG000MISSING",),
+        parameters=(("types", "ticker_change"),),
+    )
+    manifest = {
+        "artifacts": [],
+        "checkpoint": None,
+        "created_at": "2026-07-01T00:00:00+00:00",
+        "dataset": "ticker_events",
+        "failure": {
+            "error_type": "MassiveRequestError",
+            "message": "download interrupted; retrying this request is safe",
+            "provider_status_code": 404,
+        },
+        "manifest_schema_version": 1,
+        "provider": "massive",
+        "provider_contract_version": "1.1",
+        "provider_version": "1.2.0",
+        "request": request.canonical_dict(),
+        "request_id": request.request_id,
+        "status": "failed",
+        "updated_at": "2026-07-01T00:00:00+00:00",
+    }
+    write_json_atomic(
+        tmp_path / "manifests" / "massive" / "ticker_events" / f"{request.request_id}.json",
+        manifest,
+    )
+    receipt = tmp_path / "manifests" / "plans" / "ticker_events" / "identifiers.txt"
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text("BBG000MISSING\n", encoding="utf-8")
+
+    report = BronzeAuditor(tmp_path, start=session, end=session, workers=1).run()
+
+    assert report["status"] == "passed_with_warnings"
+    stats = {item["dataset"]: item for item in report["datasets"]}
+    assert stats["ticker_events"]["missing_expected"] == 0
+    assert stats["ticker_events"]["unavailable_expected"] == 1
+    assert report["summary"]["issue_code_counts"] == {"ticker_event_identifier_not_found": 1}

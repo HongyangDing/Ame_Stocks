@@ -17,6 +17,9 @@ _ANNUAL_BULK_DATASETS = frozenset(
         ProviderDataset.EDGAR_INDEX,
         ProviderDataset.FORM_3,
         ProviderDataset.FORM_4,
+        ProviderDataset.INCOME_STATEMENTS,
+        ProviderDataset.BALANCE_SHEETS,
+        ProviderDataset.CASH_FLOW_STATEMENTS,
         ProviderDataset.RISK_FACTORS,
         ProviderDataset.TEN_K_SECTIONS,
         ProviderDataset.EIGHT_K_TEXT,
@@ -31,6 +34,7 @@ _LATEST_SNAPSHOT_DATASETS = frozenset(
         ProviderDataset.TICKER_TYPES,
         ProviderDataset.EXCHANGES,
         ProviderDataset.CONDITION_CODES,
+        ProviderDataset.RATIOS,
         ProviderDataset.RISK_TAXONOMY,
         ProviderDataset.DISCLOSURE_TAXONOMY,
     }
@@ -44,7 +48,14 @@ _SINGLE_STREAM_BULK_DATASETS = frozenset(
     }
 )
 _FULL_MARKET_ONLY_DATASETS = frozenset(
-    {ProviderDataset.FORM_13F, *_SINGLE_STREAM_BULK_DATASETS}
+    {
+        ProviderDataset.FORM_13F,
+        ProviderDataset.INCOME_STATEMENTS,
+        ProviderDataset.BALANCE_SHEETS,
+        ProviderDataset.CASH_FLOW_STATEMENTS,
+        ProviderDataset.RATIOS,
+        *_SINGLE_STREAM_BULK_DATASETS,
+    }
 )
 
 

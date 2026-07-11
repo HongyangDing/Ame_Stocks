@@ -22,6 +22,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mode", choices=("structural", "full"), default="full")
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument(
+        "--ticker-overview-plan",
+        type=Path,
+        help="authoritative ticker,query_date CSV; defaults to the schema=v2 staging receipt",
+    )
+    parser.add_argument(
+        "--ticker-event-plan",
+        type=Path,
+        help="authoritative one-identifier-per-line receipt",
+    )
+    parser.add_argument(
+        "--ticker-event-start",
+        type=date.fromisoformat,
+        default=date(2003, 9, 10),
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         help="optional JSON report path; relative paths are resolved under data-root",
@@ -39,6 +54,9 @@ def main(argv: list[str] | None = None) -> int:
             end=arguments.end,
             mode=arguments.mode,
             workers=arguments.workers,
+            ticker_overview_plan=arguments.ticker_overview_plan,
+            ticker_event_plan=arguments.ticker_event_plan,
+            ticker_event_start=arguments.ticker_event_start,
         )
         report = auditor.run()
         if arguments.output:

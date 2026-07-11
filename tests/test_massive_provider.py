@@ -164,6 +164,33 @@ def test_dataset_endpoint_mapping(
     ),
     [
         (
+            ProviderDataset.INCOME_STATEMENTS,
+            "/stocks/financials/v1/income-statements",
+            "filing_date",
+            "50000",
+            "filing_date.asc",
+            (),
+            None,
+        ),
+        (
+            ProviderDataset.BALANCE_SHEETS,
+            "/stocks/financials/v1/balance-sheets",
+            "filing_date",
+            "50000",
+            "filing_date.asc",
+            (),
+            None,
+        ),
+        (
+            ProviderDataset.CASH_FLOW_STATEMENTS,
+            "/stocks/financials/v1/cash-flow-statements",
+            "filing_date",
+            "50000",
+            "filing_date.asc",
+            (),
+            None,
+        ),
+        (
             ProviderDataset.SHORT_INTEREST,
             "/stocks/v1/short-interest",
             "settlement_date",
@@ -363,6 +390,11 @@ def test_bulk_research_endpoint_mapping(
             {"asset_class": "stocks", "limit": "1000"},
         ),
         (
+            ProviderDataset.RATIOS,
+            "/stocks/financials/v1/ratios",
+            {"limit": "50000", "sort": "ticker.asc"},
+        ),
+        (
             ProviderDataset.RISK_TAXONOMY,
             "/stocks/taxonomies/vX/risk-factors",
             {"limit": "1000", "sort": "taxonomy.desc"},
@@ -460,6 +492,113 @@ def test_condition_codes_reject_ticker_filters() -> None:
                 request,
             )
         )
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    [
+        ProviderDataset.INCOME_STATEMENTS,
+        ProviderDataset.BALANCE_SHEETS,
+        ProviderDataset.CASH_FLOW_STATEMENTS,
+        ProviderDataset.RATIOS,
+    ],
+)
+def test_fundamentals_reject_ticker_filters(dataset) -> None:
+    request = ProviderRequest(
+        dataset=dataset,
+        start=date(2026, 7, 12),
+        end=date(2026, 7, 12),
+        asset_ids=("AAPL",),
+    )
+
+    with pytest.raises(
+        MassiveConfigurationError,
+        match=r"full-market|does not accept asset_ids",
+    ):
+        asyncio.run(
+            _collect(
+                _provider(lambda request: httpx2.Response(200, json={"status": "OK"})),
+                request,
+            )
+        )
+
+
+def test_ratios_reject_history() -> None:
+    provider = _provider(lambda request: httpx2.Response(200, json={"status": "OK"}))
+
+    with pytest.raises(MassiveConfigurationError, match="latest-only"):
+        asyncio.run(
+            _collect(
+                provider,
+                ProviderRequest(
+                    dataset=ProviderDataset.RATIOS,
+                    start=date(2026, 7, 11),
+                    end=date(2026, 7, 12),
+                ),
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    [
+        ProviderDataset.INCOME_STATEMENTS,
+        ProviderDataset.BALANCE_SHEETS,
+        ProviderDataset.CASH_FLOW_STATEMENTS,
+        ProviderDataset.RATIOS,
+    ],
+)
+def test_fundamentals_reject_unapproved_parameters(dataset) -> None:
+    with pytest.raises(MassiveConfigurationError, match="unsupported parameters"):
+        asyncio.run(
+            _collect(
+                _provider(lambda request: httpx2.Response(200, json={"status": "OK"})),
+                ProviderRequest(
+                    dataset=dataset,
+                    start=date(2026, 7, 12),
+                    end=date(2026, 7, 12),
+                    parameters=(("ticker", "AAPL"),),
+                ),
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    [
+        ProviderDataset.INCOME_STATEMENTS,
+        ProviderDataset.BALANCE_SHEETS,
+        ProviderDataset.CASH_FLOW_STATEMENTS,
+        ProviderDataset.RATIOS,
+    ],
+)
+def test_fundamentals_follow_provider_pagination(dataset) -> None:
+    requests: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if len(requests) == 1:
+            return httpx2.Response(
+                200,
+                json={
+                    "next_url": f"{BASE_URL}{request.url.path}?cursor=page-two",
+                    "results": [{"cik": "0000320193"}],
+                    "status": "OK",
+                },
+            )
+        assert request.url.params["cursor"] == "page-two"
+        return httpx2.Response(200, json={"results": [], "status": "OK"})
+
+    request = ProviderRequest(
+        dataset=dataset,
+        start=date(2026, 7, 12),
+        end=date(2026, 7, 12),
+    )
+
+    batches = asyncio.run(_collect(_provider(handler), request))
+
+    assert [batch.sequence for batch in batches] == [0, 1]
+    assert [batch.is_last for batch in batches] == [False, True]
 
 
 def test_ticker_overview_quotes_ticker_and_uses_historical_query_date() -> None:

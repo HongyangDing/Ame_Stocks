@@ -60,6 +60,11 @@ def build_parser() -> argparse.ArgumentParser:
             "failed manifests remain retryable"
         ),
     )
+    parser.add_argument(
+        "--allow-partial-success",
+        action="store_true",
+        help="return exit code 0 despite failed requests; requires --continue-on-error",
+    )
     parser.add_argument("--data-root", type=Path)
     parser.add_argument("--show-all", action="store_true")
     return parser
@@ -89,6 +94,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         if arguments.concurrency < 1:
             raise ValueError("concurrency must be positive")
+        if arguments.allow_partial_success and not arguments.continue_on_error:
+            raise ValueError("--allow-partial-success requires --continue-on-error")
         if arguments.action == "plan":
             print(json.dumps(plan.summary(show_all=arguments.show_all), indent=2, sort_keys=True))
             return 0
@@ -184,7 +191,7 @@ async def _execute_downloads(
             sort_keys=True,
         )
     )
-    return 0
+    return 0 if not failed or getattr(arguments, "allow_partial_success", False) else 1
 
 
 def _load_tickers(cli_tickers: list[str], ticker_file: Path | None) -> tuple[str, ...]:
@@ -213,9 +220,7 @@ def _load_ticker_dates(ticker_date_file: Path | None) -> tuple[tuple[str, date],
             try:
                 query_date = date.fromisoformat(raw_date)
             except ValueError as exc:
-                raise ValueError(
-                    f"ticker-date CSV line {line_number} has an invalid date"
-                ) from exc
+                raise ValueError(f"ticker-date CSV line {line_number} has an invalid date") from exc
             rows.append((ticker, query_date))
     if not rows:
         raise ValueError("ticker-date CSV cannot be empty")

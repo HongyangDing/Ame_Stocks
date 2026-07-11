@@ -125,6 +125,9 @@ class BronzeDownloader:
                 "error_type": type(exc).__name__,
                 "message": "download interrupted; retrying this request is safe",
             }
+            status_code = getattr(exc, "status_code", None)
+            if isinstance(status_code, int):
+                manifest["failure"]["provider_status_code"] = status_code
             manifest["updated_at"] = self._now()
             self._write_manifest(manifest_path, manifest)
             raise

@@ -121,6 +121,9 @@ def test_minute_plan_requires_tickers() -> None:
         ProviderDataset.EDGAR_INDEX,
         ProviderDataset.FORM_3,
         ProviderDataset.FORM_4,
+        ProviderDataset.INCOME_STATEMENTS,
+        ProviderDataset.BALANCE_SHEETS,
+        ProviderDataset.CASH_FLOW_STATEMENTS,
         ProviderDataset.RISK_FACTORS,
         ProviderDataset.TEN_K_SECTIONS,
         ProviderDataset.EIGHT_K_TEXT,
@@ -149,6 +152,7 @@ def test_bulk_research_plans_use_chronological_calendar_year_chunks(dataset) -> 
         ProviderDataset.TICKER_TYPES,
         ProviderDataset.EXCHANGES,
         ProviderDataset.CONDITION_CODES,
+        ProviderDataset.RATIOS,
         ProviderDataset.RISK_TAXONOMY,
         ProviderDataset.DISCLOSURE_TAXONOMY,
     ],
@@ -177,6 +181,43 @@ def test_condition_codes_plan_rejects_ticker_filters() -> None:
             end=date(2026, 7, 12),
             tickers=("AAPL",),
         )
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    [
+        ProviderDataset.INCOME_STATEMENTS,
+        ProviderDataset.BALANCE_SHEETS,
+        ProviderDataset.CASH_FLOW_STATEMENTS,
+        ProviderDataset.RATIOS,
+    ],
+)
+def test_fundamentals_plans_reject_ticker_filters(dataset) -> None:
+    with pytest.raises(ValueError, match=r"ticker|full-market"):
+        build_download_plan(
+            dataset=dataset,
+            start=date(2026, 7, 12),
+            end=date(2026, 7, 12),
+            tickers=("AAPL",),
+        )
+
+
+def test_ratios_plan_rejects_history_and_uses_one_latest_full_market_snapshot() -> None:
+    with pytest.raises(ValueError, match="latest-only"):
+        build_download_plan(
+            dataset=ProviderDataset.RATIOS,
+            start=date(2026, 7, 11),
+            end=date(2026, 7, 12),
+        )
+
+    plan = build_download_plan(
+        dataset=ProviderDataset.RATIOS,
+        start=date(2026, 7, 12),
+        end=date(2026, 7, 12),
+    )
+
+    assert len(plan.requests) == 1
+    assert plan.requests[0].asset_ids == ()
 
 
 def test_ticker_events_require_identifiers_and_preserve_exact_case() -> None:

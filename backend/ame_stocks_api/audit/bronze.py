@@ -43,6 +43,12 @@ _FLAT_REQUIRED_COLUMNS = (
     "transactions",
 )
 _ANNUAL_DATASETS = (
+    ProviderDataset.SHORT_INTEREST,
+    ProviderDataset.SHORT_VOLUME,
+    ProviderDataset.IPOS,
+    ProviderDataset.INCOME_STATEMENTS,
+    ProviderDataset.BALANCE_SHEETS,
+    ProviderDataset.CASH_FLOW_STATEMENTS,
     ProviderDataset.EDGAR_INDEX,
     ProviderDataset.FORM_3,
     ProviderDataset.FORM_4,
@@ -53,12 +59,47 @@ _ANNUAL_DATASETS = (
     ProviderDataset.NEWS,
 )
 _QUARTERLY_DATASETS = (ProviderDataset.FORM_13F,)
+_RANGE_STARTS: dict[ProviderDataset, date] = {
+    ProviderDataset.SPLITS: date(2003, 9, 10),
+    ProviderDataset.DIVIDENDS: date(2003, 9, 10),
+    ProviderDataset.SHORT_INTEREST: date(2017, 12, 29),
+    ProviderDataset.SHORT_VOLUME: date(2024, 2, 6),
+    ProviderDataset.IPOS: date(2008, 1, 1),
+    ProviderDataset.INCOME_STATEMENTS: date(2009, 3, 29),
+    ProviderDataset.BALANCE_SHEETS: date(2009, 3, 29),
+    ProviderDataset.CASH_FLOW_STATEMENTS: date(2009, 3, 29),
+    ProviderDataset.NEWS: date(2016, 6, 22),
+    ProviderDataset.TREASURY_YIELDS: date(1962, 1, 2),
+    ProviderDataset.INFLATION: date(1947, 1, 1),
+    ProviderDataset.INFLATION_EXPECTATIONS: date(1982, 1, 1),
+    ProviderDataset.LABOR_MARKET: date(1948, 1, 1),
+}
+_RANGE_DATASETS = (
+    ProviderDataset.SPLITS,
+    ProviderDataset.DIVIDENDS,
+    ProviderDataset.TREASURY_YIELDS,
+    ProviderDataset.INFLATION,
+    ProviderDataset.INFLATION_EXPECTATIONS,
+    ProviderDataset.LABOR_MARKET,
+)
+_SNAPSHOT_DATASETS = (
+    ProviderDataset.FLOAT,
+    ProviderDataset.TICKER_TYPES,
+    ProviderDataset.EXCHANGES,
+    ProviderDataset.CONDITION_CODES,
+    ProviderDataset.RATIOS,
+    ProviderDataset.RISK_TAXONOMY,
+    ProviderDataset.DISCLOSURE_TAXONOMY,
+)
 _DATE_FIELDS: dict[str, str] = {
     ProviderDataset.SPLITS.value: "execution_date",
     ProviderDataset.DIVIDENDS.value: "ex_dividend_date",
     ProviderDataset.SHORT_INTEREST.value: "settlement_date",
     ProviderDataset.SHORT_VOLUME.value: "date",
     ProviderDataset.IPOS.value: "listing_date",
+    ProviderDataset.INCOME_STATEMENTS.value: "filing_date",
+    ProviderDataset.BALANCE_SHEETS.value: "filing_date",
+    ProviderDataset.CASH_FLOW_STATEMENTS.value: "filing_date",
     ProviderDataset.EDGAR_INDEX.value: "filing_date",
     ProviderDataset.FORM_3.value: "filing_date",
     ProviderDataset.FORM_4.value: "filing_date",
@@ -81,8 +122,14 @@ _REQUIRED_ROW_FIELDS: dict[str, tuple[str, ...]] = {
     ProviderDataset.SHORT_VOLUME.value: ("ticker", "date"),
     ProviderDataset.FLOAT.value: ("ticker",),
     ProviderDataset.IPOS.value: ("listing_date",),
+    ProviderDataset.INCOME_STATEMENTS.value: ("filing_date",),
+    ProviderDataset.BALANCE_SHEETS.value: ("filing_date",),
+    ProviderDataset.CASH_FLOW_STATEMENTS.value: ("filing_date",),
+    ProviderDataset.RATIOS.value: ("ticker",),
+    ProviderDataset.TICKER_OVERVIEW.value: ("ticker",),
     ProviderDataset.TICKER_TYPES.value: ("code",),
     ProviderDataset.EXCHANGES.value: ("id",),
+    ProviderDataset.CONDITION_CODES.value: ("id",),
     ProviderDataset.EDGAR_INDEX.value: ("filing_date",),
     ProviderDataset.FORM_3.value: ("filing_date",),
     ProviderDataset.FORM_4.value: ("filing_date",),
@@ -97,6 +144,48 @@ _REQUIRED_ROW_FIELDS: dict[str, tuple[str, ...]] = {
     ProviderDataset.INFLATION_EXPECTATIONS.value: ("date",),
     ProviderDataset.LABOR_MARKET.value: ("date",),
 }
+_PHYSICAL_FAILURE_CODES = frozenset(
+    {
+        "artifact_missing",
+        "audit_internal_error",
+        "compressed_bytes_mismatch",
+        "flat_schema_mismatch",
+        "flat_size_mismatch",
+        "gzip_corrupt",
+        "json_corrupt",
+        "missing_flat_artifact",
+        "missing_rest_artifact",
+        "raw_bytes_mismatch",
+        "raw_sha256_mismatch",
+        "record_count_mismatch",
+        "stored_sha256_mismatch",
+    }
+)
+_PLAN_FAILURE_CODES = frozenset(
+    {
+        "flat_manifest_incomplete",
+        "manifest_failed",
+        "manifest_incomplete",
+        "market_partition_mismatch",
+        "ticker_event_plan_invalid",
+        "ticker_event_plan_missing",
+        "ticker_overview_plan_invalid",
+        "ticker_overview_plan_missing",
+    }
+)
+_SEMANTIC_FAILURE_CODES = frozenset(
+    {
+        "asset_active_flag_mismatch",
+        "asset_active_inactive_overlap",
+        "asset_duplicate_ticker",
+        "required_fields_missing",
+        "response_shape_invalid",
+        "response_status_not_ok",
+        "results_shape_invalid",
+        "row_date_outside_request",
+        "row_shape_invalid",
+    }
+)
 
 
 class BronzeAuditError(RuntimeError):
@@ -131,6 +220,7 @@ class DatasetStats:
     expected_objects: int | None = None
     missing_expected: int = 0
     extra_objects: int = 0
+    unavailable_expected: int = 0
 
     def merge(self, other: DatasetStats) -> None:
         for name in (
@@ -147,6 +237,7 @@ class DatasetStats:
             "verified_files",
             "missing_expected",
             "extra_objects",
+            "unavailable_expected",
         ):
             setattr(self, name, getattr(self, name) + getattr(other, name))
         self.observed_min_date = _min_optional(self.observed_min_date, other.observed_min_date)
@@ -161,19 +252,24 @@ class _ManifestResult:
     request_id: str | None = None
     request: dict[str, Any] | None = None
     status: str | None = None
+    provider_status_code: int | None = None
 
 
 class _IssueCollector:
-    def __init__(self, *, sample_limit: int = 2_000) -> None:
+    def __init__(self, *, sample_limit: int = 2_000, samples_per_code: int = 20) -> None:
         self.counts: Counter[str] = Counter()
         self.code_counts: Counter[str] = Counter()
         self.samples: list[AuditIssue] = []
         self.sample_limit = sample_limit
+        self.samples_per_code = samples_per_code
 
     def add(self, issue: AuditIssue) -> None:
         self.counts[issue.severity] += 1
         self.code_counts[issue.code] += 1
-        if len(self.samples) < self.sample_limit:
+        if (
+            len(self.samples) < self.sample_limit
+            and self.code_counts[issue.code] <= self.samples_per_code
+        ):
             self.samples.append(issue)
 
     def extend(self, issues: list[AuditIssue]) -> None:
@@ -212,6 +308,9 @@ class BronzeAuditor:
         end: date,
         mode: AuditMode = "full",
         workers: int = 2,
+        ticker_overview_plan: Path | None = None,
+        ticker_event_plan: Path | None = None,
+        ticker_event_start: date = date(2003, 9, 10),
     ) -> None:
         if start > end:
             raise ValueError("start must be on or before end")
@@ -224,10 +323,14 @@ class BronzeAuditor:
         self.end = end
         self.mode = mode
         self.workers = workers
+        self.ticker_overview_plan = ticker_overview_plan
+        self.ticker_event_plan = ticker_event_plan
+        self.ticker_event_start = ticker_event_start
         self._issues = _IssueCollector()
         self._stats: dict[str, DatasetStats] = {}
         self._rest_results: list[_ManifestResult] = []
         self._flat_results: list[_ManifestResult] = []
+        self._plan_receipts: list[dict[str, object]] = []
 
     def run(self) -> dict[str, Any]:
         if not self.data_root.is_dir():
@@ -247,6 +350,7 @@ class BronzeAuditor:
         finished = datetime.now(UTC)
 
         severity = self._issues.counts
+        code_counts = self._issues.code_counts
         status = (
             "failed"
             if severity["critical"] or severity["error"]
@@ -271,9 +375,19 @@ class BronzeAuditor:
                 "declared_records": sum(item["declared_records"] for item in datasets),
                 "verified_records": sum(item["verified_records"] for item in datasets),
                 "issue_counts": dict(sorted(severity.items())),
-                "issue_code_counts": dict(sorted(self._issues.code_counts.items())),
+                "issue_code_counts": dict(sorted(code_counts.items())),
+            },
+            "gates": {
+                "physical_integrity": _gate_status(code_counts, _PHYSICAL_FAILURE_CODES),
+                "authoritative_plan": _gate_status(
+                    code_counts,
+                    _PLAN_FAILURE_CODES,
+                    prefix="missing_expected_",
+                ),
+                "semantic_consistency": _gate_status(code_counts, _SEMANTIC_FAILURE_CODES),
             },
             "datasets": datasets,
+            "plan_receipts": self._plan_receipts,
             "issue_samples": [asdict(issue) for issue in self._issues.samples],
             "method": {
                 "full": (
@@ -364,15 +478,33 @@ class BronzeAuditor:
             )
 
         status = str(manifest.get("status", ""))
+        failure = manifest.get("failure")
+        provider_status = failure.get("provider_status_code") if isinstance(failure, dict) else None
+        provider_status = provider_status if isinstance(provider_status, int) else None
         stats.complete_manifests = int(status == "complete")
         stats.failed_manifests = int(status == "failed")
         stats.in_progress_manifests = int(status in {"pending", "in_progress"})
         if status == "failed":
-            issues.append(
-                AuditIssue(
-                    "error", "manifest_failed", "download manifest is failed", dataset, str(path)
+            if dataset == ProviderDataset.TICKER_EVENTS.value and provider_status == 404:
+                issues.append(
+                    AuditIssue(
+                        "warning",
+                        "ticker_event_identifier_not_found",
+                        "Massive returned HTTP 404 for this identifier",
+                        dataset,
+                        str(path),
+                    )
                 )
-            )
+            else:
+                issues.append(
+                    AuditIssue(
+                        "error",
+                        "manifest_failed",
+                        "download manifest is failed",
+                        dataset,
+                        str(path),
+                    )
+                )
         elif status != "complete":
             issues.append(
                 AuditIssue(
@@ -524,7 +656,15 @@ class BronzeAuditor:
             else:
                 self._verify_structural_file(dataset, path, artifact, stats, issues)
 
-        return _ManifestResult(stats, issues, referenced, request_id, request, status)
+        return _ManifestResult(
+            stats,
+            issues,
+            referenced,
+            request_id,
+            request,
+            status,
+            provider_status,
+        )
 
     def _verify_structural_file(
         self,
@@ -944,9 +1084,20 @@ class BronzeAuditor:
             self._record_plan_diff(dataset.value, expected, actual, "flat_session")
 
         complete_by_dataset: dict[str, set[str]] = defaultdict(set)
+        terminal_by_dataset: dict[str, set[str]] = defaultdict(set)
+        unavailable_by_dataset: dict[str, set[str]] = defaultdict(set)
         for result in self._rest_results:
             if result.request_id and result.status == "complete":
                 complete_by_dataset[result.stats.dataset].add(result.request_id)
+                terminal_by_dataset[result.stats.dataset].add(result.request_id)
+            elif (
+                result.request_id
+                and result.stats.dataset == ProviderDataset.TICKER_EVENTS.value
+                and result.status == "failed"
+                and result.provider_status_code == 404
+            ):
+                terminal_by_dataset[result.stats.dataset].add(result.request_id)
+                unavailable_by_dataset[result.stats.dataset].add(result.request_id)
         expected_requests: dict[str, set[str]] = defaultdict(set)
         assets = build_download_plan(
             dataset=ProviderDataset.ASSETS, start=self.start, end=self.end, active="both"
@@ -957,11 +1108,39 @@ class BronzeAuditor:
         for dataset in (*_ANNUAL_DATASETS, *_QUARTERLY_DATASETS):
             if dataset.value not in self._stats:
                 continue
-            plan = build_download_plan(dataset=dataset, start=self.start, end=self.end)
+            plan = build_download_plan(
+                dataset=dataset,
+                start=_RANGE_STARTS.get(dataset, self.start),
+                end=self.end,
+            )
             expected_requests[dataset.value].update(request.request_id for request in plan.requests)
+        for dataset in _RANGE_DATASETS:
+            if dataset.value not in self._stats:
+                continue
+            plan = build_download_plan(
+                dataset=dataset,
+                start=_RANGE_STARTS[dataset],
+                end=self.end,
+            )
+            expected_requests[dataset.value].update(request.request_id for request in plan.requests)
+        for dataset in _SNAPSHOT_DATASETS:
+            if dataset.value not in self._stats:
+                continue
+            plan = build_download_plan(dataset=dataset, start=self.end, end=self.end)
+            expected_requests[dataset.value].update(request.request_id for request in plan.requests)
+        self._add_ticker_overview_plan(expected_requests)
+        self._add_ticker_event_plan(expected_requests)
         for dataset, request_ids in expected_requests.items():
-            actual_complete = complete_by_dataset[dataset]
-            self._record_plan_diff(dataset, request_ids, actual_complete, "rest_request")
+            actual = (
+                terminal_by_dataset[dataset]
+                if dataset == ProviderDataset.TICKER_EVENTS.value
+                else complete_by_dataset[dataset]
+            )
+            self._record_plan_diff(dataset, request_ids, actual, "rest_request")
+            if dataset == ProviderDataset.TICKER_EVENTS.value:
+                self._stats[dataset].unavailable_expected = len(
+                    request_ids & unavailable_by_dataset[dataset]
+                )
 
         minute = flat_by_dataset[FlatFileDataset.MINUTE_AGGREGATES.value]
         daily = flat_by_dataset[FlatFileDataset.DAY_AGGREGATES.value]
@@ -976,6 +1155,95 @@ class BronzeAuditor:
                     ),
                 )
             )
+
+    def _add_ticker_overview_plan(self, expected: dict[str, set[str]]) -> None:
+        dataset = ProviderDataset.TICKER_OVERVIEW
+        if dataset.value not in self._stats:
+            return
+        path = self.ticker_overview_plan or (
+            self.data_root
+            / "staging"
+            / "ticker_overview"
+            / "schema=v2"
+            / f"window={self.start.isoformat()}_{self.end.isoformat()}"
+            / "requests.csv"
+        )
+        if not path.is_file():
+            self._issues.add(
+                AuditIssue(
+                    "error",
+                    "ticker_overview_plan_missing",
+                    f"authoritative ticker/query-date receipt is missing: {path}",
+                    dataset.value,
+                )
+            )
+            return
+        ticker_dates: list[tuple[str, date]] = []
+        try:
+            with path.open(encoding="utf-8", newline="") as handle:
+                reader = csv.DictReader(handle)
+                if reader.fieldnames != ["ticker", "query_date"]:
+                    raise ValueError("receipt must have exact ticker,query_date columns")
+                for row in reader:
+                    ticker_dates.append((str(row["ticker"]), date.fromisoformat(row["query_date"])))
+        except (OSError, ValueError) as exc:
+            self._issues.add(
+                AuditIssue(
+                    "error", "ticker_overview_plan_invalid", str(exc), dataset.value, str(path)
+                )
+            )
+            return
+        plan = build_download_plan(
+            dataset=dataset,
+            start=self.start,
+            end=self.end,
+            ticker_dates=tuple(ticker_dates),
+        )
+        expected[dataset.value].update(request.request_id for request in plan.requests)
+        self._record_plan_receipt(path, dataset.value, len(plan.requests))
+
+    def _add_ticker_event_plan(self, expected: dict[str, set[str]]) -> None:
+        dataset = ProviderDataset.TICKER_EVENTS
+        if dataset.value not in self._stats:
+            return
+        path = self.ticker_event_plan or (
+            self.data_root / "manifests" / "plans" / "ticker_events" / "identifiers.txt"
+        )
+        if not path.is_file():
+            self._issues.add(
+                AuditIssue(
+                    "error",
+                    "ticker_event_plan_missing",
+                    f"authoritative identifier receipt is missing: {path}",
+                    dataset.value,
+                )
+            )
+            return
+        try:
+            identifiers = tuple(
+                line.partition("#")[0].strip()
+                for line in path.read_text(encoding="utf-8").splitlines()
+                if line.partition("#")[0].strip()
+            )
+            plan = build_download_plan(
+                dataset=dataset,
+                start=self.ticker_event_start,
+                end=self.end,
+                tickers=identifiers,
+            )
+        except (OSError, ValueError) as exc:
+            self._issues.add(
+                AuditIssue("error", "ticker_event_plan_invalid", str(exc), dataset.value, str(path))
+            )
+            return
+        expected[dataset.value].update(request.request_id for request in plan.requests)
+        self._record_plan_receipt(path, dataset.value, len(plan.requests))
+
+    def _record_plan_receipt(self, path: Path, dataset: str, rows: int) -> None:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        self._plan_receipts.append(
+            {"dataset": dataset, "path": str(path.resolve()), "rows": rows, "sha256": digest}
+        )
 
     def _record_plan_diff(
         self,
@@ -1251,3 +1519,15 @@ def _min_optional(first: str | None, second: str | None) -> str | None:
 def _max_optional(first: str | None, second: str | None) -> str | None:
     values = [value for value in (first, second) if value is not None]
     return max(values) if values else None
+
+
+def _gate_status(
+    counts: Counter[str],
+    exact_codes: frozenset[str],
+    *,
+    prefix: str | None = None,
+) -> str:
+    failed = any(counts[code] for code in exact_codes)
+    if prefix:
+        failed = failed or any(count and code.startswith(prefix) for code, count in counts.items())
+    return "failed" if failed else "passed"

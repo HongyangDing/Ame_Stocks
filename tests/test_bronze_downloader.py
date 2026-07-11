@@ -122,6 +122,28 @@ def test_nested_ticker_event_records_are_counted() -> None:
     assert BronzeDownloader._record_count(payload) == 2
 
 
+def test_provider_status_code_is_preserved_without_exception_message(tmp_path: Path) -> None:
+    class SafeFailure(RuntimeError):
+        status_code = 404
+
+    class FailingProvider(ScriptedProvider):
+        async def fetch(self, request, *, checkpoint=None):
+            if False:
+                yield
+            raise SafeFailure("secret upstream detail")
+
+    downloader = BronzeDownloader(tmp_path, minimum_free_bytes=0)
+    with pytest.raises(SafeFailure):
+        asyncio.run(downloader.download(FailingProvider([]), _request()))
+
+    manifest_path = (
+        tmp_path / "manifests" / "massive" / "minute_bars" / f"{_request().request_id}.json"
+    )
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["failure"]["provider_status_code"] == 404
+    assert "secret upstream detail" not in manifest_path.read_text()
+
+
 def test_rest_bronze_download_refuses_to_cross_disk_floor(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

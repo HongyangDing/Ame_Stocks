@@ -31,6 +31,10 @@ _ALLOWED_PARAMETERS = {
     ProviderDataset.SHORT_INTEREST: frozenset({"avg_daily_volume", "days_to_cover"}),
     ProviderDataset.SHORT_VOLUME: frozenset({"short_volume_ratio"}),
     ProviderDataset.FLOAT: frozenset({"free_float_percent"}),
+    ProviderDataset.INCOME_STATEMENTS: frozenset(),
+    ProviderDataset.BALANCE_SHEETS: frozenset(),
+    ProviderDataset.CASH_FLOW_STATEMENTS: frozenset(),
+    ProviderDataset.RATIOS: frozenset(),
     ProviderDataset.IPOS: frozenset({"ipo_status", "isin", "us_code"}),
     ProviderDataset.TICKER_OVERVIEW: frozenset(),
     ProviderDataset.TICKER_EVENTS: frozenset({"types"}),
@@ -39,9 +43,7 @@ _ALLOWED_PARAMETERS = {
     ProviderDataset.CONDITION_CODES: frozenset(),
     ProviderDataset.EDGAR_INDEX: frozenset({"cik", "form_type"}),
     ProviderDataset.FORM_3: frozenset({"form_type", "issuer_cik", "owner_cik"}),
-    ProviderDataset.FORM_4: frozenset(
-        {"form_type", "issuer_cik", "owner_cik", "transaction_code"}
-    ),
+    ProviderDataset.FORM_4: frozenset({"form_type", "issuer_cik", "owner_cik", "transaction_code"}),
     ProviderDataset.FORM_13F: frozenset({"filer_cik"}),
     ProviderDataset.RISK_FACTORS: frozenset({"cik"}),
     ProviderDataset.TEN_K_SECTIONS: frozenset({"cik", "period_end", "section"}),
@@ -72,6 +74,27 @@ class _BulkEndpoint:
 
 
 _BULK_ENDPOINTS = {
+    ProviderDataset.INCOME_STATEMENTS: _BulkEndpoint(
+        "/stocks/financials/v1/income-statements",
+        "filing_date",
+        50_000,
+        "filing_date.asc",
+        None,
+    ),
+    ProviderDataset.BALANCE_SHEETS: _BulkEndpoint(
+        "/stocks/financials/v1/balance-sheets",
+        "filing_date",
+        50_000,
+        "filing_date.asc",
+        None,
+    ),
+    ProviderDataset.CASH_FLOW_STATEMENTS: _BulkEndpoint(
+        "/stocks/financials/v1/cash-flow-statements",
+        "filing_date",
+        50_000,
+        "filing_date.asc",
+        None,
+    ),
     ProviderDataset.SHORT_INTEREST: _BulkEndpoint(
         "/stocks/v1/short-interest", "settlement_date", 50_000, "settlement_date.asc,ticker.asc"
     ),
@@ -115,9 +138,7 @@ _BULK_ENDPOINTS = {
     ProviderDataset.TREASURY_YIELDS: _BulkEndpoint(
         "/fed/v1/treasury-yields", "date", 50_000, "date.asc", None
     ),
-    ProviderDataset.INFLATION: _BulkEndpoint(
-        "/fed/v1/inflation", "date", 50_000, "date.asc", None
-    ),
+    ProviderDataset.INFLATION: _BulkEndpoint("/fed/v1/inflation", "date", 50_000, "date.asc", None),
     ProviderDataset.INFLATION_EXPECTATIONS: _BulkEndpoint(
         "/fed/v1/inflation-expectations", "date", 50_000, "date.asc", None
     ),
@@ -141,6 +162,10 @@ class MassiveConfigurationError(MassiveProviderError):
 
 class MassiveRequestError(MassiveProviderError):
     """Raised when a request cannot be completed after retry handling."""
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class MassiveResponseError(MassiveProviderError):
@@ -394,6 +419,17 @@ class MassiveProvider:
                 parameters["ticker"] = request.asset_ids[0]
             return "/stocks/vX/float", parameters
 
+        if request.dataset is ProviderDataset.RATIOS:
+            if request.start != request.end:
+                raise MassiveConfigurationError("ratios is a latest-only snapshot")
+            self._require_at_most_one_asset(request)
+            if request.asset_ids:
+                raise MassiveConfigurationError("ratios does not accept asset_ids")
+            return "/stocks/financials/v1/ratios", {
+                "limit": "50000",
+                "sort": "ticker.asc",
+            }
+
         if request.dataset is ProviderDataset.TICKER_OVERVIEW:
             if request.start != request.end:
                 raise MassiveConfigurationError(
@@ -455,14 +491,10 @@ class MassiveProvider:
 
         if request.dataset is ProviderDataset.DISCLOSURE_TAXONOMY:
             if request.start != request.end:
-                raise MassiveConfigurationError(
-                    "disclosure_taxonomy is a latest-only snapshot"
-                )
+                raise MassiveConfigurationError("disclosure_taxonomy is a latest-only snapshot")
             self._require_at_most_one_asset(request)
             if request.asset_ids:
-                raise MassiveConfigurationError(
-                    "disclosure_taxonomy does not accept asset_ids"
-                )
+                raise MassiveConfigurationError("disclosure_taxonomy does not accept asset_ids")
             return "/stocks/taxonomies/vX/disclosures", {
                 "limit": "1000",
                 "sort": "taxonomy.desc",
@@ -506,11 +538,13 @@ class MassiveProvider:
             if response.status_code not in _RETRYABLE_STATUS_CODES:
                 raise MassiveRequestError(
                     f"Massive returned HTTP {response.status_code} for "
-                    f"{self._url_without_query(url)}"
+                    f"{self._url_without_query(url)}",
+                    status_code=response.status_code,
                 )
             if attempt == self._max_attempts:
                 raise MassiveRequestError(
-                    f"Massive returned HTTP {response.status_code} after {attempt} attempts"
+                    f"Massive returned HTTP {response.status_code} after {attempt} attempts",
+                    status_code=response.status_code,
                 )
             await self._sleep(self._retry_delay(response, attempt))
 
