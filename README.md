@@ -129,6 +129,8 @@ that later delist, but their rows are never treated as listing status. See
 layout, credential separation, and resume behavior. The versioned
 [research-data catalog](docs/massive-research-catalog.md) records which non-trade datasets
 are queued, excluded as reconstructible, unavailable on the account, or latest-only.
+The Chinese [data dictionary](DATA_README.md) inventories every downloaded dataset and
+documents its observed field structure, candidate keys, timing semantics, and backtest risks.
 
 After reviewed downloads, `ame-materialize universe` builds one active/inactive security
 master per date. `ame-flatfiles convert` preserves each daily unadjusted CSV as Parquet,
