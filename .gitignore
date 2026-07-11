@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/*.tsbuildinfo
+frontend/.env*
+!frontend/.env.example
+
+# Local configuration and runtime data
+.env
+.env.*
+!.env.example
+.runtime/
+data/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp

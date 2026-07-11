@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ame-stocks"
+version = "0.1.0"
+description = "U.S. equity factor research and backtesting platform"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "celery[redis]>=5.6,<5.7",
+  "fastapi>=0.139,<0.140",
+  "polars>=1.42,<1.43",
+  "uvicorn[standard]>=0.51,<0.52",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx2>=2.5,<3",
+  "pytest>=9.1,<10",
+  "ruff>=0.15,<0.16",
+]
+
+[tool.setuptools.packages.find]
+where = ["packages", "backend", "worker"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["ame_stocks_api", "ame_stocks_core", "ame_stocks_worker", "research"]
