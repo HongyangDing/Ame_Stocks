@@ -8,10 +8,14 @@ different paid expansion is not bulk-downloaded.
 Account access was probed again on 2026-07-12 with one-record requests. The probe printed only
 HTTP status and response size; credentials and response bodies were not logged.
 
-The frozen 2016-07-11 through 2026-07-09 catalog was independently audited on 2026-07-12. All
-27 required REST datasets and both aggregate Flat File datasets are present in the authoritative
-plan; 232,519 artifacts were opened and verified, with zero file/hash/gzip/record-count damage.
-The detailed provider differences and Barra-readiness boundary are recorded in
+The frozen catalog was independently audited on 2026-07-12. All 29 REST datasets required by this
+date-bounded, exchange-listed daily-factor/Barra scope and both aggregate Flat File datasets are
+present in the authoritative plan. The common research window is 2016-07-11 through 2026-07-09,
+except REST Daily Market Summary begins at its observed entitlement boundary of 2016-07-13 and
+the isolated legacy/deprecated financial fallback currently accessible to the live key begins on
+2009-03-29. This is a completeness claim for that frozen scope and those observed entitlements,
+not for every Massive product or a later catalog date. The detailed file-integrity evidence,
+provider differences, and Barra-readiness boundary are recorded in
 [the bounded Bronze audit](bronze-audit-2026-07-12.md).
 
 The daily universe plan explicitly uses `locale=us, market=stocks`. Massive exposes OTC as a
@@ -23,8 +27,9 @@ research universe; adding it would require a separate active/inactive snapshot p
 
 | Dataset | Earliest useful request | Storage/partition | Research use |
 | --- | --- | --- | --- |
-| Minute aggregates | rolling ten-year cutoff | one immutable gzip CSV per session | intraday execution proxy and daily features |
+| Minute aggregates | rolling ten-year cutoff | one immutable gzip CSV per session | explicitly non-exact intraday execution proxy and daily features |
 | Day aggregates | rolling ten-year cutoff | one immutable gzip CSV per session | fast daily QA and bar cross-check |
+| REST Daily Market Summary | 2016-07-13 observed entitlement boundary | one immutable gzip JSON response per session | independent daily OHLCV QA and provider full-session VWAP |
 | Active + inactive tickers | every session | paginated gzip JSON | point-in-time universe and survivorship control |
 | Splits + dividends | 2003-09-10 | one resumable stream per dataset | unadjusted-to-adjusted return construction |
 | Short interest | 2017-12-29 | calendar-year gzip JSON streams | positioning and short-squeeze factors |
@@ -33,6 +38,7 @@ research universe; adding it would require a separate active/inactive snapshot p
 | IPOs | 2008-01-01 | calendar-year gzip JSON streams | listing age, issuance, and IPO cohort effects |
 | Ticker events | 2003-09-10 | one request per FIGI/CUSIP/ticker | symbol continuity and entity identity QA |
 | Ticker Overview | one request per ticker/identity lifecycle | gzip JSON plus allowlisted Parquet | SIC, listing date, and identity reference inputs |
+| Legacy combined financials | 2009-03-29 | annual `filing_date` gzip JSON streams, isolated from v1 | income, balance-sheet, cash-flow, and provenance PIT candidates; not safe PIT until Silver timing QA |
 | Exchanges + ticker types | capture date only | two small snapshots | decode reference classifications |
 | Condition codes | capture date only | one small snapshot | explain trade/quote eligibility and provider OHLCV update rules |
 | EDGAR index | 2016-07-11 project window | calendar-year gzip JSON streams | authoritative filing availability timestamp |
@@ -59,21 +65,50 @@ filing metadata and no holding payload. Silver must retain them as
 `holdings_status=not_public_or_unavailable`, never infer zero holdings, and exclude them from the
 holding fact table. Partial holding payloads remain audit failures.
 
-## Entitlement-blocked additions
+## Daily-product reconciliation
+
+The independent schema-v4 report is stored at
+`/mnt/HC_Volume_106309665/american_stocks/manifests/audits/daily_product_crosscheck/full-2026-07-12-v4.json`
+(SHA-256 `f0588ca0b1ac54dcd2d4883c010725cafe723d0931977200f5c8b0486d34c7fe`). Across
+2,511 sessions it compares 24,452,482 common ticker rows, plus 8,356 REST-only and 64
+Flat-only rows. REST timestamps are checked against the exchange close used by the provider's
+nominal daily-window end at 16:00 ET on every session, including exchange half days whose actual
+close is 13:00 ET. Flat
+timestamps are session starts at midnight ET. The report's only
+source-integrity failure is 29 Flat rows on 2019-08-12 with noncanonical timestamps, reproduced
+byte-for-byte by a provider re-download. That single anomaly makes the report status `failed`;
+numerical and coverage differences are kept as explicit product differences for Silver policy,
+not classified as local file corruption.
+
+The REST `vw` field is available on 24,317,162 of 24,460,838 Daily Market Summary rows and is
+the full-session VWAP. It does not satisfy the backtest contract for exact next-day
+09:30–10:00 VWAP. Exact provider VWAP for that interval requires targeted Custom Bars; a
+minute-price construction is only a clearly labelled non-exact proxy and requires an explicit
+relaxation of the execution-price contract.
+
+## New-v1 entitlement gap and isolated fallback
 
 Massive's current official plan table says Stocks Advanced includes end-of-day access and all
 history back to 2009-03-29 for the three statement endpoints. The live remote key nevertheless
 returns HTTP 403 for all four new v1 endpoints below. This is an observed documentation-versus-live
-access mismatch whose exact cause must be confirmed by Massive, not a reason to use the retired vX
-financials endpoint. The download contracts and annual
-`filing_date` plans are already implemented; no failed response body or credential is persisted.
+access mismatch whose exact cause must be confirmed by Massive. No failed response body or
+credential is persisted.
+
+The legacy/deprecated `/vX/reference/financials` endpoint, currently accessible to the live key,
+was therefore downloaded as a strictly isolated fallback: 377,576 rows in 3,784 pages across 18
+chronological annual requests from 2009-03-29 through 2026-07-09. It supplies combined income,
+balance-sheet, cash-flow, source-XPath, and derivation provenance. These are PIT candidates, not
+safe PIT observations merely because they have a `filing_date`: 299,200 rows lack
+`acceptance_datetime`, and 39 rows have `end_date > filing_date`. Silver must preserve lineage,
+apply conservative availability timing, cross-check EDGAR, and quarantine impossible date order
+before factor use. It must never present this fallback as a response from a new v1 contract.
 
 | Dataset | Intended storage | Research use | Current action |
 | --- | --- | --- | --- |
-| Income statements | annual `filing_date` chunks from 2009-03-29 | earnings yield, growth, profitability, weighted-share proxy | download immediately after entitlement is restored |
-| Balance sheets | annual `filing_date` chunks from 2009-03-29 | book-to-price, leverage, balance-sheet quality | download immediately after entitlement is restored |
-| Cash-flow statements | annual `filing_date` chunks from 2009-03-29 | cash-flow yield, accruals, quality | download immediately after entitlement is restored |
-| Ratios | one current full-market snapshot | current cross-section QA only; not historical Barra | download once after entitlement is restored |
+| Income statements v1 | annual `filing_date` chunks from 2009-03-29 | earnings yield, growth, profitability, weighted-share proxy | optional replacement/cross-check after entitlement is restored; legacy fallback is present |
+| Balance sheets v1 | annual `filing_date` chunks from 2009-03-29 | book-to-price, leverage, balance-sheet quality | optional replacement/cross-check after entitlement is restored; legacy fallback is present |
+| Cash-flow statements v1 | annual `filing_date` chunks from 2009-03-29 | cash-flow yield, accruals, quality | optional replacement/cross-check after entitlement is restored; legacy fallback is present |
+| Ratios v1 | one current full-market snapshot | current cross-section QA only; not historical Barra | optional QA snapshot after entitlement is restored; historical ratios are derived locally |
 
 Historical ratios must be recomputed point-in-time from statements and prices; the provider Ratios
 endpoint explicitly has no history. Even after statements are available, weighted-average shares
@@ -81,6 +116,14 @@ are only a labelled proxy for exact period-end shares, and the safe Ticker Overv
 SIC for only 16,682 / 30,739 identity lifecycles. Full classic Barra therefore still requires an
 explicit market-cap proxy policy and either a point-in-time industry source or a documented
 coverage restriction. Price/volume styles do not depend on those blocked inputs.
+
+As of the 2026-07-12 live-key probe, there is no additional accessible, non-oversized Massive
+endpoint missing from the frozen exchange-listed daily-factor/Barra Bronze scope. The remaining
+gaps are the explicitly oversized trades/quotes,
+reconstructible indicators, current-only or non-point-in-time-safe products, the four HTTP-403 v1
+contracts covered above, and research-policy/source questions such as exact point-in-time shares
+and industry history. Those Barra limitations cannot be fixed by silently bulk-downloading another
+small endpoint.
 
 ## Explicit exclusions
 
@@ -157,6 +200,7 @@ retryable failed manifest while independent identifiers finish. Other datasets r
 Official endpoint documentation:
 
 - [Stocks REST overview](https://massive.com/docs/rest/stocks)
+- [Daily Market Summary](https://massive.com/docs/rest/stocks/aggregates/daily-market-summary)
 - [Short interest](https://massive.com/docs/rest/stocks/fundamentals/short-interest)
 - [Short volume](https://massive.com/docs/rest/stocks/fundamentals/short-volume)
 - [Float](https://massive.com/docs/rest/stocks/fundamentals/float)

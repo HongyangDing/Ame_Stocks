@@ -6,10 +6,14 @@ can be inspected and reproduced.
 
 ## Current milestone
 
-The project is at the **Bronze data checkpoint**:
+The project is at the **Bronze data checkpoint** for the catalog frozen on 2026-07-12:
 
-- ten years of full-market minute/day aggregate files and 27 REST research datasets are stored
-  immutably on the remote data volume;
+- ten years of full-market minute/day aggregate Flat Files and 29 required REST research
+  datasets (31 dataset families in total) are stored immutably on the remote data volume;
+- the REST catalog now includes one unadjusted full-market Daily Market Summary per session from
+  2016-07-13 and an isolated legacy/deprecated combined-financials fallback from 2009-03-29;
+- those legacy financial rows are only point-in-time candidates: they are not approved PIT factor
+  inputs until Silver applies filing/acceptance-time rules, EDGAR cross-checks, and quarantines;
 - every saved file is manifest-bound, checksummed, resumable, and covered by the full Bronze audit;
 - full-universe Silver normalization, adjustment, and Gold factor/backtest outputs have not started.
 
@@ -146,6 +150,20 @@ documents its observed field structure, candidate keys, timing semantics, and ba
 The bounded [2026-07-12 Bronze audit](docs/bronze-audit-2026-07-12.md) records the full-file
 hash/gzip/row verification, authoritative-plan reconciliation, market cross-check, semantic
 differences, and the exact remaining blockers for a classic Barra implementation.
+
+The independent schema-v4 daily-product audit is stored remotely at
+`/mnt/HC_Volume_106309665/american_stocks/manifests/audits/daily_product_crosscheck/full-2026-07-12-v4.json`
+(SHA-256 `f0588ca0b1ac54dcd2d4883c010725cafe723d0931977200f5c8b0486d34c7fe`). It
+compares REST Daily Market Summary with Day Flat Files across 2,511 sessions and 24,452,482
+common ticker rows. REST `t` is checked against the exchange close used by the provider's daily
+window end at 16:00 ET on every session, including exchange half days whose actual close is
+13:00 ET. Flat
+`window_start` is checked against midnight ET. The report status is `failed` solely because 29
+Flat rows on 2019-08-12 have noncanonical timestamps; a separate provider re-download reproduced
+the same bytes, so this is not local disk corruption. REST `vw` is the full-session VWAP, not the
+required next-day 09:30–10:00 execution VWAP. Exact provider VWAP for that interval requires a
+targeted REST Custom Bars request; any price derived from minute OHLCV must be labelled a non-exact
+proxy.
 
 After reviewed downloads, `ame-materialize universe` builds one active/inactive security
 master per date. `ame-materialize ticker-overview-lifecycles` creates one historical detail

@@ -52,8 +52,21 @@ def valid_daily_bar(row: dict[str, Any]) -> bool:
         return False
     if epoch_millisecond_date(row.get("t")) is None:
         return False
-    values = {field: row.get(field) for field in ("o", "h", "l", "c", "v", "vw")}
+    values = {field: row.get(field) for field in ("o", "h", "l", "c", "v")}
     if any(not _finite_nonnegative_number(value) for value in values.values()):
+        return False
+    transactions = row.get("n")
+    if transactions is not None and (
+        isinstance(transactions, bool)
+        or not isinstance(transactions, int)
+        or transactions < 0
+    ):
+        return False
+    vwap = row.get("vw")
+    if vwap is not None and not _finite_nonnegative_number(vwap):
+        return False
+    otc = row.get("otc")
+    if otc is not None and not isinstance(otc, bool):
         return False
     open_price = float(values["o"])
     high_price = float(values["h"])

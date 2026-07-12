@@ -1,16 +1,16 @@
-# Massive Developer hybrid downloader review guide
+# Massive Advanced hybrid downloader review guide
 
 Live downloads are explicit, resumable, and stored only under the configured data root.
 No real credential is stored in Git, manifests, or logs.
 
-## Confirmed Developer capabilities
+## Confirmed Advanced capabilities
 
-Stocks Developer includes the `us_stocks_sip/minute_aggs_v1` and
+The Stocks Advanced access used for this archive includes the `us_stocks_sip/minute_aggs_v1` and
 `us_stocks_sip/day_aggs_v1` Flat File datasets. Minute aggregate files are:
 
 - one gzip CSV object per U.S. trading day;
 - end-of-day, normally finalized around 11:00 AM ET the following day;
-- available for a rolling ten-year window on Developer;
+- downloaded for the project's ten-year window through 2026-07-09;
 - unadjusted for splits, dividends, and other corporate actions;
 - market-activity files with OHLCV, ticker, timestamp, and transaction count.
 
@@ -18,6 +18,14 @@ The completed newer five-year Bronze minute archive occupies about 25.6 GB compr
 The older five-year extension is measured while downloading rather than estimated from a
 different schema. REST and Flat File writes both refuse to reduce free space below the
 40 GiB safety floor; Silver conversion remains a separate, reviewed operation.
+
+For the catalog frozen and entitlement-probed on 2026-07-12, the completed required scope contains
+29 REST datasets plus the two aggregate Flat File datasets. REST Daily Market Summary covers
+2016-07-13 through 2026-07-09; the isolated legacy/deprecated combined-financials endpoint that is
+currently accessible to the live key covers `filing_date` from 2009-03-29 through 2026-07-09. Its
+rows are only PIT candidates, not safe PIT inputs. The three new v1 statement endpoints and
+current-ratios endpoint still return HTTP 403 for the live key, so they remain optional
+replacement/cross-check contracts rather than unreported holes in this date-bounded Bronze scope.
 
 ## Flat Files do not solve survivorship by themselves
 
@@ -51,7 +59,7 @@ For every XNYS session:
    delisted tickers.
 3. Both paginated results are combined into one daily security master with
    `active_on_date` explicitly recorded.
-4. One minute aggregate Flat File supplies the complete daily activity table.
+4. One minute aggregate Flat File supplies that session's full-market activity file.
 5. Coverage QA joins activity to the security master and reports:
    - active tickers without bars;
    - inactive tickers with bars;
@@ -98,8 +106,13 @@ mode, but it is not the project default.
 | REST All Tickers | Daily active and inactive security master | gzip JSON Bronze plus daily Parquet |
 | Minute Flat Files | Full-market unadjusted minute activity | immutable daily gzip CSV Bronze |
 | Day Flat Files | Full-market unadjusted daily activity | immutable daily gzip CSV Bronze |
+| REST Daily Market Summary | Independent full-market daily OHLCV and full-session VWAP QA from 2016-07-13 | one immutable gzip JSON response per session |
 | REST splits/dividends | Later adjustment inputs | gzip JSON Bronze |
-| REST Custom Bars | Small validation samples and future execution-price supplement | gzip JSON Bronze |
+| REST legacy combined financials | Isolated legacy/deprecated statement PIT candidates from 2009-03-29; not safe PIT until Silver timing QA | annual `filing_date` gzip JSON streams |
+| REST Custom Bars | Small validation samples and targeted exact provider VWAP for an explicitly requested interval | gzip JSON Bronze |
+
+Daily Market Summary requests are fixed to `adjusted=false` and `include_otc=false`; they are an
+unadjusted exchange-listed comparison product, not an adjusted-return series or an OTC universe.
 
 The old per-ticker minute REST downloader remains available only for spot checks. It is
 no longer the full-market backfill path.
@@ -108,17 +121,45 @@ Paid REST plans have unlimited request counts. The default client pace is theref
 requests per minute (10 per second), still well below Massive's published recommendation
 to remain under 100 requests per second; 429 responses continue to back off and retry.
 
+## Independent daily-product reconciliation
+
+The two daily products are deliberately audited as independent sources rather than assuming one
+is a copy of the other. The completed schema-v4 report is:
+
+```text
+/mnt/HC_Volume_106309665/american_stocks/manifests/audits/daily_product_crosscheck/full-2026-07-12-v4.json
+SHA-256 f0588ca0b1ac54dcd2d4883c010725cafe723d0931977200f5c8b0486d34c7fe
+```
+
+It covers 2,511 sessions from 2016-07-13 through 2026-07-09, with 24,452,482 common
+ticker rows, 8,356 REST-only rows, and 64 Flat-only rows. Price differences are small
+relative to the common population (open 0.002883%, high 0.005995%, low 0.064910%, close
+0.019564%); volume and transaction-count differences are product-level and much more common
+(35.347099% and 35.535515%). These differences are retained for Silver policy rather than
+silently selecting whichever value is convenient.
+
+Time fields have different contracts: REST `t` is checked against the exchange close used by the
+provider's nominal 16:00 ET daily-window end on every session, including exchange half days whose
+actual close is 13:00 ET, while
+Flat `window_start` is checked against midnight in `America/New_York`. The sole source-integrity
+failure is 29 noncanonical Flat timestamps on 2019-08-12, which makes the report status `failed`.
+A separate provider re-download has the same SHA-256, so this is a vendor object anomaly rather
+than local disk damage.
+
 ## VWAP limitation
 
 Minute aggregate Flat Files do not contain a VWAP column. OHLCV alone cannot
 reconstruct exact trade-level 09:30–10:00 VWAP. The backtest must therefore later choose
-one explicitly named method:
+one explicitly named method and must not treat them as equivalent:
 
-- preferred: retrieve a targeted 30-minute aggregate VWAP through REST for execution;
-- alternative: use a clearly labelled volume-weighted minute-close proxy.
+- exact provider VWAP: retrieve a targeted 09:30–10:00 Custom Bars response and use its `vw`;
+- non-exact alternative: use a clearly labelled volume-weighted minute-close proxy and record that
+  the execution-price contract has been relaxed.
 
 The current converter does not invent a `vwap` field, so the platform cannot silently
-present an approximation as an exact VWAP.
+present an approximation as an exact VWAP. REST Daily Market Summary does contain `vw` for
+24,317,162 of 24,460,838 downloaded rows, but that value describes the full trading session;
+it is useful for provider QA and daily features, not as the next-day 09:30–10:00 execution price.
 
 ## Credentials
 
@@ -140,6 +181,8 @@ logs, or Git.
 DATA_ROOT/
 ├── bronze/massive/
 │   ├── assets/request_id={sha256}/page-00000.json.gz
+│   ├── daily_bars/request_id={sha256}/page-00000.json.gz
+│   ├── legacy_financials/request_id={sha256}/page-{sequence}.json.gz
 │   └── flatfiles/us_stocks_sip/
 │       ├── minute_aggs_v1/YYYY/MM/YYYY-MM-DD.csv.gz
 │       └── day_aggs_v1/YYYY/MM/YYYY-MM-DD.csv.gz
@@ -175,29 +218,42 @@ cannot be combined with `--start`.
   --active both \
   --end 2026-06-30
 
-# 2. After approved REST download, build each daily security master.
+# 2. Independent grouped daily bars: one unadjusted full-market request per session.
+.venv/bin/ame-massive plan \
+  --dataset daily_bars \
+  --start 2016-07-13 \
+  --end 2026-07-09
+
+# 3. Isolated currently accessible legacy/deprecated financial PIT candidates:
+#    chronological filing-date years; Silver timing QA is still required.
+.venv/bin/ame-massive plan \
+  --dataset legacy_financials \
+  --start 2009-03-29 \
+  --end 2026-07-09
+
+# 4. After approved REST download, build each daily security master.
 .venv/bin/ame-materialize universe \
   --end 2026-06-30 \
   --data-root /mnt/HC_Volume_106309665/american_stocks
 
-# 3. Offline Flat File plan: one daily object, no S3 credentials read.
+# 5. Offline Flat File plan: one daily object, no S3 credentials read.
 .venv/bin/ame-flatfiles plan \
   --dataset minute_aggregates \
   --end 2026-06-30
 
-# 4. Live S3 download only after review and server-side credential setup.
+# 6. Live S3 download only after review and server-side credential setup.
 .venv/bin/ame-flatfiles download \
   --dataset minute_aggregates \
   --end 2026-06-30 \
   --data-root /mnt/HC_Volume_106309665/american_stocks
 
-# 5. After inspecting Bronze CSV files, explicitly convert them to daily Parquet.
+# 7. After inspecting Bronze CSV files, explicitly convert them to daily Parquet.
 .venv/bin/ame-flatfiles convert \
   --dataset minute_aggregates \
   --end 2026-06-30 \
   --data-root /mnt/HC_Volume_106309665/american_stocks
 
-# 6. Reconcile Flat File activity with point-in-time reference status.
+# 8. Reconcile Flat File activity with point-in-time reference status.
 .venv/bin/ame-flatfiles coverage \
   --end 2026-06-30 \
   --data-root /mnt/HC_Volume_106309665/american_stocks
@@ -214,5 +270,6 @@ calendar-year requests so they can resume independently and begin with the oldes
 - [Flat Files Quickstart](https://massive.com/docs/flat-files/quickstart)
 - [REST All Tickers](https://massive.com/docs/rest/stocks/tickers/all-tickers)
 - [REST Stocks overview](https://massive.com/docs/rest/stocks)
+- [REST Daily Market Summary](https://massive.com/docs/rest/stocks/aggregates/daily-market-summary)
 - [Massive handling of delisted tickers](https://massive.com/knowledge-base/article/what-does-massive-do-with-delisted-tickers)
 - [REST Custom Bars](https://massive.com/docs/rest/stocks/aggregates/custom-bars)

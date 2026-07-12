@@ -174,7 +174,7 @@ _TIMESTAMP_FIELDS = frozenset({ProviderDataset.NEWS.value})
 _EPOCH_MILLISECOND_FIELDS = frozenset({ProviderDataset.DAILY_BARS.value})
 _REQUIRED_ROW_FIELDS: dict[str, tuple[str, ...]] = {
     ProviderDataset.ASSETS.value: ("ticker", "active"),
-    ProviderDataset.DAILY_BARS.value: ("T", "t", "o", "h", "l", "c", "v", "vw"),
+    ProviderDataset.DAILY_BARS.value: ("T", "t", "o", "h", "l", "c", "v"),
     ProviderDataset.SPLITS.value: ("ticker", "execution_date"),
     ProviderDataset.DIVIDENDS.value: ("ticker", "ex_dividend_date"),
     ProviderDataset.SHORT_INTEREST.value: ("ticker", "settlement_date"),

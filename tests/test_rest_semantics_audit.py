@@ -727,7 +727,7 @@ def test_grouped_daily_rows_use_ticker_timestamp_candidate_key_and_value_contrac
     assert report["dataset_windows"]["daily_bars"]["start"] == "2026-06-30"
 
 
-def test_grouped_daily_rows_reject_missing_vwap_even_when_candidate_key_is_present(
+def test_grouped_daily_rows_allow_optional_vwap_to_be_absent(
     tmp_path: Path,
 ) -> None:
     request = _formal_request(ProviderDataset.DAILY_BARS)
@@ -744,6 +744,32 @@ def test_grouped_daily_rows_reject_missing_vwap_even_when_candidate_key_is_prese
                 "l": 198.0,
                 "c": 203.0,
                 "v": 1_000_000,
+            }
+        ],
+    )
+
+    report = _audit(tmp_path, ProviderDataset.DAILY_BARS)
+
+    assert report["status"] == "passed"
+    assert report["uniqueness"]["daily_bars"]["distinct_candidate_keys"] == 1
+
+
+def test_grouped_daily_rows_reject_invalid_optional_vwap(tmp_path: Path) -> None:
+    request = _formal_request(ProviderDataset.DAILY_BARS)
+    timestamp = int(datetime(2026, 6, 30, tzinfo=UTC).timestamp() * 1000)
+    _write_request(
+        tmp_path,
+        request,
+        [
+            {
+                "T": "AAPL",
+                "t": timestamp,
+                "o": 200.0,
+                "h": 205.0,
+                "l": 198.0,
+                "c": 203.0,
+                "v": 1_000_000,
+                "vw": "not-a-number",
             }
         ],
     )

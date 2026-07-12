@@ -19,7 +19,11 @@ def test_grouped_daily_bar_contract_uses_massive_compact_keys() -> None:
 
     assert epoch_millisecond_date(row["t"]) == "2025-06-30"
     assert valid_daily_bar(row)
-    assert not valid_daily_bar({**row, "vw": None})
+    assert valid_daily_bar({key: value for key, value in row.items() if key != "vw"})
+    assert valid_daily_bar({**row, "vw": None, "n": None})
+    assert not valid_daily_bar({**row, "vw": "not-a-number"})
+    assert not valid_daily_bar({**row, "n": 1.5})
+    assert not valid_daily_bar({**row, "otc": "false"})
     assert not valid_daily_bar({**row, "h": 199.0})
     assert not valid_daily_bar({**row, "T": " AAPL"})
 
