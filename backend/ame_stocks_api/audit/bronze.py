@@ -204,6 +204,14 @@ _FORM_13F_HOLDING_FIELDS = (
     "shares_or_principal_type",
     "title_of_class",
 )
+_FORM_13F_HOLDING_SIGNAL_FIELDS = (
+    *_FORM_13F_HOLDING_FIELDS,
+    "other_managers",
+    "put_call",
+    "voting_authority_none",
+    "voting_authority_shared",
+    "voting_authority_sole",
+)
 _PHYSICAL_FAILURE_CODES = frozenset(
     {
         "artifact_missing",
@@ -1097,7 +1105,21 @@ class BronzeAuditor:
                 dataset == ProviderDataset.FORM_13F.value
                 and row.get("form_type") in {"13F-HR", "13F-HR/A"}
             ):
-                row_required = (*required, *_FORM_13F_HOLDING_FIELDS)
+                if _form_13f_has_holding_payload(row):
+                    row_required = (*required, *_FORM_13F_HOLDING_FIELDS)
+                else:
+                    issues.append(
+                        AuditIssue(
+                            "warning",
+                            "form_13f_filing_only_row",
+                            (
+                                "HR filing metadata has no holding payload; accession_number="
+                                f"{row.get('accession_number')}"
+                            ),
+                            dataset,
+                            str(payload_path),
+                        )
+                    )
             if any(
                 field_name not in row
                 or row[field_name] is None
@@ -1781,6 +1803,10 @@ def _valid_form_13f_values(row: dict[str, Any]) -> bool:
         return True
     if form_type not in {"13F-HR", "13F-HR/A"}:
         return False
+    if not _form_13f_has_holding_payload(row):
+        return True
+    if any(_form_13f_value_is_blank(row.get(field)) for field in _FORM_13F_HOLDING_FIELDS):
+        return False
     for field_name in ("market_value", "shares_or_principal_amount"):
         value = row.get(field_name)
         if (
@@ -1791,6 +1817,17 @@ def _valid_form_13f_values(row: dict[str, Any]) -> bool:
             return False
     share_type = row.get("shares_or_principal_type")
     return share_type in {"PRN", "SH"}
+
+
+def _form_13f_has_holding_payload(row: dict[str, Any]) -> bool:
+    return any(
+        not _form_13f_value_is_blank(row.get(field_name))
+        for field_name in _FORM_13F_HOLDING_SIGNAL_FIELDS
+    )
+
+
+def _form_13f_value_is_blank(value: Any) -> bool:
+    return value is None or value == "" or value == [] or value == {}
 
 
 def _safe_continuation(value: object) -> str | None:

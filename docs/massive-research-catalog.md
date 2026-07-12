@@ -14,6 +14,11 @@ plan; 232,519 artifacts were opened and verified, with zero file/hash/gzip/recor
 The detailed provider differences and Barra-readiness boundary are recorded in
 [the bounded Bronze audit](bronze-audit-2026-07-12.md).
 
+The daily universe plan explicitly uses `locale=us, market=stocks`. Massive exposes OTC as a
+separate `market=otc` universe, so the audited coverage claim is exchange-listed U.S. stocks,
+including inactive listings, not OTC securities. OTC is not required for the current Barra-style
+research universe; adding it would require a separate active/inactive snapshot plan and audit.
+
 ## Download catalog
 
 | Dataset | Earliest useful request | Storage/partition | Research use |
@@ -49,12 +54,18 @@ Every date-ranged REST request uses the dataset's disclosure or event date, not 
 date. Bronze stores the provider response unchanged; later Silver jobs must deduplicate by the
 provider record key and enforce publication-time lags.
 
+Form 13-F contains a small provider-visible header-only variant: 152 HR/HR-A rows have complete
+filing metadata and no holding payload. Silver must retain them as
+`holdings_status=not_public_or_unavailable`, never infer zero holdings, and exclude them from the
+holding fact table. Partial holding payloads remain audit failures.
+
 ## Entitlement-blocked additions
 
 Massive's current official plan table says Stocks Advanced includes end-of-day access and all
 history back to 2009-03-29 for the three statement endpoints. The live remote key nevertheless
-returns HTTP 403 for all four new v1 endpoints below. This is an account/key entitlement mismatch,
-not a reason to use the retired vX financials endpoint. The download contracts and annual
+returns HTTP 403 for all four new v1 endpoints below. This is an observed documentation-versus-live
+access mismatch whose exact cause must be confirmed by Massive, not a reason to use the retired vX
+financials endpoint. The download contracts and annual
 `filing_date` plans are already implemented; no failed response body or credential is persisted.
 
 | Dataset | Intended storage | Research use | Current action |
@@ -82,6 +93,7 @@ coverage restriction. Price/volume styles do not depend on those blocked inputs.
 | Live snapshots, movers, last trade/quote | Not historical research inputs |
 | Related tickers | Current proprietary relationship graph is not point-in-time safe |
 | Market status/upcoming holidays | Operational, forward-looking data; exchange calendar is versioned locally |
+| OTC active/inactive universe | Outside the current exchange-listed Barra universe; add only as a separately versioned universe expansion |
 | Benzinga partner feeds | Separate paid expansion, not part of the current account |
 
 ## Safety and execution rules

@@ -891,6 +891,78 @@ def test_form_13f_notice_does_not_require_holding_fields(tmp_path: Path) -> None
     assert report["summary"]["issue_counts"] == {}
 
 
+def test_form_13f_holdingless_report_is_a_filing_only_warning(tmp_path: Path) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    request = build_download_plan(
+        dataset=ProviderDataset.FORM_13F,
+        start=session,
+        end=session,
+    ).requests[0]
+    report_header = {
+        "accession_number": "0000000001-26-000001",
+        "filer_cik": "0000000001",
+        "filing_date": session.isoformat(),
+        "form_type": "13F-HR",
+        "period": session.isoformat(),
+    }
+    asyncio.run(
+        BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
+            StaticProvider([report_header]), request
+        )
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=(ProviderDataset.ASSETS, ProviderDataset.FORM_13F),
+    ).run()
+
+    assert report["status"] == "passed_with_warnings"
+    assert report["gates"]["semantic_consistency"] == "passed"
+    assert report["summary"]["issue_code_counts"] == {
+        "form_13f_filing_only_row": 1
+    }
+
+
+def test_form_13f_partial_holding_payload_still_fails(tmp_path: Path) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    request = build_download_plan(
+        dataset=ProviderDataset.FORM_13F,
+        start=session,
+        end=session,
+    ).requests[0]
+    partial_holding = {
+        "accession_number": "0000000001-26-000001",
+        "cusip": "000000001",
+        "filer_cik": "0000000001",
+        "filing_date": session.isoformat(),
+        "form_type": "13F-HR",
+        "period": session.isoformat(),
+    }
+    asyncio.run(
+        BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
+            StaticProvider([partial_holding]), request
+        )
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=(ProviderDataset.ASSETS, ProviderDataset.FORM_13F),
+    ).run()
+
+    assert report["status"] == "failed"
+    assert report["gates"]["semantic_consistency"] == "failed"
+    assert report["summary"]["issue_code_counts"] == {
+        "invalid_form_13f_value": 1,
+        "required_fields_missing": 1,
+    }
+
+
 def test_bronze_cli_persists_the_same_report_it_prints(tmp_path: Path, capsys) -> None:
     session, _ = _complete_fixture(tmp_path)
     relative_output = Path("manifests/audits/bronze-cli.json")

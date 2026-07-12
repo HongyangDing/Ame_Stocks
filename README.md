@@ -1,15 +1,25 @@
 # Ame Stocks
 
-A resume-grade U.S. equity factor research and backtesting platform. The project is being built in explicit, reviewable stages so the complete market-data pipeline can be inspected before real data is introduced.
+A resume-grade U.S. equity factor research and backtesting platform. The project is built in
+explicit, reviewable stages so every transition from immutable vendor data to research features
+can be inspected and reproduced.
 
 ## Current milestone
 
-Step 1 establishes the application skeleton and the two public Python contracts:
+The project is at the **Bronze data checkpoint**:
+
+- ten years of full-market minute/day aggregate files and 27 REST research datasets are stored
+  immutably on the remote data volume;
+- every saved file is manifest-bound, checksummed, resumable, and covered by the full Bronze audit;
+- full-universe Silver normalization, adjustment, and Gold factor/backtest outputs have not started.
+
+Two public Python contracts remain stable across these stages:
 
 - `DataProvider`: an asynchronous, resumable source adapter that returns immutable raw payload batches.
 - `FactorSpec`: a Git-managed Polars factor plugin that emits `signal_date`, `asset_id`, and `raw_value`.
 
-The current `MockProvider` is deterministic and returns an empty JSON payload. A reviewed Massive downloader is also available, but it contacts the API only through the explicit `download` command. Synthetic market generation begins in Step 3.
+`MockProvider` remains deterministic for contract tests. The Massive downloader contacts external
+services only through explicit download commands; audit and materialization commands are offline.
 
 ## Repository layout
 
@@ -72,13 +82,14 @@ Copy `.env.example` only when local overrides are needed. Planning requires no
 credentials. REST downloads use an untracked `MASSIVE_API_KEY`; Flat Files use the
 separate S3 access key and secret supplied in the Massive dashboard.
 
-The future remote data root is reserved as:
+The active remote data root is:
 
 ```text
 /mnt/HC_Volume_106309665/american_stocks
 ```
 
-No remote directories, services, domains, or legacy applications are changed by Step 1.
+Runtime data and credentials remain outside Git. Deployment and progress synchronization do not
+touch Caddy, domains, or the legacy Mogikabu application.
 
 ## Automatic progress synchronization
 
@@ -122,8 +133,9 @@ The live S3 command is intentionally distinct and requires an explicit storage r
   --data-root /mnt/HC_Volume_106309665/american_stocks
 ```
 
-Daily survivorship-safe membership is downloaded separately through REST using both
-`active=true` and `active=false`. Flat Files retain historical activity from companies
+Daily survivorship-safe exchange-listed membership is downloaded separately through REST using
+both `active=true` and `active=false` with `locale=us, market=stocks`; OTC is a separate optional
+universe. Flat Files retain historical activity from companies
 that later delist, but their rows are never treated as listing status. See
 [docs/massive-downloader.md](docs/massive-downloader.md) for the evidence, storage
 layout, credential separation, and resume behavior. The versioned
