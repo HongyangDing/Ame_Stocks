@@ -21,13 +21,17 @@ from pathlib import Path
 from typing import Any, Literal
 
 from ame_stocks_api.artifacts import ArtifactError, safe_relative_path, stable_digest
-from ame_stocks_api.audit.row_contracts import valid_daily_bar, valid_legacy_financials
+from ame_stocks_api.audit.row_contracts import (
+    legacy_filing_accession,
+    valid_daily_bar,
+    valid_legacy_financials,
+)
 from ame_stocks_api.downloads import build_download_plan
 from ame_stocks_core import ProviderDataset, ProviderRequest
 
 IssueKind = Literal["corruption", "difference"]
 
-REST_SEMANTIC_AUDIT_SCHEMA_VERSION = 5
+REST_SEMANTIC_AUDIT_SCHEMA_VERSION = 6
 
 KEY_DATASETS: dict[ProviderDataset, tuple[str, ...]] = {
     ProviderDataset.DAILY_BARS: ("T", "t"),
@@ -39,10 +43,14 @@ KEY_DATASETS: dict[ProviderDataset, tuple[str, ...]] = {
     ProviderDataset.FLOAT: ("effective_date", "ticker"),
     ProviderDataset.IPOS: ("listing_date", "ticker"),
     ProviderDataset.LEGACY_FINANCIALS: (
-        "filing_date",
+        "source_filing_url",
         "cik",
-        "timeframe",
+        "start_date",
         "end_date",
+        "filing_date",
+        "timeframe",
+        "fiscal_period",
+        "fiscal_year",
     ),
     ProviderDataset.TREASURY_YIELDS: ("date",),
     ProviderDataset.INFLATION: ("date",),
@@ -83,12 +91,17 @@ ACCESSION_DETAILS = frozenset(
         ProviderDataset.FORM_3,
         ProviderDataset.FORM_4,
         ProviderDataset.FORM_13F,
+        ProviderDataset.LEGACY_FINANCIALS,
         ProviderDataset.EIGHT_K_TEXT,
         ProviderDataset.EIGHT_K_DISCLOSURES,
     }
 )
 _EXACT_ROW_DATASETS = frozenset(
-    (ACCESSION_DETAILS - {ProviderDataset.FORM_13F}) | frozenset(TAXONOMY_USES)
+    (
+        ACCESSION_DETAILS
+        - {ProviderDataset.FORM_13F, ProviderDataset.LEGACY_FINANCIALS}
+    )
+    | frozenset(TAXONOMY_USES)
 )
 AUDITED_DATASETS = frozenset(
     {
@@ -771,6 +784,25 @@ class RestSemanticAuditor:
                     dataset.value,
                     "EDGAR index row has no nonblank accession_number",
                 )
+        elif dataset is ProviderDataset.LEGACY_FINANCIALS:
+            filing_date = row.get("filing_date")
+            if (
+                isinstance(filing_date, str)
+                and self.start.isoformat() <= filing_date <= self.end.isoformat()
+            ):
+                accession = legacy_filing_accession(row.get("source_filing_url"))
+                if accession is not None:
+                    batch.accessions[
+                        _accession_key(dataset, accession, row)
+                    ] += 1
+                else:
+                    metric.rows_without_accession += 1
+                    self.issues.add(
+                        "corruption",
+                        "accession_number_missing",
+                        dataset.value,
+                        "legacy financial row has no canonical source filing accession",
+                    )
         elif dataset in ACCESSION_DETAILS:
             accession = row.get("accession_number")
             if isinstance(accession, str) and accession.strip():
@@ -1213,10 +1245,18 @@ class RestSemanticAuditor:
             ]
             identity_mismatch_rows = 0
             identity_mismatch_examples: list[str] = []
-            if dataset is ProviderDataset.FORM_13F:
+            if dataset in {
+                ProviderDataset.FORM_13F,
+                ProviderDataset.LEGACY_FINANCIALS,
+            }:
+                identity_predicate = (
+                    "AND edgar.form_type = detail.form_type"
+                    if dataset is ProviderDataset.FORM_13F
+                    else ""
+                )
                 identity_mismatch_rows = int(
                     connection.execute(
-                        """
+                        f"""
                         SELECT COALESCE(SUM(detail.occurrences), 0)
                         FROM accessions AS detail
                         WHERE detail.dataset = ?
@@ -1230,7 +1270,7 @@ class RestSemanticAuditor:
                             WHERE edgar.dataset = ? AND edgar.accession = detail.accession
                               AND edgar.filing_date = detail.filing_date
                               AND edgar.cik = detail.cik
-                              AND edgar.form_type = detail.form_type
+                              {identity_predicate}
                           )
                         """,
                         (
@@ -1243,7 +1283,7 @@ class RestSemanticAuditor:
                 identity_mismatch_examples = [
                     f"{row[0]}:{row[1]}:{row[2]}"
                     for row in connection.execute(
-                        """
+                        f"""
                         SELECT detail.accession, detail.cik, detail.form_type
                         FROM accessions AS detail
                         WHERE detail.dataset = ?
@@ -1257,7 +1297,7 @@ class RestSemanticAuditor:
                             WHERE edgar.dataset = ? AND edgar.accession = detail.accession
                               AND edgar.filing_date = detail.filing_date
                               AND edgar.cik = detail.cik
-                              AND edgar.form_type = detail.form_type
+                              {identity_predicate}
                           )
                         ORDER BY detail.accession, detail.cik, detail.form_type LIMIT ?
                         """,
@@ -1301,7 +1341,11 @@ class RestSemanticAuditor:
                     "corruption",
                     "accession_identity_mismatch",
                     dataset.value,
-                    "Form 13F filer_cik/form_type is not an EDGAR identity for the accession",
+                    (
+                        "Form 13F filer_cik/form_type is not an EDGAR identity for the accession"
+                        if dataset is ProviderDataset.FORM_13F
+                        else "legacy financial CIK is not an EDGAR identity for the accession"
+                    ),
                     count=identity_mismatch_rows,
                     example=(
                         identity_mismatch_examples[0]

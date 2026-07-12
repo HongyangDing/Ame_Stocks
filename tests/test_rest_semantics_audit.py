@@ -103,8 +103,59 @@ def _write_legacy_financial_history(
         start=date(2009, 3, 29),
         end=SESSION,
     ).requests
-    for index, request in enumerate(requests):
-        _write_request(root, request, first_request_rows if index == 0 else [])
+    for request in requests:
+        rows = [
+            row
+            for row in first_request_rows
+            if request.start.isoformat()
+            <= str(row.get("filing_date", ""))
+            <= request.end.isoformat()
+        ]
+        _write_request(root, request, rows)
+
+
+def _legacy_financial_row(
+    value: int,
+    *,
+    accession: str,
+    cik: str = "0000320193",
+    end_date: str = "2008-12-31",
+    filing_date: str = "2009-04-01",
+    fiscal_period: str = "FY",
+    fiscal_year: str = "2008",
+    start_date: str = "2008-01-01",
+    timeframe: str = "annual",
+) -> dict[str, object]:
+    return {
+        "cik": cik,
+        "company_name": "Fixture Corp.",
+        "end_date": end_date,
+        "filing_date": filing_date,
+        "financials": {
+            "income_statement": {
+                "revenues": {
+                    "label": "Revenue",
+                    "order": 1,
+                    "source": "direct_report",
+                    "unit": "USD",
+                    "value": value,
+                    "xpath": "//Revenue",
+                }
+            }
+        },
+        "fiscal_period": fiscal_period,
+        "fiscal_year": fiscal_year,
+        "sic": "3571",
+        "source_filing_file_url": (
+            f"http://api.polygon.io/v1/reference/sec/filings/{accession}/files/a.xml"
+        ),
+        "source_filing_url": (
+            f"https://api.polygon.io/v1/reference/sec/filings/{accession}"
+        ),
+        "start_date": start_date,
+        "tickers": ["FIX"],
+        "timeframe": timeframe,
+    }
 
 
 def test_non_authoritative_disclosure_pilot_is_never_opened(tmp_path: Path) -> None:
@@ -704,24 +755,19 @@ def test_grouped_daily_rows_reject_missing_vwap_even_when_candidate_key_is_prese
 
 
 def test_legacy_financial_candidate_key_includes_end_date(tmp_path: Path) -> None:
-    common = {
-        "cik": "0000320193",
-        "filing_date": "2009-04-01",
-        "timeframe": "annual",
-    }
     _write_legacy_financial_history(
         tmp_path,
         [
-            {
-                **common,
-                "end_date": "2008-12-31",
-                "financials": {"income_statement": {"revenues": {"value": 1}}},
-            },
-            {
-                **common,
-                "end_date": "2009-03-31",
-                "financials": {"income_statement": {"revenues": {"value": 2}}},
-            },
+            _legacy_financial_row(
+                1,
+                accession="0000320193-09-000001",
+                end_date="2008-12-31",
+            ),
+            _legacy_financial_row(
+                2,
+                accession="0000320193-09-000001",
+                end_date="2009-03-31",
+            ),
         ],
     )
 
@@ -740,24 +786,17 @@ def test_legacy_financial_candidate_key_includes_end_date(tmp_path: Path) -> Non
 def test_legacy_financial_same_period_conflict_and_missing_end_date_fail(
     tmp_path: Path,
 ) -> None:
-    common = {
-        "cik": "0000320193",
-        "end_date": "2008-12-31",
-        "filing_date": "2009-04-01",
-        "timeframe": "annual",
-    }
+    first = _legacy_financial_row(1, accession="0000320193-09-000001")
+    second = _legacy_financial_row(2, accession="0000320193-09-000001")
+    missing_end = _legacy_financial_row(
+        3,
+        accession="0000789019-09-000001",
+        cik="0000789019",
+    )
+    missing_end.pop("end_date")
     _write_legacy_financial_history(
         tmp_path,
-        [
-            {**common, "financials": {"income_statement": {"revenues": {"value": 1}}}},
-            {**common, "financials": {"income_statement": {"revenues": {"value": 2}}}},
-            {
-                "cik": "0000789019",
-                "filing_date": "2009-04-02",
-                "financials": {"income_statement": {"revenues": {"value": 3}}},
-                "timeframe": "annual",
-            },
-        ],
+        [first, second, missing_end],
     )
 
     report = _audit(tmp_path, ProviderDataset.LEGACY_FINANCIALS)
@@ -768,4 +807,113 @@ def test_legacy_financial_same_period_conflict_and_missing_end_date_fail(
         "conflicting_candidate_keys": 1,
         "missing_candidate_key": 1,
         "row_contract_invalid": 1,
+    }
+
+
+def test_legacy_financial_accession_date_and_root_cik_match_edgar(
+    tmp_path: Path,
+) -> None:
+    accession = "0001193125-26-000001"
+    cik = "0000320193"
+    _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.EDGAR_INDEX),
+        [
+            {
+                "accession_number": accession,
+                "cik": cik,
+                "filing_date": SESSION.isoformat(),
+                "form_type": "10-Q",
+            }
+        ],
+    )
+    _write_legacy_financial_history(
+        tmp_path,
+        [
+            _legacy_financial_row(
+                1,
+                accession=accession,
+                cik=cik,
+                start_date="2026-01-01",
+                end_date="2026-03-31",
+                filing_date=SESSION.isoformat(),
+                fiscal_period="Q1",
+                fiscal_year="2026",
+                timeframe="quarterly",
+            )
+        ],
+    )
+
+    report = _audit(
+        tmp_path,
+        ProviderDataset.EDGAR_INDEX,
+        ProviderDataset.LEGACY_FINANCIALS,
+    )
+
+    assert report["status"] == "passed"
+    assert report["gates"]["accession_coverage"] == "matched"
+    details = report["accession_coverage"]["datasets"]["legacy_financials"]
+    assert details["distinct_accessions"] == 1
+    assert details["missing_edgar_rows"] == 0
+    assert details["filing_date_mismatch_rows"] == 0
+    assert details["identity_mismatch_rows"] == 0
+
+
+def test_legacy_financial_edgar_missing_date_and_cik_are_separate(
+    tmp_path: Path,
+) -> None:
+    date_bad = "0001193125-26-000002"
+    cik_bad = "0001193125-26-000003"
+    missing = "0001193125-26-000004"
+    _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.EDGAR_INDEX),
+        [
+            {
+                "accession_number": date_bad,
+                "cik": "0000320193",
+                "filing_date": "2026-06-29",
+                "form_type": "10-Q",
+            },
+            {
+                "accession_number": cik_bad,
+                "cik": "0000000001",
+                "filing_date": SESSION.isoformat(),
+                "form_type": "10-Q",
+            },
+        ],
+    )
+    rows = [
+        _legacy_financial_row(
+            index,
+            accession=accession,
+            start_date="2026-01-01",
+            end_date="2026-03-31",
+            filing_date=SESSION.isoformat(),
+            fiscal_period="Q1",
+            fiscal_year="2026",
+            timeframe="quarterly",
+        )
+        for index, accession in enumerate((date_bad, cik_bad, missing), start=1)
+    ]
+    _write_legacy_financial_history(tmp_path, rows)
+
+    report = _audit(
+        tmp_path,
+        ProviderDataset.EDGAR_INDEX,
+        ProviderDataset.LEGACY_FINANCIALS,
+    )
+
+    assert report["status"] == "failed"
+    assert report["gates"]["accession_coverage"] == "failed"
+    details = report["accession_coverage"]["datasets"]["legacy_financials"]
+    assert details["missing_edgar_rows"] == 1
+    assert details["filing_date_mismatch_rows"] == 1
+    assert details["identity_mismatch_rows"] == 1
+    assert report["summary"]["corruption_code_counts"] == {
+        "accession_filing_date_mismatch": 1,
+        "accession_identity_mismatch": 1,
+    }
+    assert report["summary"]["difference_code_counts"] == {
+        "accession_absent_from_edgar_index": 1
     }
