@@ -262,7 +262,7 @@ Silver 清洗自动创造。
 
 ### S0 — Silver schema、preview 和 publish 框架
 
-**状态（2026-07-12）：已获批准并实现，等待本检查点验收。** 实现只在临时合成 fixture 上
+**状态（2026-07-12）：已获批准、实现并验收。** 实现只在临时合成 fixture 上
 验证，没有读取 Bronze、没有写远程数据盘、没有生成 preview/full 真实数据。详细冻结合同见
 [`silver-s0-contracts.md`](silver-s0-contracts.md)。当前已经具备：
 
@@ -289,6 +289,10 @@ S0 本身也需要用户批准。S0 通过后，第一类实际数据建议从 `
 ## 6. Phase 1：小型参考字典
 
 ### S1 — `exchanges`
+
+**状态（2026-07-12）：Phase 1 / `schema_review`。** 已完成 manifest-bound Bronze 只读画像并
+提交 [`exchange_dim` schema 候选](silver-s1-exchanges-schema-review.md)；当前等待用户批准精确
+contract，尚未编写或运行转换、preview、full build 或 publish。
 
 - Bronze：当前快照，一行一个场所；主要字段为 `id, name, acronym, mic, operating_mic,
   participant_id, type, asset_class, locale, url`。
