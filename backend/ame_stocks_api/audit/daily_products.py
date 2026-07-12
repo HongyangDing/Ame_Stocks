@@ -6,8 +6,10 @@ import gzip
 import hashlib
 import json
 import math
+import multiprocessing
+import os
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
 from importlib.metadata import PackageNotFoundError, version
@@ -102,6 +104,15 @@ class _Source:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class _WorkerConfig:
+    data_root: Path
+    cache_dir: Path
+    use_cache: bool
+    tolerance: MarketAuditTolerance
+    max_examples: int
+
+
 class DailyProductCrossAuditor:
     """Compare two independently delivered Massive daily aggregate products."""
 
@@ -116,6 +127,7 @@ class DailyProductCrossAuditor:
         use_cache: bool = True,
         tolerance: MarketAuditTolerance | None = None,
         max_examples: int = 20,
+        max_tasks_per_child: int = 4,
     ) -> None:
         if end < start:
             raise ValueError("end cannot precede start")
@@ -123,6 +135,8 @@ class DailyProductCrossAuditor:
             raise ValueError("workers must be positive")
         if max_examples < 1:
             raise ValueError("max_examples must be positive")
+        if max_tasks_per_child < 1:
+            raise ValueError("max_tasks_per_child must be positive")
         self.data_root = data_root.expanduser().resolve()
         self.start = start
         self.end = end
@@ -135,6 +149,7 @@ class DailyProductCrossAuditor:
         self.use_cache = use_cache
         self.tolerance = tolerance or MarketAuditTolerance()
         self.max_examples = max_examples
+        self.max_tasks_per_child = max_tasks_per_child
         default_cache = (
             self.data_root
             / "manifests"
@@ -148,8 +163,25 @@ class DailyProductCrossAuditor:
         if not self.data_root.is_dir():
             raise DailyProductAuditError(f"data root is missing: {self.data_root}")
         sessions = list(market_session_dates(self.effective_start, self.end))
-        with ThreadPoolExecutor(max_workers=self.workers) as executor:
-            results = list(executor.map(self.audit_session, sessions))
+        worker_config = _WorkerConfig(
+            data_root=self.data_root,
+            cache_dir=self.cache_dir,
+            use_cache=self.use_cache,
+            tolerance=self.tolerance,
+            max_examples=self.max_examples,
+        )
+        context = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(
+            max_workers=self.workers,
+            mp_context=context,
+            max_tasks_per_child=self.max_tasks_per_child,
+        ) as executor:
+            results, peak_in_flight = _bounded_process_audit(
+                executor,
+                worker_config,
+                sessions,
+                max_in_flight=max(self.workers, self.workers * 2),
+            )
         results.sort(key=lambda item: str(item["session_date"]))
 
         issue_counts: Counter[str] = Counter()
@@ -193,6 +225,15 @@ class DailyProductCrossAuditor:
         return {
             "audit_schema_version": DAILY_PRODUCT_AUDIT_SCHEMA_VERSION,
             "config": self._config(),
+            "execution": {
+                "peak_in_flight": peak_in_flight,
+                "worker_processes_observed": len(
+                    {
+                        int(result.get("execution", {}).get("worker_pid", -1))
+                        for result in results
+                    }
+                ),
+            },
             "gates": gates,
             "sessions": results,
             "status": status,
@@ -324,6 +365,12 @@ class DailyProductCrossAuditor:
                 "the source binding records provider_version"
             ),
             "products": ["flat_day", "rest_daily"],
+            "execution": {
+                "max_in_flight": max(self.workers, self.workers * 2),
+                "max_tasks_per_child": self.max_tasks_per_child,
+                "max_workers": self.workers,
+                "process_start_method": "spawn",
+            },
             **self._cache_config(),
         }
 
@@ -905,6 +952,71 @@ class DailyProductCrossAuditor:
             },
             issues,
         )
+
+
+def _audit_session_worker(
+    config: _WorkerConfig,
+    session: date,
+) -> dict[str, object]:
+    """Run one session in a disposable spawned process."""
+
+    auditor = DailyProductCrossAuditor(
+        config.data_root,
+        start=session,
+        end=session,
+        workers=1,
+        cache_dir=config.cache_dir,
+        use_cache=config.use_cache,
+        tolerance=config.tolerance,
+        max_examples=config.max_examples,
+    )
+    result = auditor.audit_session(session)
+    result["execution"] = {
+        "process_start_method": multiprocessing.get_start_method(),
+        "worker_pid": os.getpid(),
+    }
+    return result
+
+
+def _bounded_process_audit(
+    executor: ProcessPoolExecutor,
+    config: _WorkerConfig,
+    sessions: list[date],
+    *,
+    max_in_flight: int,
+) -> tuple[list[dict[str, object]], int]:
+    """Keep the process queue bounded while workers are periodically recycled."""
+
+    pending: dict[Future[dict[str, object]], date] = {}
+    iterator = iter(sessions)
+    results: list[dict[str, object]] = []
+    peak_in_flight = 0
+
+    def submit_next() -> bool:
+        nonlocal peak_in_flight
+        try:
+            session = next(iterator)
+        except StopIteration:
+            return False
+        pending[executor.submit(_audit_session_worker, config, session)] = session
+        peak_in_flight = max(peak_in_flight, len(pending))
+        return True
+
+    for _ in range(min(max_in_flight, len(sessions))):
+        submit_next()
+    while pending:
+        completed, _ = wait(tuple(pending), return_when=FIRST_COMPLETED)
+        for future in completed:
+            session = pending.pop(future)
+            try:
+                results.append(future.result())
+            except Exception as exc:
+                raise DailyProductAuditError(
+                    f"spawned audit worker failed for {session.isoformat()}: "
+                    f"{type(exc).__name__}"
+                ) from exc
+            submit_next()
+    return results, peak_in_flight
 
 
 def _daily_request(session: date) -> ProviderRequest:

@@ -27,6 +27,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--start", type=date.fromisoformat, required=True)
     parser.add_argument("--end", type=date.fromisoformat, required=True)
     parser.add_argument("--workers", type=int, default=2)
+    parser.add_argument(
+        "--max-tasks-per-child",
+        type=int,
+        default=4,
+        help="recycle each spawned Polars worker after this many sessions",
+    )
     parser.add_argument("--cache-dir", type=Path)
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--max-examples", type=int, default=20)
@@ -61,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
             use_cache=not arguments.no_cache,
             tolerance=tolerance,
             max_examples=arguments.max_examples,
+            max_tasks_per_child=arguments.max_tasks_per_child,
         ).run()
         if arguments.output:
             output = arguments.output

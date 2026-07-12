@@ -331,6 +331,48 @@ def test_effective_window_starts_on_verified_daily_rest_boundary(tmp_path: Path)
     ]
 
 
+def test_spawn_workers_recycle_and_reuse_multiple_session_caches(tmp_path: Path) -> None:
+    sessions = (
+        date(2016, 7, 13),
+        date(2016, 7, 14),
+        date(2016, 7, 15),
+        date(2016, 7, 18),
+    )
+    for session in sessions:
+        _write_matching_fixture(tmp_path, session=session)
+
+    def run() -> dict[str, object]:
+        return DailyProductCrossAuditor(
+            tmp_path,
+            start=sessions[0],
+            end=sessions[-1],
+            workers=1,
+            max_tasks_per_child=1,
+        ).run()
+
+    first = run()
+    second = run()
+
+    assert first["status"] == "passed"
+    assert first["config"]["execution"] == {
+        "max_in_flight": 2,
+        "max_tasks_per_child": 1,
+        "max_workers": 1,
+        "process_start_method": "spawn",
+    }
+    assert first["execution"] == {
+        "peak_in_flight": 2,
+        "worker_processes_observed": 4,
+    }
+    assert len({item["execution"]["worker_pid"] for item in first["sessions"]}) == 4
+    assert all(
+        item["execution"]["process_start_method"] == "spawn"
+        for item in first["sessions"]
+    )
+    assert second["summary"]["cache_reused"] == 4
+    assert len({item["execution"]["worker_pid"] for item in second["sessions"]}) == 4
+
+
 def test_cli_writes_bounded_report_and_accepts_product_differences(
     tmp_path: Path, capsys
 ) -> None:
