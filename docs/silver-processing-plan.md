@@ -10,7 +10,7 @@ Bronze 已具备进入 Silver 的条件。最终 Bronze v9 已证明冻结范围
 编号 S1–S34 中，S7、S14、S15 是跨数据集派生审批点；其余 31 项与 31 个 Bronze family
 一一对应。
 
-截至本文建立时，不能把项目描述成“Silver 已实现”：
+截至 S0 完成后，只能描述为“Silver 控制框架已实现”，不能描述成“Silver 数据已处理”：
 
 - `minute`、`universe` 和 `coverage` 只有 2016-07-11、2021-07-12 两个验证日；
 - Ticker Overview lifecycle/safe v2 已全量生成，但仍是 provisional reference，不是最终
@@ -18,7 +18,8 @@ Bronze 已具备进入 Silver 的条件。最终 Bronze v9 已证明冻结范围
 - 现有 universe 代码会拒绝单个快照内的重复 ticker，而 Bronze 已知有 214 个 session、
   4,853 组 inactive 版本行，因此当前代码不能直接跑十年全量；
 - 复权、最终身份、PIT availability、SEC/财务、新闻和宏观的正式 Silver 转换尚未实现；
-- 现有 CLI 会直接写 `silver_unadjusted`，还没有本计划要求的 preview/review/publish 状态门。
+- 旧 `ame-materialize`/`ame-flatfiles convert` 仍只生成历史 pilot；正式路径已由独立
+  `ame-silver` 合同和 release-only reader 隔离，尚未接入任何 family 转换。
 
 现有 pilot 产物保持不变。正式 Silver 使用新版本路径，不覆盖 pilot，也不修改 Bronze。
 
@@ -260,6 +261,18 @@ Silver 清洗自动创造。
 ## 5. Phase 0：共同合同，只建框架不处理数据
 
 ### S0 — Silver schema、preview 和 publish 框架
+
+**状态（2026-07-12）：已获批准并实现，等待本检查点验收。** 实现只在临时合成 fixture 上
+验证，没有读取 Bronze、没有写远程数据盘、没有生成 preview/full 真实数据。详细冻结合同见
+[`silver-s0-contracts.md`](silver-s0-contracts.md)。当前已经具备：
+
+- schema/QARule registry、SourceInventory/source layer 和完整 lineage；
+- 不可变 build/approval/release manifest 与 hash-chain workflow；
+- QA/sample/quarantine Parquet 对账，以及 Critical/High 审批门；
+- 只接受已发布 release ID 的公开 reader；
+- `ame-silver fixed-cases/validate-contract/status/inspect-release` 四个只读检查命令。
+
+S0 完成不授权 S1；下一步仍必须单独批准 `exchanges` schema review。
 
 - 输入：无数据转换；只读取已有 schema、manifest 和 fixture。
 - 输出：schema registry、build/release manifest、quarantine contract、QA contract、preview

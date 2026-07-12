@@ -15,7 +15,9 @@ The project is at the **Bronze data checkpoint** for the catalog frozen on 2026-
 - those legacy financial rows are only point-in-time candidates: they are not approved PIT factor
   inputs until Silver applies filing/acceptance-time rules, EDGAR cross-checks, and quarantines;
 - every saved file is manifest-bound, checksummed, resumable, and covered by the full Bronze audit;
-- full-universe Silver normalization, adjustment, and Gold factor/backtest outputs have not started.
+- the Silver S0 control plane is implemented: frozen schemas/QA rules, source inventories, immutable
+  review workflows, approval-bound releases, and a release-only reader are covered by synthetic tests;
+- no real Silver family transformation, adjustment, or Gold factor/backtest output has started.
 
 The final strict full audit is
 `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/bronze/full-2026-07-12-v9.json`
@@ -45,6 +47,12 @@ tests/                   Python contract and service tests
 worker/                  Celery worker service
 ```
 
+Formal Silver control-plane code lives in `backend/ame_stocks_api/silver/`. Its contract is
+documented in [docs/silver-s0-contracts.md](docs/silver-s0-contracts.md), while the dataset-by-dataset
+sequence and hard approval stops remain in
+[docs/silver-processing-plan.md](docs/silver-processing-plan.md). S0 does not read Bronze or run a
+transformation; S1 `exchanges` still requires separate user approval.
+
 ## Python setup
 
 Python 3.12 or 3.13 is supported.
@@ -67,6 +75,18 @@ The service exposes:
 
 - `GET /healthz`
 - `GET /api/v1/contracts`
+
+Read-only S0 inspection commands are available after installation:
+
+```bash
+.venv/bin/ame-silver fixed-cases
+.venv/bin/ame-silver validate-contract --contract /path/to/contract.json
+.venv/bin/ame-silver status --data-root /path/to/data --workflow-id <sha256>
+.venv/bin/ame-silver inspect-release --data-root /path/to/data --release-id <sha256>
+```
+
+There is intentionally no S0 CLI command that downloads Bronze, runs a dataset transform, approves
+a review, selects a “latest” build, or exposes unpublished data.
 
 ## Frontend setup
 
