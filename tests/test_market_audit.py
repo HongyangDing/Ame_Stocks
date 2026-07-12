@@ -5,13 +5,48 @@ import os
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+import pytest
+
 from ame_stocks_api.artifacts import write_json_atomic
-from ame_stocks_api.audit.market import MarketCrossAuditor
+from ame_stocks_api.audit.market import MarketCrossAuditor, _safe_int
 from ame_stocks_api.cli.market_audit import main as market_audit_main
 from ame_stocks_api.flatfiles import FlatFileDataset, FlatFileObject
 
 SESSION = date(2026, 6, 30)
 HEADER = "ticker,volume,open,close,high,low,window_start,transactions\n"
+
+
+def test_manifest_sizes_require_native_nonnegative_integers() -> None:
+    assert _safe_int(0) == 0
+    assert _safe_int(17) == 17
+    for invalid in (True, False, -1, 1.0, 1.9, "1", None):
+        assert _safe_int(invalid) == -1
+
+
+@pytest.mark.parametrize("invalid", [True, 1.0, "1"])
+def test_noninteger_flat_manifest_size_fails_source_integrity(
+    tmp_path: Path,
+    invalid: object,
+) -> None:
+    _valid_fixture(tmp_path)
+    manifest_path = (
+        tmp_path
+        / "manifests"
+        / "massive"
+        / "flatfiles"
+        / FlatFileDataset.DAY_AGGREGATES.value
+        / f"{SESSION.isoformat()}.json"
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["output"]["bytes"] = invalid
+    manifest["remote"]["content_length"] = invalid
+    write_json_atomic(manifest_path, manifest)
+
+    report = _audit(tmp_path)
+
+    assert report["status"] == "failed"
+    assert report["gates"]["source_and_row_integrity"] == "failed"
+    assert report["summary"]["issue_code_counts"]["source_unavailable"] == 1
 
 
 def _timestamp(hour: int, minute: int, *, seconds: int = 0) -> int:

@@ -12,13 +12,64 @@ import pytest
 
 from ame_stocks_api.artifacts import write_json_atomic
 from ame_stocks_api.audit import BronzeAuditor
-from ame_stocks_api.audit.bronze import _gate_issue_code_counts, _iso_datetime_date
+from ame_stocks_api.audit.bronze import (
+    _gate_issue_code_counts,
+    _iso_datetime_date,
+    _safe_int,
+)
 from ame_stocks_api.cli.audit import main as bronze_audit_main
 from ame_stocks_api.downloads import BronzeDownloader, build_download_plan
 from ame_stocks_api.flatfiles import FlatFileDataset, FlatFileObject
 from ame_stocks_core import ProviderBatch, ProviderDataset, ProviderRequest
 
 MINIMAL_REQUIRED = (ProviderDataset.ASSETS,)
+
+
+def test_manifest_counts_require_native_nonnegative_integers() -> None:
+    assert _safe_int(0) == 0
+    assert _safe_int(17) == 17
+    for invalid in (True, False, -1, 1.0, 1.9, "1", None):
+        assert _safe_int(invalid) == -1
+
+
+@pytest.mark.parametrize("invalid", [True, 1.0, "1"])
+def test_noninteger_rest_manifest_count_fails_physical_integrity(
+    tmp_path: Path,
+    invalid: object,
+) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    active_request = next(
+        request
+        for request in build_download_plan(
+            dataset=ProviderDataset.ASSETS,
+            start=session,
+            end=session,
+            active="both",
+        ).requests
+        if dict(request.parameters)["active"] == "true"
+    )
+    manifest_path = (
+        tmp_path
+        / "manifests"
+        / "massive"
+        / ProviderDataset.ASSETS.value
+        / f"{active_request.request_id}.json"
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["artifacts"][0]["record_count"] = invalid
+    write_json_atomic(manifest_path, manifest)
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=MINIMAL_REQUIRED,
+    ).run()
+
+    assert report["status"] == "failed"
+    assert report["gates"]["physical_integrity"] == "failed"
+    assert report["summary"]["issue_code_counts"]["record_count_mismatch"] == 1
 
 
 class StaticProvider:

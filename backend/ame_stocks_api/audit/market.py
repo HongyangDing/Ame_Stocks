@@ -1113,12 +1113,9 @@ def _count(frame: pl.DataFrame, expression: pl.Expr) -> int:
 
 
 def _safe_int(value: object) -> int:
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return -1
-    try:
-        return int(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError, OverflowError):
-        return -1
+    return value
 
 
 def _issue(

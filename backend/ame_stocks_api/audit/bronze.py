@@ -2134,10 +2134,9 @@ def _inside_request(value: str, request: dict[str, Any]) -> bool:
 
 
 def _safe_int(value: object) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return -1
+    return value
 
 
 def _dataset_from_path(path: Path) -> str:
