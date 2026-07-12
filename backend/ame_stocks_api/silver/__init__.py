@@ -22,6 +22,7 @@ from ame_stocks_api.silver.exchange_contract import (
     EXCHANGE_DIM_CONTRACT,
     EXCHANGE_DIM_CONTRACT_ID,
 )
+from ame_stocks_api.silver.exchange_preview import ExchangePreviewRun, run_exchange_preview
 from ame_stocks_api.silver.exchange_source import (
     ExchangeSourceBatch,
     ExchangeSourceError,
@@ -47,6 +48,7 @@ __all__ = [
     "ArtifactRef",
     "BuildIntent",
     "BuildManifest",
+    "ExchangePreviewRun",
     "ExchangeSourceBatch",
     "ExchangeSourceError",
     "ExchangeSourcePage",
@@ -71,6 +73,7 @@ __all__ = [
     "WorkflowState",
     "build_exchange_source_inventory",
     "read_exchange_source_inventory",
+    "run_exchange_preview",
     "thaw_json",
     "transform_exchange_batch",
 ]

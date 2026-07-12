@@ -41,6 +41,7 @@ ame-audit-rest-semantics = "ame_stocks_api.cli.rest_semantics_audit:main"
 ame-massive = "ame_stocks_api.cli.massive:main"
 ame-materialize = "ame_stocks_api.cli.materialize:main"
 ame-silver = "ame_stocks_api.cli.silver:main"
+ame-silver-exchanges-preview = "ame_stocks_api.cli.silver_exchanges_preview:main"
 
 [tool.pytest.ini_options]
 addopts = "-q"
