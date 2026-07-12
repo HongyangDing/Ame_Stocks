@@ -21,14 +21,16 @@ from pathlib import Path
 from typing import Any, Literal
 
 from ame_stocks_api.artifacts import ArtifactError, safe_relative_path, stable_digest
+from ame_stocks_api.audit.row_contracts import valid_daily_bar, valid_legacy_financials
 from ame_stocks_api.downloads import build_download_plan
 from ame_stocks_core import ProviderDataset, ProviderRequest
 
 IssueKind = Literal["corruption", "difference"]
 
-REST_SEMANTIC_AUDIT_SCHEMA_VERSION = 4
+REST_SEMANTIC_AUDIT_SCHEMA_VERSION = 5
 
 KEY_DATASETS: dict[ProviderDataset, tuple[str, ...]] = {
+    ProviderDataset.DAILY_BARS: ("T", "t"),
     ProviderDataset.SPLITS: ("id",),
     ProviderDataset.DIVIDENDS: ("id",),
     ProviderDataset.NEWS: ("id",),
@@ -36,6 +38,12 @@ KEY_DATASETS: dict[ProviderDataset, tuple[str, ...]] = {
     ProviderDataset.SHORT_VOLUME: ("date", "ticker"),
     ProviderDataset.FLOAT: ("effective_date", "ticker"),
     ProviderDataset.IPOS: ("listing_date", "ticker"),
+    ProviderDataset.LEGACY_FINANCIALS: (
+        "filing_date",
+        "cik",
+        "timeframe",
+        "end_date",
+    ),
     ProviderDataset.TREASURY_YIELDS: ("date",),
     ProviderDataset.INFLATION: ("date",),
     ProviderDataset.INFLATION_EXPECTATIONS: ("date",),
@@ -93,12 +101,14 @@ AUDITED_DATASETS = frozenset(
 )
 
 _EARLIEST_STARTS = {
+    ProviderDataset.DAILY_BARS: date(2016, 7, 13),
     ProviderDataset.SPLITS: date(2003, 9, 10),
     ProviderDataset.DIVIDENDS: date(2003, 9, 10),
     ProviderDataset.NEWS: date(2016, 6, 22),
     ProviderDataset.SHORT_INTEREST: date(2017, 12, 29),
     ProviderDataset.SHORT_VOLUME: date(2024, 2, 6),
     ProviderDataset.IPOS: date(2008, 1, 1),
+    ProviderDataset.LEGACY_FINANCIALS: date(2009, 3, 29),
     ProviderDataset.TREASURY_YIELDS: date(1962, 1, 2),
     ProviderDataset.INFLATION: date(1947, 1, 1),
     ProviderDataset.INFLATION_EXPECTATIONS: date(1982, 1, 1),
@@ -307,6 +317,34 @@ class RestSemanticAuditor:
             "status": status,
             "data_root": str(self.data_root),
             "window": {"start": self.start.isoformat(), "end": self.end.isoformat()},
+            "dataset_windows": {
+                **(
+                    {
+                        ProviderDataset.DAILY_BARS.value: {
+                            "start": max(
+                                self.start, _EARLIEST_STARTS[ProviderDataset.DAILY_BARS]
+                            ).isoformat(),
+                            "end": self.end.isoformat(),
+                            "basis": "grouped endpoint rolling-ten-year entitlement",
+                        }
+                    }
+                    if ProviderDataset.DAILY_BARS in self.datasets
+                    else {}
+                ),
+                **(
+                    {
+                        ProviderDataset.LEGACY_FINANCIALS.value: {
+                            "start": _EARLIEST_STARTS[
+                                ProviderDataset.LEGACY_FINANCIALS
+                            ].isoformat(),
+                            "end": self.end.isoformat(),
+                            "basis": "earliest verified accessible filing-date history",
+                        }
+                    }
+                    if ProviderDataset.LEGACY_FINANCIALS in self.datasets
+                    else {}
+                ),
+            },
             "datasets": [
                 asdict(self.metrics[key]) for key in sorted(self.metrics)
             ],
@@ -348,7 +386,8 @@ class RestSemanticAuditor:
                 "temporary SQLite database. Form 13-F participates in accession coverage and "
                 "filing-date agreement without materializing 103 million row hashes; its filer "
                 "CIK/form identity is matched to EDGAR, and its holding fields are enforced by "
-                "the full Bronze audit."
+                "the full Bronze audit. Grouped daily bars begin at the verified entitlement "
+                "boundary 2016-07-13; legacy financials cover filing dates from 2009-03-29."
             ),
         }
 
@@ -429,6 +468,9 @@ class RestSemanticAuditor:
     def _authoritative_plan(self, dataset: ProviderDataset) -> tuple[ProviderRequest, ...]:
         if dataset in _SNAPSHOTS:
             start = end = self.end
+        elif dataset is ProviderDataset.DAILY_BARS:
+            start = max(self.start, _EARLIEST_STARTS[dataset])
+            end = self.end
         else:
             start = _EARLIEST_STARTS.get(dataset, self.start)
             end = self.end
@@ -629,6 +671,23 @@ class RestSemanticAuditor:
         batch: _PageBatch,
         metric: DatasetMetrics,
     ) -> None:
+        if dataset is ProviderDataset.DAILY_BARS and not valid_daily_bar(row):
+            self.issues.add(
+                "corruption",
+                "row_contract_invalid",
+                dataset.value,
+                "row violates grouped daily-bar ticker/timestamp/OHLCV/VWAP constraints",
+            )
+        if dataset is ProviderDataset.LEGACY_FINANCIALS and not valid_legacy_financials(row):
+            self.issues.add(
+                "corruption",
+                "row_contract_invalid",
+                dataset.value,
+                (
+                    "row violates legacy financials filing_date/CIK/timeframe/end_date/"
+                    "financials constraints"
+                ),
+            )
         if dataset in KEY_DATASETS:
             fields = KEY_DATASETS[dataset]
             values = tuple(row.get(field) for field in fields)

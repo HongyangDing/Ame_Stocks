@@ -1,7 +1,7 @@
 import gzip
 import hashlib
 import json
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from ame_stocks_api.artifacts import write_json_atomic
@@ -92,6 +92,19 @@ def _audit(root: Path, *datasets: ProviderDataset) -> dict[str, object]:
         datasets=tuple(datasets),
         max_examples=5,
     ).run()
+
+
+def _write_legacy_financial_history(
+    root: Path,
+    first_request_rows: list[dict[str, object]],
+) -> None:
+    requests = build_download_plan(
+        dataset=ProviderDataset.LEGACY_FINANCIALS,
+        start=date(2009, 3, 29),
+        end=SESSION,
+    ).requests
+    for index, request in enumerate(requests):
+        _write_request(root, request, first_request_rows if index == 0 else [])
 
 
 def test_non_authoritative_disclosure_pilot_is_never_opened(tmp_path: Path) -> None:
@@ -632,3 +645,127 @@ def test_semantic_response_envelope_requires_status_and_request_id(tmp_path: Pat
 
     assert report["status"] == "failed"
     assert report["summary"]["corruption_code_counts"]["response_envelope_invalid"] == 1
+
+
+def test_grouped_daily_rows_use_ticker_timestamp_candidate_key_and_value_contract(
+    tmp_path: Path,
+) -> None:
+    request = _formal_request(ProviderDataset.DAILY_BARS)
+    timestamp = int(datetime(2026, 6, 30, tzinfo=UTC).timestamp() * 1000)
+    _write_request(
+        tmp_path,
+        request,
+        [
+            {
+                "T": "AAPL",
+                "t": timestamp,
+                "o": 200.0,
+                "h": 205.0,
+                "l": 198.0,
+                "c": 203.0,
+                "v": 1_000_000,
+                "vw": 202.5,
+            }
+        ],
+    )
+
+    report = _audit(tmp_path, ProviderDataset.DAILY_BARS)
+
+    assert report["status"] == "passed"
+    assert report["uniqueness"]["daily_bars"]["distinct_candidate_keys"] == 1
+    assert report["dataset_windows"]["daily_bars"]["start"] == "2026-06-30"
+
+
+def test_grouped_daily_rows_reject_missing_vwap_even_when_candidate_key_is_present(
+    tmp_path: Path,
+) -> None:
+    request = _formal_request(ProviderDataset.DAILY_BARS)
+    timestamp = int(datetime(2026, 6, 30, tzinfo=UTC).timestamp() * 1000)
+    _write_request(
+        tmp_path,
+        request,
+        [
+            {
+                "T": "AAPL",
+                "t": timestamp,
+                "o": 200.0,
+                "h": 205.0,
+                "l": 198.0,
+                "c": 203.0,
+                "v": 1_000_000,
+            }
+        ],
+    )
+
+    report = _audit(tmp_path, ProviderDataset.DAILY_BARS)
+
+    assert report["status"] == "failed"
+    assert report["summary"]["corruption_code_counts"]["row_contract_invalid"] == 1
+
+
+def test_legacy_financial_candidate_key_includes_end_date(tmp_path: Path) -> None:
+    common = {
+        "cik": "0000320193",
+        "filing_date": "2009-04-01",
+        "timeframe": "annual",
+    }
+    _write_legacy_financial_history(
+        tmp_path,
+        [
+            {
+                **common,
+                "end_date": "2008-12-31",
+                "financials": {"income_statement": {"revenues": {"value": 1}}},
+            },
+            {
+                **common,
+                "end_date": "2009-03-31",
+                "financials": {"income_statement": {"revenues": {"value": 2}}},
+            },
+        ],
+    )
+
+    report = _audit(tmp_path, ProviderDataset.LEGACY_FINANCIALS)
+
+    assert report["status"] == "passed"
+    assert report["uniqueness"]["legacy_financials"] == {
+        "conflict_examples": [],
+        "conflicting_keys": 0,
+        "distinct_candidate_keys": 2,
+        "duplicate_examples": [],
+        "exact_duplicate_excess_rows": 0,
+    }
+
+
+def test_legacy_financial_same_period_conflict_and_missing_end_date_fail(
+    tmp_path: Path,
+) -> None:
+    common = {
+        "cik": "0000320193",
+        "end_date": "2008-12-31",
+        "filing_date": "2009-04-01",
+        "timeframe": "annual",
+    }
+    _write_legacy_financial_history(
+        tmp_path,
+        [
+            {**common, "financials": {"income_statement": {"revenues": {"value": 1}}}},
+            {**common, "financials": {"income_statement": {"revenues": {"value": 2}}}},
+            {
+                "cik": "0000789019",
+                "filing_date": "2009-04-02",
+                "financials": {"income_statement": {"revenues": {"value": 3}}},
+                "timeframe": "annual",
+            },
+        ],
+    )
+
+    report = _audit(tmp_path, ProviderDataset.LEGACY_FINANCIALS)
+
+    assert report["status"] == "failed"
+    assert report["uniqueness"]["legacy_financials"]["conflicting_keys"] == 1
+    assert report["summary"]["corruption_code_counts"] == {
+        "conflicting_candidate_keys": 1,
+        "missing_candidate_key": 1,
+        "row_contract_invalid": 1,
+    }

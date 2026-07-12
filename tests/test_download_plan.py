@@ -121,6 +121,7 @@ def test_minute_plan_requires_tickers() -> None:
         ProviderDataset.EDGAR_INDEX,
         ProviderDataset.FORM_3,
         ProviderDataset.FORM_4,
+        ProviderDataset.LEGACY_FINANCIALS,
         ProviderDataset.INCOME_STATEMENTS,
         ProviderDataset.BALANCE_SHEETS,
         ProviderDataset.CASH_FLOW_STATEMENTS,
@@ -189,6 +190,7 @@ def test_condition_codes_plan_rejects_ticker_filters() -> None:
         ProviderDataset.INCOME_STATEMENTS,
         ProviderDataset.BALANCE_SHEETS,
         ProviderDataset.CASH_FLOW_STATEMENTS,
+        ProviderDataset.LEGACY_FINANCIALS,
         ProviderDataset.RATIOS,
     ],
 )
@@ -218,6 +220,19 @@ def test_ratios_plan_rejects_history_and_uses_one_latest_full_market_snapshot() 
 
     assert len(plan.requests) == 1
     assert plan.requests[0].asset_ids == ()
+
+
+def test_legacy_financials_plan_uses_full_market_filing_year_chunks() -> None:
+    plan = build_download_plan(
+        dataset=ProviderDataset.LEGACY_FINANCIALS,
+        start=date(2009, 3, 29),
+        end=date(2010, 2, 1),
+    )
+
+    assert [(request.start, request.end, request.asset_ids) for request in plan.requests] == [
+        (date(2009, 3, 29), date(2009, 12, 31), ()),
+        (date(2010, 1, 1), date(2010, 2, 1), ()),
+    ]
 
 
 def test_ticker_events_require_identifiers_and_preserve_exact_case() -> None:

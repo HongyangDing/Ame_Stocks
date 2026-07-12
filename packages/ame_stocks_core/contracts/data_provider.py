@@ -28,6 +28,7 @@ class ProviderDataset(StrEnum):
     SHORT_INTEREST = "short_interest"
     SHORT_VOLUME = "short_volume"
     FLOAT = "float"
+    LEGACY_FINANCIALS = "legacy_financials"
     INCOME_STATEMENTS = "income_statements"
     BALANCE_SHEETS = "balance_sheets"
     CASH_FLOW_STATEMENTS = "cash_flow_statements"

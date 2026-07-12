@@ -31,6 +31,7 @@ _ALLOWED_PARAMETERS = {
     ProviderDataset.SHORT_INTEREST: frozenset({"avg_daily_volume", "days_to_cover"}),
     ProviderDataset.SHORT_VOLUME: frozenset({"short_volume_ratio"}),
     ProviderDataset.FLOAT: frozenset({"free_float_percent"}),
+    ProviderDataset.LEGACY_FINANCIALS: frozenset(),
     ProviderDataset.INCOME_STATEMENTS: frozenset(),
     ProviderDataset.BALANCE_SHEETS: frozenset(),
     ProviderDataset.CASH_FLOW_STATEMENTS: frozenset(),
@@ -71,9 +72,19 @@ class _BulkEndpoint:
     sort: str
     asset_parameter: str | None = "ticker"
     order: str | None = None
+    fixed_parameters: tuple[tuple[str, str], ...] = ()
 
 
 _BULK_ENDPOINTS = {
+    ProviderDataset.LEGACY_FINANCIALS: _BulkEndpoint(
+        path="/vX/reference/financials",
+        date_field="filing_date",
+        limit=100,
+        sort="filing_date",
+        asset_parameter=None,
+        order="asc",
+        fixed_parameters=(("include_sources", "true"),),
+    ),
     ProviderDataset.INCOME_STATEMENTS: _BulkEndpoint(
         "/stocks/financials/v1/income-statements",
         "filing_date",
@@ -402,6 +413,7 @@ class MassiveProvider:
                 f"{endpoint.date_field}.lte": request.end.isoformat(),
                 "limit": str(endpoint.limit),
                 "sort": endpoint.sort,
+                **dict(endpoint.fixed_parameters),
                 **extras,
             }
             if endpoint.order:

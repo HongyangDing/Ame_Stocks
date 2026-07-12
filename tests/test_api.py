@@ -33,6 +33,7 @@ def test_contract_endpoint_is_explicit_and_versioned() -> None:
             "short_interest",
             "short_volume",
             "float",
+            "legacy_financials",
             "income_statements",
             "balance_sheets",
             "cash_flow_statements",

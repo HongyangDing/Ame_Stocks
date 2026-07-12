@@ -164,6 +164,15 @@ def test_dataset_endpoint_mapping(
     ),
     [
         (
+            ProviderDataset.LEGACY_FINANCIALS,
+            "/vX/reference/financials",
+            "filing_date",
+            "100",
+            "filing_date",
+            (),
+            None,
+        ),
+        (
             ProviderDataset.INCOME_STATEMENTS,
             "/stocks/financials/v1/income-statements",
             "filing_date",
@@ -355,6 +364,9 @@ def test_bulk_research_endpoint_mapping(
             assert request.url.params[asset_parameter] == "AAPL"
         if dataset in {ProviderDataset.IPOS, ProviderDataset.NEWS}:
             assert request.url.params["order"] == "asc"
+        if dataset is ProviderDataset.LEGACY_FINANCIALS:
+            assert request.url.params["order"] == "asc"
+            assert request.url.params["include_sources"] == "true"
         return httpx2.Response(200, json={"results": [], "status": "OK"})
 
     request = ProviderRequest(
@@ -497,6 +509,7 @@ def test_condition_codes_reject_ticker_filters() -> None:
 @pytest.mark.parametrize(
     "dataset",
     [
+        ProviderDataset.LEGACY_FINANCIALS,
         ProviderDataset.INCOME_STATEMENTS,
         ProviderDataset.BALANCE_SHEETS,
         ProviderDataset.CASH_FLOW_STATEMENTS,
@@ -542,6 +555,7 @@ def test_ratios_reject_history() -> None:
 @pytest.mark.parametrize(
     "dataset",
     [
+        ProviderDataset.LEGACY_FINANCIALS,
         ProviderDataset.INCOME_STATEMENTS,
         ProviderDataset.BALANCE_SHEETS,
         ProviderDataset.CASH_FLOW_STATEMENTS,
@@ -566,6 +580,7 @@ def test_fundamentals_reject_unapproved_parameters(dataset) -> None:
 @pytest.mark.parametrize(
     "dataset",
     [
+        ProviderDataset.LEGACY_FINANCIALS,
         ProviderDataset.INCOME_STATEMENTS,
         ProviderDataset.BALANCE_SHEETS,
         ProviderDataset.CASH_FLOW_STATEMENTS,

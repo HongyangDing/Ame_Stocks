@@ -17,6 +17,7 @@ _ANNUAL_BULK_DATASETS = frozenset(
         ProviderDataset.EDGAR_INDEX,
         ProviderDataset.FORM_3,
         ProviderDataset.FORM_4,
+        ProviderDataset.LEGACY_FINANCIALS,
         ProviderDataset.INCOME_STATEMENTS,
         ProviderDataset.BALANCE_SHEETS,
         ProviderDataset.CASH_FLOW_STATEMENTS,
@@ -50,6 +51,7 @@ _SINGLE_STREAM_BULK_DATASETS = frozenset(
 _FULL_MARKET_ONLY_DATASETS = frozenset(
     {
         ProviderDataset.FORM_13F,
+        ProviderDataset.LEGACY_FINANCIALS,
         ProviderDataset.INCOME_STATEMENTS,
         ProviderDataset.BALANCE_SHEETS,
         ProviderDataset.CASH_FLOW_STATEMENTS,

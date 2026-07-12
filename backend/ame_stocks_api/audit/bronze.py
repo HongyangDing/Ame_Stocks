@@ -23,6 +23,11 @@ from typing import Any, Literal
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from ame_stocks_api.artifacts import ArtifactError, safe_relative_path, stable_digest
+from ame_stocks_api.audit.row_contracts import (
+    epoch_millisecond_date,
+    valid_daily_bar,
+    valid_legacy_financials,
+)
 from ame_stocks_api.downloads import build_download_plan, market_session_dates
 from ame_stocks_api.flatfiles import FlatFileDataset, FlatFileObject, build_flat_file_plan
 from ame_stocks_core import PROVIDER_CONTRACT_VERSION, ProviderDataset
@@ -47,6 +52,7 @@ _ANNUAL_DATASETS = (
     ProviderDataset.SHORT_INTEREST,
     ProviderDataset.SHORT_VOLUME,
     ProviderDataset.IPOS,
+    ProviderDataset.LEGACY_FINANCIALS,
     ProviderDataset.INCOME_STATEMENTS,
     ProviderDataset.BALANCE_SHEETS,
     ProviderDataset.CASH_FLOW_STATEMENTS,
@@ -61,11 +67,13 @@ _ANNUAL_DATASETS = (
 )
 _QUARTERLY_DATASETS = (ProviderDataset.FORM_13F,)
 _RANGE_STARTS: dict[ProviderDataset, date] = {
+    ProviderDataset.DAILY_BARS: date(2016, 7, 13),
     ProviderDataset.SPLITS: date(2003, 9, 10),
     ProviderDataset.DIVIDENDS: date(2003, 9, 10),
     ProviderDataset.SHORT_INTEREST: date(2017, 12, 29),
     ProviderDataset.SHORT_VOLUME: date(2024, 2, 6),
     ProviderDataset.IPOS: date(2008, 1, 1),
+    ProviderDataset.LEGACY_FINANCIALS: date(2009, 3, 29),
     ProviderDataset.INCOME_STATEMENTS: date(2009, 3, 29),
     ProviderDataset.BALANCE_SHEETS: date(2009, 3, 29),
     ProviderDataset.CASH_FLOW_STATEMENTS: date(2009, 3, 29),
@@ -92,18 +100,20 @@ _SNAPSHOT_DATASETS = (
     ProviderDataset.RISK_TAXONOMY,
     ProviderDataset.DISCLOSURE_TAXONOMY,
 )
-# This is the authoritative Bronze catalog already acquired for the research platform.
-# Financial statements and ratios are intentionally absent: the current account returned
-# HTTP 403 for that separate entitlement, so their absence must not make the storage audit
-# fail.  If any optional dataset is present, it is still audited and reconciled below.
+# This is the authoritative Bronze catalog required for the research platform. The accessible
+# legacy financials endpoint is required; the newer statement-family endpoints and ratios remain
+# optional because the current account returned HTTP 403 for that separate entitlement. If an
+# optional dataset is present, it is still audited and reconciled below.
 _REQUIRED_REST_DATASETS = frozenset(
     {
         ProviderDataset.ASSETS,
+        ProviderDataset.DAILY_BARS,
         ProviderDataset.SPLITS,
         ProviderDataset.DIVIDENDS,
         ProviderDataset.SHORT_INTEREST,
         ProviderDataset.SHORT_VOLUME,
         ProviderDataset.FLOAT,
+        ProviderDataset.LEGACY_FINANCIALS,
         ProviderDataset.IPOS,
         ProviderDataset.TICKER_OVERVIEW,
         ProviderDataset.TICKER_EVENTS,
@@ -141,6 +151,8 @@ _DATE_FIELDS: dict[str, str] = {
     ProviderDataset.SHORT_INTEREST.value: "settlement_date",
     ProviderDataset.SHORT_VOLUME.value: "date",
     ProviderDataset.IPOS.value: "listing_date",
+    ProviderDataset.DAILY_BARS.value: "t",
+    ProviderDataset.LEGACY_FINANCIALS.value: "filing_date",
     ProviderDataset.INCOME_STATEMENTS.value: "filing_date",
     ProviderDataset.BALANCE_SHEETS.value: "filing_date",
     ProviderDataset.CASH_FLOW_STATEMENTS.value: "filing_date",
@@ -159,13 +171,22 @@ _DATE_FIELDS: dict[str, str] = {
     ProviderDataset.LABOR_MARKET.value: "date",
 }
 _TIMESTAMP_FIELDS = frozenset({ProviderDataset.NEWS.value})
+_EPOCH_MILLISECOND_FIELDS = frozenset({ProviderDataset.DAILY_BARS.value})
 _REQUIRED_ROW_FIELDS: dict[str, tuple[str, ...]] = {
     ProviderDataset.ASSETS.value: ("ticker", "active"),
+    ProviderDataset.DAILY_BARS.value: ("T", "t", "o", "h", "l", "c", "v", "vw"),
     ProviderDataset.SPLITS.value: ("ticker", "execution_date"),
     ProviderDataset.DIVIDENDS.value: ("ticker", "ex_dividend_date"),
     ProviderDataset.SHORT_INTEREST.value: ("ticker", "settlement_date"),
     ProviderDataset.SHORT_VOLUME.value: ("ticker", "date"),
     ProviderDataset.FLOAT.value: ("ticker",),
+    ProviderDataset.LEGACY_FINANCIALS.value: (
+        "filing_date",
+        "cik",
+        "timeframe",
+        "end_date",
+        "financials",
+    ),
     ProviderDataset.IPOS.value: ("listing_date",),
     ProviderDataset.INCOME_STATEMENTS.value: ("filing_date",),
     ProviderDataset.BALANCE_SHEETS.value: ("filing_date",),
@@ -274,9 +295,11 @@ _SEMANTIC_FAILURE_CODES = frozenset(
         "asset_active_flag_mismatch",
         "asset_active_inactive_overlap",
         "asset_duplicate_ticker",
+        "invalid_daily_bar_value",
         "invalid_date_value",
-        "invalid_timestamp_value",
         "invalid_form_13f_value",
+        "invalid_legacy_financials_value",
+        "invalid_timestamp_value",
         "required_fields_missing",
         "response_request_id_missing",
         "response_shape_invalid",
@@ -482,6 +505,34 @@ class BronzeAuditor:
             "required_profile": {
                 "rest_datasets": sorted(dataset.value for dataset in self.required_rest_datasets),
                 "flat_file_datasets": sorted(dataset.value for dataset in FlatFileDataset),
+                "dataset_windows": {
+                    **(
+                        {
+                            ProviderDataset.DAILY_BARS.value: {
+                                "start": max(
+                                    self.start, _RANGE_STARTS[ProviderDataset.DAILY_BARS]
+                                ).isoformat(),
+                                "end": self.end.isoformat(),
+                                "basis": "grouped endpoint rolling-ten-year entitlement",
+                            }
+                        }
+                        if ProviderDataset.DAILY_BARS in self.required_rest_datasets
+                        else {}
+                    ),
+                    **(
+                        {
+                            ProviderDataset.LEGACY_FINANCIALS.value: {
+                                "start": _RANGE_STARTS[
+                                    ProviderDataset.LEGACY_FINANCIALS
+                                ].isoformat(),
+                                "end": self.end.isoformat(),
+                                "basis": "earliest verified accessible filing-date history",
+                            }
+                        }
+                        if ProviderDataset.LEGACY_FINANCIALS in self.required_rest_datasets
+                        else {}
+                    ),
+                },
                 "optional_entitlement_datasets": sorted(
                     dataset.value for dataset in _OPTIONAL_ENTITLEMENT_DATASETS
                 ),
@@ -512,7 +563,8 @@ class BronzeAuditor:
                 "full": (
                     "SHA-256, complete gzip read/CRC, raw SHA-256, bytes, JSON/CSV header, "
                     "record counts, pagination, canonical identity, expected plans, orphans, "
-                    "and active/inactive mutual exclusion"
+                    "active/inactive mutual exclusion, grouped daily bars from 2016-07-13, "
+                    "and legacy financial filings from 2009-03-29"
                 ),
                 "structural": (
                     "manifest identity, paths, sizes, statuses, expected plans, and orphans; "
@@ -1088,6 +1140,8 @@ class BronzeAuditor:
         required = _REQUIRED_ROW_FIELDS.get(dataset, ())
         missing_required = 0
         invalid_dates = 0
+        invalid_daily_bars = 0
+        invalid_legacy_financials = 0
         invalid_form_13f = 0
         observed_dates: list[str] = []
         date_field = _DATE_FIELDS.get(dataset)
@@ -1169,12 +1223,23 @@ class BronzeAuditor:
                     ticker_event_keys.add(event_key)
             if dataset == ProviderDataset.FORM_13F.value and not _valid_form_13f_values(row):
                 invalid_form_13f += 1
+            if dataset == ProviderDataset.DAILY_BARS.value and not valid_daily_bar(row):
+                invalid_daily_bars += 1
+            if (
+                dataset == ProviderDataset.LEGACY_FINANCIALS.value
+                and not valid_legacy_financials(row)
+            ):
+                invalid_legacy_financials += 1
             if date_field:
                 raw_date = row.get(date_field)
                 normalized = (
                     _iso_datetime_date(raw_date)
                     if dataset in _TIMESTAMP_FIELDS
-                    else _iso_date(raw_date)
+                    else (
+                        epoch_millisecond_date(raw_date)
+                        if dataset in _EPOCH_MILLISECOND_FIELDS
+                        else _iso_date(raw_date)
+                    )
                 )
                 if normalized:
                     observed_dates.append(normalized)
@@ -1203,19 +1268,49 @@ class BronzeAuditor:
         if invalid_dates:
             code = (
                 "invalid_timestamp_value"
-                if dataset in _TIMESTAMP_FIELDS
+                if dataset in _TIMESTAMP_FIELDS | _EPOCH_MILLISECOND_FIELDS
                 else "invalid_date_value"
             )
             expected_type = (
                 "timezone-aware ISO datetime"
                 if dataset in _TIMESTAMP_FIELDS
-                else "ISO date"
+                else (
+                    "Unix epoch milliseconds"
+                    if dataset in _EPOCH_MILLISECOND_FIELDS
+                    else "ISO date"
+                )
             )
             issues.append(
                 AuditIssue(
                     "error",
                     code,
                     f"{invalid_dates} rows contain an invalid {expected_type} in {date_field}",
+                    dataset,
+                    str(payload_path),
+                )
+            )
+        if invalid_daily_bars:
+            issues.append(
+                AuditIssue(
+                    "error",
+                    "invalid_daily_bar_value",
+                    (
+                        f"{invalid_daily_bars} rows violate grouped daily-bar "
+                        "ticker/timestamp/OHLCV/VWAP constraints"
+                    ),
+                    dataset,
+                    str(payload_path),
+                )
+            )
+        if invalid_legacy_financials:
+            issues.append(
+                AuditIssue(
+                    "error",
+                    "invalid_legacy_financials_value",
+                    (
+                        f"{invalid_legacy_financials} rows violate the legacy financials "
+                        "filing_date/CIK/timeframe/end_date/financials contract"
+                    ),
                     dataset,
                     str(payload_path),
                 )
@@ -1439,6 +1534,17 @@ class BronzeAuditor:
         expected_requests[ProviderDataset.ASSETS.value].update(
             request.request_id for request in assets.requests
         )
+        if ProviderDataset.DAILY_BARS.value in self._stats:
+            daily_start = max(self.start, _RANGE_STARTS[ProviderDataset.DAILY_BARS])
+            if daily_start <= self.end:
+                daily_bars = build_download_plan(
+                    dataset=ProviderDataset.DAILY_BARS,
+                    start=daily_start,
+                    end=self.end,
+                )
+                expected_requests[ProviderDataset.DAILY_BARS.value].update(
+                    request.request_id for request in daily_bars.requests
+                )
         for dataset in (*_ANNUAL_DATASETS, *_QUARTERLY_DATASETS):
             if dataset.value not in self._stats:
                 continue

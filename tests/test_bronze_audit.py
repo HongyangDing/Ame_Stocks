@@ -4,7 +4,7 @@ import hashlib
 import json
 from collections import Counter
 from collections.abc import AsyncIterator
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -160,6 +160,41 @@ def _complete_fixture(root: Path, *, overlap: bool = False) -> tuple[date, Path]
     minute = _write_flat_file(root, FlatFileDataset.MINUTE_AGGREGATES, session)
     _write_flat_file(root, FlatFileDataset.DAY_AGGREGATES, session)
     return session, minute
+
+
+def _daily_bar(session: date) -> dict[str, object]:
+    timestamp = int(
+        datetime(session.year, session.month, session.day, tzinfo=UTC).timestamp() * 1000
+    )
+    return {
+        "T": "AAPL",
+        "t": timestamp,
+        "o": 200.0,
+        "h": 205.0,
+        "l": 198.0,
+        "c": 203.0,
+        "v": 1_000_000,
+        "vw": 202.5,
+    }
+
+
+def _write_legacy_financial_history(
+    root: Path,
+    end: date,
+    first_request_rows: list[dict[str, object]],
+) -> None:
+    requests = build_download_plan(
+        dataset=ProviderDataset.LEGACY_FINANCIALS,
+        start=date(2009, 3, 29),
+        end=end,
+    ).requests
+    for index, request in enumerate(requests):
+        rows = first_request_rows if index == 0 else []
+        asyncio.run(
+            BronzeDownloader(root, minimum_free_bytes=0).download(
+                StaticProvider(rows), request
+            )
+        )
 
 
 def _rewrite_single_page(
@@ -375,6 +410,123 @@ def test_required_dataset_is_not_silently_dropped_when_its_directory_is_missing(
     assert stats["condition_codes"]["expected_objects"] == 1
     assert stats["condition_codes"]["missing_expected"] == 1
     assert report["required_profile"]["rest_datasets"] == ["assets", "condition_codes"]
+
+
+def test_daily_bars_and_legacy_financials_are_required_with_bounded_plans(
+    tmp_path: Path,
+) -> None:
+    session, _ = _complete_fixture(tmp_path)
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=(
+            ProviderDataset.ASSETS,
+            ProviderDataset.DAILY_BARS,
+            ProviderDataset.LEGACY_FINANCIALS,
+        ),
+    ).run()
+
+    stats = {item["dataset"]: item for item in report["datasets"]}
+    assert stats["daily_bars"]["expected_objects"] == 1
+    assert stats["daily_bars"]["missing_expected"] == 1
+    assert stats["legacy_financials"]["expected_objects"] == 18
+    assert stats["legacy_financials"]["missing_expected"] == 18
+    assert report["required_profile"]["dataset_windows"] == {
+        "daily_bars": {
+            "basis": "grouped endpoint rolling-ten-year entitlement",
+            "end": "2026-06-30",
+            "start": "2026-06-30",
+        },
+        "legacy_financials": {
+            "basis": "earliest verified accessible filing-date history",
+            "end": "2026-06-30",
+            "start": "2009-03-29",
+        },
+    }
+
+
+def test_daily_bar_authoritative_plan_starts_at_verified_entitlement_boundary(
+    tmp_path: Path,
+) -> None:
+    report = BronzeAuditor(
+        tmp_path,
+        start=date(2016, 7, 11),
+        end=date(2016, 7, 14),
+        mode="structural",
+        workers=1,
+        required_rest_datasets=(ProviderDataset.ASSETS, ProviderDataset.DAILY_BARS),
+    ).run()
+
+    stats = {item["dataset"]: item for item in report["datasets"]}
+    assert stats["daily_bars"]["expected_objects"] == 2
+    assert report["required_profile"]["dataset_windows"]["daily_bars"]["start"] == (
+        "2016-07-13"
+    )
+
+
+def test_daily_bar_compact_key_contract_passes_full_bronze_audit(tmp_path: Path) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    request = build_download_plan(
+        dataset=ProviderDataset.DAILY_BARS,
+        start=session,
+        end=session,
+    ).requests[0]
+    asyncio.run(
+        BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
+            StaticProvider([_daily_bar(session)]), request
+        )
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=(ProviderDataset.ASSETS, ProviderDataset.DAILY_BARS),
+    ).run()
+
+    assert report["status"] == "passed"
+    stats = {item["dataset"]: item for item in report["datasets"]}
+    assert stats["daily_bars"]["expected_objects"] == 1
+    assert stats["daily_bars"]["missing_expected"] == 0
+
+
+def test_legacy_financial_contract_is_checked_across_full_authoritative_plan(
+    tmp_path: Path,
+) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    _write_legacy_financial_history(
+        tmp_path,
+        session,
+        [
+            {
+                "cik": "0000320193",
+                "filing_date": "2009-04-01",
+                "financials": {"income_statement": {"revenues": {"value": 1}}},
+                "timeframe": "annual",
+            }
+        ],
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=(
+            ProviderDataset.ASSETS,
+            ProviderDataset.LEGACY_FINANCIALS,
+        ),
+    ).run()
+
+    codes = report["summary"]["issue_code_counts"]
+    assert codes["required_fields_missing"] == 1
+    assert codes["invalid_legacy_financials_value"] == 1
+    stats = {item["dataset"]: item for item in report["datasets"]}
+    assert stats["legacy_financials"]["missing_expected"] == 0
 
 
 def test_corrupt_asset_page_returns_a_failed_report_instead_of_aborting(tmp_path: Path) -> None:
