@@ -53,8 +53,9 @@ def _session_start_ns(session: date) -> int:
     return int(_session_start(session).timestamp() * 1_000_000_000)
 
 
-def _session_close_ms(session: date) -> int:
-    return int(XNYS.session_close(session.isoformat()).value // 1_000_000)
+def _daily_window_end_ms(session: date) -> int:
+    observed = datetime.combine(session, time(hour=16), tzinfo=NEW_YORK)
+    return int(observed.timestamp() * 1000)
 
 
 def _write_flat(root: Path, rows: list[str], *, session: date = SESSION) -> Path:
@@ -148,7 +149,7 @@ def _rest_row(
         "h": 11.25,
         "l": 9.75,
         "o": 10.0,
-        "t": _session_close_ms(session),
+        "t": _daily_window_end_ms(session),
         "v": 250.0,
     }
     if transactions is not None:
@@ -200,7 +201,7 @@ def test_matching_products_pass_and_reuse_independent_cache(tmp_path: Path) -> N
         / "manifests"
         / "audits"
         / "daily_product_crosscheck"
-        / "schema=v2"
+        / "schema=v3"
         / f"{SESSION.isoformat()}.json"
     ).is_file()
     assert not (tmp_path / "manifests" / "audits" / "market_crosscheck").exists()
@@ -286,13 +287,14 @@ def test_rest_artifact_checksum_failure_is_source_integrity_failure(
     assert report["summary"]["issue_code_counts"] == {"source_unavailable": 1}
 
 
-def test_rest_timestamp_outside_requested_et_session_fails_integrity(
+def test_rest_timestamp_anomalies_are_aggregated_per_session(
     tmp_path: Path,
 ) -> None:
-    _write_flat(tmp_path, [_flat_row("AAPL")])
-    row = _rest_row("AAPL")
-    row["t"] = int(row["t"]) + 60_000
-    _write_rest(tmp_path, [row])
+    _write_flat(tmp_path, [_flat_row("AAPL"), _flat_row("MSFT")])
+    rows = [_rest_row("AAPL"), _rest_row("MSFT")]
+    for row in rows:
+        row["t"] = int(row["t"]) + 60_000
+    _write_rest(tmp_path, rows)
 
     report = _audit(tmp_path)
 
@@ -300,11 +302,18 @@ def test_rest_timestamp_outside_requested_et_session_fails_integrity(
     assert report["gates"]["source_integrity"] == "failed"
     assert report["sessions"][0]["gates"]["ticker_coverage"] == "matched"
     assert report["summary"]["issue_code_counts"] == {
-        "noncanonical_session_timestamp": 1
+        "noncanonical_session_timestamp": 2
     }
+    matching_issues = [
+        issue
+        for issue in report["sessions"][0]["issues"]
+        if issue["code"] == "noncanonical_session_timestamp"
+    ]
+    assert len(matching_issues) == 1
+    assert matching_issues[0]["count"] == 2
 
 
-def test_rest_timestamp_uses_actual_half_day_session_close(tmp_path: Path) -> None:
+def test_rest_timestamp_uses_nominal_window_end_on_half_day(tmp_path: Path) -> None:
     half_day = date(2016, 11, 25)
     _write_matching_fixture(tmp_path, session=half_day)
 
@@ -317,9 +326,10 @@ def test_rest_timestamp_uses_actual_half_day_session_close(tmp_path: Path) -> No
 
     assert report["status"] == "passed"
     assert datetime.fromtimestamp(
-        _session_close_ms(half_day) / 1000,
+        _daily_window_end_ms(half_day) / 1000,
         tz=NEW_YORK,
-    ).hour == 13
+    ).hour == 16
+    assert XNYS.session_close(half_day.isoformat()).tz_convert(NEW_YORK).hour == 13
 
 
 def test_rest_query_count_must_match_decoded_results(tmp_path: Path) -> None:

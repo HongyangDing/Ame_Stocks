@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-import exchange_calendars as xcals
 import polars as pl
 
 from ame_stocks_api.artifacts import (
@@ -32,12 +31,11 @@ from ame_stocks_api.downloads import build_download_plan, market_session_dates
 from ame_stocks_api.flatfiles import FlatFileDataset, FlatFileObject
 from ame_stocks_core import PROVIDER_CONTRACT_VERSION, ProviderDataset, ProviderRequest
 
-DAILY_PRODUCT_AUDIT_SCHEMA_VERSION = 2
-DAILY_PRODUCT_CACHE_SCHEMA_VERSION = 2
+DAILY_PRODUCT_AUDIT_SCHEMA_VERSION = 3
+DAILY_PRODUCT_CACHE_SCHEMA_VERSION = 3
 DAILY_BARS_AVAILABLE_FROM = date(2016, 7, 13)
 
 _NEW_YORK = ZoneInfo("America/New_York")
-_XNYS = xcals.get_calendar("XNYS")
 _PRICE_FIELDS = ("open", "high", "low", "close")
 _FLOAT_FIELDS = (*_PRICE_FIELDS, "volume")
 _FLAT_COLUMNS = (
@@ -740,9 +738,10 @@ class DailyProductCrossAuditor:
 
         normalized: list[dict[str, object]] = []
         issues: list[dict[str, object]] = []
+        row_issue_counts: Counter[tuple[str, str, str, str]] = Counter()
         vw_present = 0
         transactions_present = 0
-        expected_close_ms = _session_close_ms(session)
+        expected_window_end_ms = _daily_window_end_ms(session)
         if not rows:
             issues.append(
                 _issue(
@@ -765,8 +764,15 @@ class DailyProductCrossAuditor:
                     )
                 )
                 continue
-            row_issues = _validate_rest_row(row, session, expected_close_ms)
-            issues.extend(row_issues)
+            for issue in _validate_rest_row(row, session, expected_window_end_ms):
+                row_issue_counts[
+                    (
+                        str(issue["code"]),
+                        str(issue["dataset"]),
+                        str(issue["kind"]),
+                        str(issue["message"]),
+                    )
+                ] += int(issue["count"])
             vw = row.get("vw")
             transaction = row.get("n")
             vw_present += vw is not None
@@ -787,6 +793,10 @@ class DailyProductCrossAuditor:
                     "vwap": _number_or_none(vw),
                 }
             )
+        issues.extend(
+            _issue(code, dataset, count, message, kind=kind)
+            for (code, dataset, kind, message), count in sorted(row_issue_counts.items())
+        )
         frame = pl.DataFrame(
             normalized,
             schema={
@@ -1123,7 +1133,7 @@ def _validate_flat_frame(frame: pl.DataFrame, session: date) -> list[dict[str, o
 
 
 def _validate_rest_row(
-    row: dict[str, Any], session: date, expected_close_ms: int
+    row: dict[str, Any], session: date, expected_window_end_ms: int
 ) -> list[dict[str, object]]:
     issues: list[dict[str, object]] = []
     ticker = row.get("T")
@@ -1182,13 +1192,16 @@ def _validate_rest_row(
             ).date()
         except (OSError, OverflowError, ValueError):
             et_date = None
-        if et_date != session or timestamp != expected_close_ms:
+        if et_date != session or timestamp != expected_window_end_ms:
             issues.append(
                 _issue(
                     "noncanonical_session_timestamp",
                     "rest_daily",
                     1,
-                    "REST timestamp must equal the XNYS session close",
+                    (
+                        "REST timestamp must equal the provider's 16:00 "
+                        "America/New_York daily aggregate window end"
+                    ),
                     kind="source_integrity",
                 )
             )
@@ -1380,8 +1393,9 @@ def _session_start_ns(session: date) -> int:
     return int(observed.timestamp() * 1_000_000_000)
 
 
-def _session_close_ms(session: date) -> int:
-    return int(_XNYS.session_close(session.isoformat()).value // 1_000_000)
+def _daily_window_end_ms(session: date) -> int:
+    observed = datetime.combine(session, time(hour=16), tzinfo=_NEW_YORK)
+    return int(observed.timestamp() * 1_000)
 
 
 def _valid_number(value: object, *, positive: bool) -> bool:
