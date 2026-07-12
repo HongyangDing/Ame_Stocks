@@ -1,5 +1,7 @@
 from ame_stocks_api.audit.row_contracts import (
+    daily_bar_session_date,
     epoch_millisecond_date,
+    legacy_filing_accession,
     valid_daily_bar,
     valid_legacy_financials,
 )
@@ -8,7 +10,7 @@ from ame_stocks_api.audit.row_contracts import (
 def test_grouped_daily_bar_contract_uses_massive_compact_keys() -> None:
     row = {
         "T": "AAPL",
-        "t": 1_751_322_000_000,
+        "t": 1_751_313_600_000,
         "o": 200.0,
         "h": 205.0,
         "l": 198.0,
@@ -18,12 +20,17 @@ def test_grouped_daily_bar_contract_uses_massive_compact_keys() -> None:
     }
 
     assert epoch_millisecond_date(row["t"]) == "2025-06-30"
+    assert daily_bar_session_date(row["t"]) == "2025-06-30"
+    assert daily_bar_session_date(1_480_107_600_000) == "2016-11-25"
+    assert daily_bar_session_date(1_751_313_660_000) is None
+    assert daily_bar_session_date(1_751_241_600_000) is None
     assert valid_daily_bar(row)
     assert valid_daily_bar({key: value for key, value in row.items() if key != "vw"})
     assert valid_daily_bar({**row, "vw": None, "n": None})
     assert not valid_daily_bar({**row, "vw": "not-a-number"})
     assert not valid_daily_bar({**row, "n": 1.5})
     assert not valid_daily_bar({**row, "otc": "false"})
+    assert not valid_daily_bar({**row, "o": 0})
     assert not valid_daily_bar({**row, "h": 199.0})
     assert not valid_daily_bar({**row, "T": " AAPL"})
 
@@ -63,6 +70,11 @@ def test_legacy_financials_contract_requires_point_in_time_identity_fields() -> 
     }
 
     assert valid_legacy_financials(row)
+    assert legacy_filing_accession(row["source_filing_url"]) == "0000320193-26-000006"
+    assert (
+        legacy_filing_accession("https://example.test/10000320193-26-0000062")
+        is None
+    )
     assert valid_legacy_financials(
         {key: value for key, value in row.items() if key != "acceptance_datetime"}
     )

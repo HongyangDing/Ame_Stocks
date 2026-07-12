@@ -24,6 +24,7 @@ from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from ame_stocks_api.artifacts import ArtifactError, safe_relative_path, stable_digest
 from ame_stocks_api.audit.row_contracts import (
+    daily_bar_session_date,
     epoch_millisecond_date,
     valid_daily_bar,
     valid_legacy_financials,
@@ -300,6 +301,7 @@ _SEMANTIC_FAILURE_CODES = frozenset(
     {
         "asset_active_flag_mismatch",
         "asset_active_inactive_overlap",
+        "asset_active_snapshot_empty",
         "asset_duplicate_ticker",
         "invalid_daily_bar_value",
         "invalid_date_value",
@@ -435,7 +437,7 @@ class _HashingReader:
 class BronzeAuditor:
     """Perform a bounded-memory audit of all Massive Bronze files under one root."""
 
-    report_schema_version = 3
+    report_schema_version = 4
 
     def __init__(
         self,
@@ -556,6 +558,10 @@ class BronzeAuditor:
                 "verified_records": sum(item["verified_records"] for item in datasets),
                 "issue_counts": dict(sorted(severity.items())),
                 "issue_code_counts": dict(sorted(code_counts.items())),
+                "issue_count_semantics": (
+                    "AuditIssue instances, often aggregated per page or manifest; not unique "
+                    "affected rows. Use each code/message and metric-specific fields for units."
+                ),
             },
             "gates": {
                 name: "failed" if counts else "passed"
@@ -569,7 +575,8 @@ class BronzeAuditor:
                 "full": (
                     "SHA-256, complete gzip read/CRC, raw SHA-256, bytes, JSON/CSV header, "
                     "record counts, pagination, canonical identity, expected plans, orphans, "
-                    "active/inactive mutual exclusion, grouped daily bars from 2016-07-13, "
+                    "active/inactive mutual exclusion, grouped daily bars with nominal 16:00 "
+                    "America/New_York windows from 2016-07-13, "
                     "and legacy financial filings from 2009-03-29"
                 ),
                 "structural": (
@@ -1017,7 +1024,7 @@ class BronzeAuditor:
                     str(payload_path),
                 )
             )
-        rows = _result_rows(document, dataset)
+        rows = _result_rows(document, dataset, artifact)
         if rows is None:
             issues.append(
                 AuditIssue(
@@ -1238,15 +1245,14 @@ class BronzeAuditor:
                 invalid_legacy_financials += 1
             if date_field:
                 raw_date = row.get(date_field)
-                normalized = (
-                    _iso_datetime_date(raw_date)
-                    if dataset in _TIMESTAMP_FIELDS
-                    else (
-                        epoch_millisecond_date(raw_date)
-                        if dataset in _EPOCH_MILLISECOND_FIELDS
-                        else _iso_date(raw_date)
-                    )
-                )
+                if dataset in _TIMESTAMP_FIELDS:
+                    normalized = _iso_datetime_date(raw_date)
+                elif dataset == ProviderDataset.DAILY_BARS.value:
+                    normalized = daily_bar_session_date(raw_date)
+                elif dataset in _EPOCH_MILLISECOND_FIELDS:
+                    normalized = epoch_millisecond_date(raw_date)
+                else:
+                    normalized = _iso_date(raw_date)
                 if normalized:
                     observed_dates.append(normalized)
                     if request and not _inside_request(normalized, request):
@@ -1277,15 +1283,14 @@ class BronzeAuditor:
                 if dataset in _TIMESTAMP_FIELDS | _EPOCH_MILLISECOND_FIELDS
                 else "invalid_date_value"
             )
-            expected_type = (
-                "timezone-aware ISO datetime"
-                if dataset in _TIMESTAMP_FIELDS
-                else (
-                    "Unix epoch milliseconds"
-                    if dataset in _EPOCH_MILLISECOND_FIELDS
-                    else "ISO date"
-                )
-            )
+            if dataset in _TIMESTAMP_FIELDS:
+                expected_type = "timezone-aware ISO datetime"
+            elif dataset == ProviderDataset.DAILY_BARS.value:
+                expected_type = "nominal 16:00 America/New_York daily-window timestamp"
+            elif dataset in _EPOCH_MILLISECOND_FIELDS:
+                expected_type = "Unix epoch milliseconds"
+            else:
+                expected_type = "ISO date"
             issues.append(
                 AuditIssue(
                     "error",
@@ -1302,7 +1307,7 @@ class BronzeAuditor:
                     "invalid_daily_bar_value",
                     (
                         f"{invalid_daily_bars} rows violate grouped daily-bar "
-                        "ticker/timestamp/OHLCV/VWAP constraints"
+                        "ticker/nominal-window/OHLCV or optional n/vw/otc constraints"
                     ),
                     dataset,
                     str(payload_path),
@@ -1784,6 +1789,16 @@ class BronzeAuditor:
                     )
                 )
                 continue
+            if not active_tickers:
+                self._issues.add(
+                    AuditIssue(
+                        "critical",
+                        "asset_active_snapshot_empty",
+                        "daily active security snapshot contains no tickers",
+                        ProviderDataset.ASSETS.value,
+                        session.isoformat(),
+                    )
+                )
             if active_bad or inactive_bad:
                 self._issues.add(
                     AuditIssue(
@@ -1900,9 +1915,11 @@ class BronzeAuditor:
             )
 
 
-def _result_rows(document: dict[str, Any], dataset: str) -> list[Any] | None:
+def _result_rows(
+    document: dict[str, Any], dataset: str, artifact: dict[str, Any]
+) -> list[Any] | None:
     if "results" not in document:
-        return None
+        return [] if _valid_empty_results_response(document, artifact) else None
     results = document["results"]
     if dataset == ProviderDataset.TICKER_EVENTS.value:
         if not isinstance(results, dict) or not isinstance(results.get("events"), list):
@@ -1913,6 +1930,30 @@ def _result_rows(document: dict[str, Any], dataset: str) -> list[Any] | None:
     if isinstance(results, list):
         return results
     return None
+
+
+def _valid_empty_results_response(
+    document: dict[str, Any], artifact: dict[str, Any]
+) -> bool:
+    declared_count = artifact.get("record_count")
+    if (
+        isinstance(declared_count, bool)
+        or not isinstance(declared_count, int)
+        or declared_count != 0
+        or artifact.get("is_last") is not True
+        or artifact.get("next_continuation") not in (None, "")
+        or _safe_continuation(document.get("next_url")) is not None
+    ):
+        return False
+    explicit_zero_count = False
+    for field_name in ("count", "queryCount", "resultsCount"):
+        if field_name not in document:
+            continue
+        value = document[field_name]
+        if isinstance(value, bool) or not isinstance(value, int) or value != 0:
+            return False
+        explicit_zero_count = True
+    return explicit_zero_count
 
 
 def _valid_form_13f_values(row: dict[str, Any]) -> bool:
@@ -1998,7 +2039,7 @@ def _form_13f_has_holding_payload(row: dict[str, Any]) -> bool:
 
 
 def _safe_continuation(value: object) -> str | None:
-    if value in {None, ""}:
+    if value is None or value == "":
         return None
     if not isinstance(value, str):
         return "[invalid]"

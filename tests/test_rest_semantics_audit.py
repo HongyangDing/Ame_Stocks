@@ -1,8 +1,9 @@
 import gzip
 import hashlib
 import json
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from ame_stocks_api.artifacts import write_json_atomic
 from ame_stocks_api.audit.rest_semantics import RestSemanticAuditor
@@ -11,6 +12,19 @@ from ame_stocks_api.downloads import build_download_plan
 from ame_stocks_core import ProviderDataset, ProviderRequest
 
 SESSION = date(2026, 6, 30)
+
+
+def _daily_window_end_ms(session: date = SESSION) -> int:
+    return int(
+        datetime(
+            session.year,
+            session.month,
+            session.day,
+            16,
+            tzinfo=ZoneInfo("America/New_York"),
+        ).timestamp()
+        * 1000
+    )
 
 
 def _formal_request(dataset: ProviderDataset) -> ProviderRequest:
@@ -702,7 +716,7 @@ def test_grouped_daily_rows_use_ticker_timestamp_candidate_key_and_value_contrac
     tmp_path: Path,
 ) -> None:
     request = _formal_request(ProviderDataset.DAILY_BARS)
-    timestamp = int(datetime(2026, 6, 30, tzinfo=UTC).timestamp() * 1000)
+    timestamp = _daily_window_end_ms()
     _write_request(
         tmp_path,
         request,
@@ -723,6 +737,8 @@ def test_grouped_daily_rows_use_ticker_timestamp_candidate_key_and_value_contrac
     report = _audit(tmp_path, ProviderDataset.DAILY_BARS)
 
     assert report["status"] == "passed"
+    assert report["audit_schema_version"] == 7
+    assert "not unique bad rows" in report["summary"]["count_semantics"]
     assert report["uniqueness"]["daily_bars"]["distinct_candidate_keys"] == 1
     assert report["dataset_windows"]["daily_bars"]["start"] == "2026-06-30"
 
@@ -731,7 +747,7 @@ def test_grouped_daily_rows_allow_optional_vwap_to_be_absent(
     tmp_path: Path,
 ) -> None:
     request = _formal_request(ProviderDataset.DAILY_BARS)
-    timestamp = int(datetime(2026, 6, 30, tzinfo=UTC).timestamp() * 1000)
+    timestamp = _daily_window_end_ms()
     _write_request(
         tmp_path,
         request,
@@ -756,7 +772,7 @@ def test_grouped_daily_rows_allow_optional_vwap_to_be_absent(
 
 def test_grouped_daily_rows_reject_invalid_optional_vwap(tmp_path: Path) -> None:
     request = _formal_request(ProviderDataset.DAILY_BARS)
-    timestamp = int(datetime(2026, 6, 30, tzinfo=UTC).timestamp() * 1000)
+    timestamp = _daily_window_end_ms()
     _write_request(
         tmp_path,
         request,
@@ -778,6 +794,88 @@ def test_grouped_daily_rows_reject_invalid_optional_vwap(tmp_path: Path) -> None
 
     assert report["status"] == "failed"
     assert report["summary"]["corruption_code_counts"]["row_contract_invalid"] == 1
+
+
+def test_grouped_daily_rows_reject_noncanonical_window_timestamp(tmp_path: Path) -> None:
+    request = _formal_request(ProviderDataset.DAILY_BARS)
+    _write_request(
+        tmp_path,
+        request,
+        [
+            {
+                "T": "AAPL",
+                "t": _daily_window_end_ms() + 60_000,
+                "o": 200.0,
+                "h": 205.0,
+                "l": 198.0,
+                "c": 203.0,
+                "v": 1_000_000,
+            }
+        ],
+    )
+
+    report = _audit(tmp_path, ProviderDataset.DAILY_BARS)
+
+    assert report["status"] == "failed"
+    assert report["summary"]["corruption_code_counts"]["row_contract_invalid"] == 1
+
+
+def test_zero_row_terminal_response_may_omit_results(tmp_path: Path) -> None:
+    manifest_path = _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.SPLITS),
+        [],
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    artifact_path = tmp_path / manifest["artifacts"][0]["path"]
+    artifact_path.write_bytes(
+        gzip.compress(
+            b'{"queryCount":0,"request_id":"fixture","resultsCount":0,"status":"OK"}',
+            mtime=0,
+        )
+    )
+
+    report = _audit(tmp_path, ProviderDataset.SPLITS)
+
+    assert report["status"] == "passed"
+
+
+def test_nonzero_response_cannot_omit_results(tmp_path: Path) -> None:
+    manifest_path = _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.SPLITS),
+        [{"execution_date": SESSION.isoformat(), "id": "split-1", "ticker": "AAPL"}],
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    artifact_path = tmp_path / manifest["artifacts"][0]["path"]
+    artifact_path.write_bytes(
+        gzip.compress(
+            b'{"request_id":"fixture","resultsCount":1,"status":"OK"}', mtime=0
+        )
+    )
+
+    report = _audit(tmp_path, ProviderDataset.SPLITS)
+
+    assert report["status"] == "failed"
+    assert report["summary"]["corruption_code_counts"]["results_missing"] == 1
+
+
+def test_zero_row_response_needs_an_explicit_zero_count(tmp_path: Path) -> None:
+    manifest_path = _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.SPLITS),
+        [],
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    artifact_path = tmp_path / manifest["artifacts"][0]["path"]
+    artifact_path.write_bytes(
+        gzip.compress(b'{"request_id":"fixture","status":"OK"}', mtime=0)
+    )
+
+    report = _audit(tmp_path, ProviderDataset.SPLITS)
+
+    assert report["status"] == "failed"
+    assert report["summary"]["corruption_code_counts"]["results_missing"] == 1
 
 
 def test_legacy_financial_candidate_key_includes_end_date(tmp_path: Path) -> None:
@@ -807,6 +905,27 @@ def test_legacy_financial_candidate_key_includes_end_date(tmp_path: Path) -> Non
         "duplicate_examples": [],
         "exact_duplicate_excess_rows": 0,
     }
+
+
+def test_legacy_financial_candidate_key_canonicalizes_filing_accession(
+    tmp_path: Path,
+) -> None:
+    accession = "0000320193-09-000001"
+    first = _legacy_financial_row(1, accession=accession)
+    second = _legacy_financial_row(2, accession=accession)
+    second["source_filing_url"] = (
+        f"https://api.massive.com/v1/reference/sec/filings/{accession}"
+    )
+    second["source_filing_file_url"] = (
+        f"https://api.massive.com/v1/reference/sec/filings/{accession}/files/a.xml"
+    )
+    _write_legacy_financial_history(tmp_path, [first, second])
+
+    report = _audit(tmp_path, ProviderDataset.LEGACY_FINANCIALS)
+
+    uniqueness = report["uniqueness"]["legacy_financials"]
+    assert uniqueness["distinct_candidate_keys"] == 1
+    assert uniqueness["conflicting_keys"] == 1
 
 
 def test_legacy_financial_same_period_conflict_and_missing_end_date_fail(

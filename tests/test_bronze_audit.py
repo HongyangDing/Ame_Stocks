@@ -4,8 +4,9 @@ import hashlib
 import json
 from collections import Counter
 from collections.abc import AsyncIterator
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -164,7 +165,14 @@ def _complete_fixture(root: Path, *, overlap: bool = False) -> tuple[date, Path]
 
 def _daily_bar(session: date) -> dict[str, object]:
     timestamp = int(
-        datetime(session.year, session.month, session.day, tzinfo=UTC).timestamp() * 1000
+        datetime(
+            session.year,
+            session.month,
+            session.day,
+            16,
+            tzinfo=ZoneInfo("America/New_York"),
+        ).timestamp()
+        * 1000
     )
     return {
         "T": "AAPL",
@@ -474,9 +482,11 @@ def test_daily_bar_compact_key_contract_passes_full_bronze_audit(tmp_path: Path)
         start=session,
         end=session,
     ).requests[0]
+    row = _daily_bar(session)
+    row.pop("vw")
     asyncio.run(
         BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
-            StaticProvider([_daily_bar(session)]), request
+            StaticProvider([row]), request
         )
     )
 
@@ -489,9 +499,77 @@ def test_daily_bar_compact_key_contract_passes_full_bronze_audit(tmp_path: Path)
     ).run()
 
     assert report["status"] == "passed"
+    assert report["report_schema_version"] == 4
+    assert "not unique affected rows" in report["summary"]["issue_count_semantics"]
+    assert "required_fields_missing" not in report["summary"]["issue_code_counts"]
+    assert "invalid_daily_bar_value" not in report["summary"]["issue_code_counts"]
     stats = {item["dataset"]: item for item in report["datasets"]}
     assert stats["daily_bars"]["expected_objects"] == 1
     assert stats["daily_bars"]["missing_expected"] == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (("vw", "bad"), ("n", 1.5), ("otc", "false")),
+)
+def test_daily_bar_invalid_optional_fields_fail_full_bronze_audit(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    request = build_download_plan(
+        dataset=ProviderDataset.DAILY_BARS,
+        start=session,
+        end=session,
+    ).requests[0]
+    row = {**_daily_bar(session), field: value}
+    asyncio.run(
+        BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
+            StaticProvider([row]), request
+        )
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=(ProviderDataset.ASSETS, ProviderDataset.DAILY_BARS),
+    ).run()
+
+    assert report["status"] == "failed"
+    assert report["summary"]["issue_code_counts"]["invalid_daily_bar_value"] == 1
+
+
+@pytest.mark.parametrize("minute_offset", (-960, 1))
+def test_daily_bar_noncanonical_window_timestamp_fails_full_bronze_audit(
+    tmp_path: Path, minute_offset: int
+) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    request = build_download_plan(
+        dataset=ProviderDataset.DAILY_BARS,
+        start=session,
+        end=session,
+    ).requests[0]
+    row = _daily_bar(session)
+    row["t"] = int(row["t"]) + minute_offset * 60_000
+    asyncio.run(
+        BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
+            StaticProvider([row]), request
+        )
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=(ProviderDataset.ASSETS, ProviderDataset.DAILY_BARS),
+    ).run()
+
+    codes = report["summary"]["issue_code_counts"]
+    assert report["status"] == "failed"
+    assert codes["invalid_daily_bar_value"] == 1
+    assert codes["invalid_timestamp_value"] == 1
 
 
 def test_legacy_financial_contract_is_checked_across_full_authoritative_plan(
@@ -792,7 +870,108 @@ def test_observed_date_bounds_accumulate_across_pages(tmp_path: Path) -> None:
     assert stats["splits"]["observed_max_date"] == session.isoformat()
 
 
-def test_missing_results_key_is_not_treated_as_an_empty_response(tmp_path: Path) -> None:
+def test_missing_results_key_is_allowed_for_a_zero_row_terminal_response(tmp_path: Path) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    request = build_download_plan(
+        dataset=ProviderDataset.SPLITS,
+        start=date(2003, 9, 10),
+        end=session,
+    ).requests[0]
+    asyncio.run(
+        BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
+            StaticProvider([]), request
+        )
+    )
+    _rewrite_single_page(
+        tmp_path,
+        request,
+        {
+            "queryCount": 0,
+            "request_id": "fixture",
+            "resultsCount": 0,
+            "status": "OK",
+        },
+        record_count=0,
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=(ProviderDataset.ASSETS, ProviderDataset.SPLITS),
+    ).run()
+
+    assert report["status"] == "passed"
+    assert report["gates"]["semantic_consistency"] == "passed"
+
+
+def test_missing_results_key_fails_when_manifest_declares_rows(tmp_path: Path) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    request = build_download_plan(
+        dataset=ProviderDataset.SPLITS,
+        start=date(2003, 9, 10),
+        end=session,
+    ).requests[0]
+    asyncio.run(
+        BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
+            StaticProvider(
+                [{"execution_date": session.isoformat(), "ticker": "AAPL"}]
+            ),
+            request,
+        )
+    )
+    _rewrite_single_page(
+        tmp_path,
+        request,
+        {"request_id": "fixture", "resultsCount": 1, "status": "OK"},
+        record_count=1,
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=(ProviderDataset.ASSETS, ProviderDataset.SPLITS),
+    ).run()
+
+    assert report["status"] == "failed"
+    assert report["summary"]["issue_code_counts"]["results_shape_invalid"] == 1
+
+
+def test_missing_results_key_needs_an_explicit_zero_count(tmp_path: Path) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    request = build_download_plan(
+        dataset=ProviderDataset.SPLITS,
+        start=date(2003, 9, 10),
+        end=session,
+    ).requests[0]
+    asyncio.run(
+        BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
+            StaticProvider([]), request
+        )
+    )
+    _rewrite_single_page(
+        tmp_path,
+        request,
+        {"request_id": "fixture", "status": "OK"},
+        record_count=0,
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=(ProviderDataset.ASSETS, ProviderDataset.SPLITS),
+    ).run()
+
+    assert report["status"] == "failed"
+    assert report["summary"]["issue_code_counts"]["results_shape_invalid"] == 1
+
+
+def test_empty_daily_active_snapshot_fails_universe_gate(tmp_path: Path) -> None:
     session, _ = _complete_fixture(tmp_path)
     active_request = next(
         request
@@ -807,7 +986,12 @@ def test_missing_results_key_is_not_treated_as_an_empty_response(tmp_path: Path)
     _rewrite_single_page(
         tmp_path,
         active_request,
-        {"status": "OK"},
+        {
+            "queryCount": 0,
+            "request_id": "fixture",
+            "resultsCount": 0,
+            "status": "OK",
+        },
         record_count=0,
     )
 
@@ -821,7 +1005,7 @@ def test_missing_results_key_is_not_treated_as_an_empty_response(tmp_path: Path)
 
     assert report["status"] == "failed"
     assert report["gates"]["semantic_consistency"] == "failed"
-    assert report["summary"]["issue_code_counts"]["results_shape_invalid"] == 1
+    assert report["summary"]["issue_code_counts"]["asset_active_snapshot_empty"] == 1
 
 
 def test_ticker_events_require_the_endpoint_envelope_and_event_contract(

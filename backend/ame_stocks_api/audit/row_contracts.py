@@ -7,8 +7,9 @@ import re
 from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
-_ACCESSION_PATTERN = re.compile(r"[0-9]{10}-[0-9]{2}-[0-9]{6}")
+_ACCESSION_PATTERN = re.compile(r"(?<![0-9])[0-9]{10}-[0-9]{2}-[0-9]{6}(?![0-9])")
 _FINANCIAL_SECTIONS = frozenset(
     {
         "balance_sheet",
@@ -31,6 +32,7 @@ _FISCAL_PERIODS = {
     "quarterly": frozenset({"Q1", "Q2", "Q3", "Q4"}),
     "ttm": frozenset({"TTM"}),
 }
+_NEW_YORK = ZoneInfo("America/New_York")
 
 
 def epoch_millisecond_date(value: object) -> str | None:
@@ -44,16 +46,36 @@ def epoch_millisecond_date(value: object) -> str | None:
         return None
 
 
+def daily_bar_session_date(value: object) -> str | None:
+    """Return the ET session date only for the observed nominal 16:00 daily window end."""
+
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    try:
+        observed = datetime.fromtimestamp(value / 1000, tz=UTC).astimezone(_NEW_YORK)
+    except (OSError, OverflowError, ValueError):
+        return None
+    if (observed.hour, observed.minute, observed.second, observed.microsecond) != (16, 0, 0, 0):
+        return None
+    return observed.date().isoformat()
+
+
 def valid_daily_bar(row: dict[str, Any]) -> bool:
     """Validate Massive's raw grouped-daily compact-key response contract."""
 
     ticker = row.get("T")
     if not isinstance(ticker, str) or not ticker.strip() or ticker != ticker.strip():
         return False
-    if epoch_millisecond_date(row.get("t")) is None:
+    if daily_bar_session_date(row.get("t")) is None:
         return False
-    values = {field: row.get(field) for field in ("o", "h", "l", "c", "v")}
-    if any(not _finite_nonnegative_number(value) for value in values.values()):
+    prices = {field: row.get(field) for field in ("o", "h", "l", "c")}
+    if any(
+        not _finite_nonnegative_number(value) or float(value) <= 0
+        for value in prices.values()
+    ):
+        return False
+    volume = row.get("v")
+    if not _finite_nonnegative_number(volume):
         return False
     transactions = row.get("n")
     if transactions is not None and (
@@ -68,10 +90,10 @@ def valid_daily_bar(row: dict[str, Any]) -> bool:
     otc = row.get("otc")
     if otc is not None and not isinstance(otc, bool):
         return False
-    open_price = float(values["o"])
-    high_price = float(values["h"])
-    low_price = float(values["l"])
-    close_price = float(values["c"])
+    open_price = float(prices["o"])
+    high_price = float(prices["h"])
+    low_price = float(prices["l"])
+    close_price = float(prices["c"])
     return high_price >= max(open_price, close_price, low_price) and low_price <= min(
         open_price, close_price, high_price
     )
@@ -243,6 +265,7 @@ def _aware_iso_datetime(value: object) -> bool:
 
 
 __all__ = [
+    "daily_bar_session_date",
     "epoch_millisecond_date",
     "legacy_filing_accession",
     "valid_daily_bar",

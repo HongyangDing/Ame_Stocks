@@ -31,7 +31,7 @@ from ame_stocks_core import ProviderDataset, ProviderRequest
 
 IssueKind = Literal["corruption", "difference"]
 
-REST_SEMANTIC_AUDIT_SCHEMA_VERSION = 6
+REST_SEMANTIC_AUDIT_SCHEMA_VERSION = 7
 
 KEY_DATASETS: dict[ProviderDataset, tuple[str, ...]] = {
     ProviderDataset.DAILY_BARS: ("T", "t"),
@@ -43,7 +43,7 @@ KEY_DATASETS: dict[ProviderDataset, tuple[str, ...]] = {
     ProviderDataset.FLOAT: ("effective_date", "ticker"),
     ProviderDataset.IPOS: ("listing_date", "ticker"),
     ProviderDataset.LEGACY_FINANCIALS: (
-        "source_filing_url",
+        "accession",
         "cik",
         "start_date",
         "end_date",
@@ -375,6 +375,11 @@ class RestSemanticAuditor:
                 "difference_count": differences,
                 "corruption_code_counts": corruption_code_counts,
                 "difference_code_counts": self.issues.code_counts("difference"),
+                "count_semantics": (
+                    "Heterogeneous violation instances (rows, pages, manifests, keys, or "
+                    "taxonomy versions), not unique bad rows; one observation may contribute "
+                    "to more than one code."
+                ),
                 "expected_manifests": sum(
                     metric.expected_manifests for metric in self.metrics.values()
                 ),
@@ -630,16 +635,19 @@ class RestSemanticAuditor:
                 example=artifact.get("path"),
             )
             return
-        if "results" not in document:
-            self.issues.add(
-                "corruption",
-                "results_missing",
-                dataset.value,
-                "provider response omits the results field",
-                example=artifact.get("path"),
-            )
-            return
-        rows = document["results"]
+        rows = document.get("results")
+        if rows is None and "results" not in document:
+            if _valid_empty_results_response(document, artifact):
+                rows = []
+            else:
+                self.issues.add(
+                    "corruption",
+                    "results_missing",
+                    dataset.value,
+                    "provider response omits results without a zero-row terminal contract",
+                    example=artifact.get("path"),
+                )
+                return
         if not isinstance(rows, list):
             self.issues.add(
                 "corruption",
@@ -689,7 +697,10 @@ class RestSemanticAuditor:
                 "corruption",
                 "row_contract_invalid",
                 dataset.value,
-                "row violates grouped daily-bar ticker/timestamp/OHLCV/VWAP constraints",
+                (
+                    "row violates grouped daily-bar ticker/nominal-window/OHLCV or optional "
+                    "n/vw/otc constraints"
+                ),
             )
         if dataset is ProviderDataset.LEGACY_FINANCIALS and not valid_legacy_financials(row):
             self.issues.add(
@@ -703,7 +714,14 @@ class RestSemanticAuditor:
             )
         if dataset in KEY_DATASETS:
             fields = KEY_DATASETS[dataset]
-            values = tuple(row.get(field) for field in fields)
+            values = (
+                (
+                    legacy_filing_accession(row.get("source_filing_url")),
+                    *(row.get(field) for field in fields[1:]),
+                )
+                if dataset is ProviderDataset.LEGACY_FINANCIALS
+                else tuple(row.get(field) for field in fields)
+            )
             normalized_values = tuple(_normalized_scalar(value) for value in values)
             if any(value is None for value in normalized_values):
                 self.issues.add(
@@ -1379,6 +1397,30 @@ class RestSemanticAuditor:
             "rows_without_accession": rows_without_accession_total,
             "datasets": datasets,
         }
+
+
+def _valid_empty_results_response(
+    document: dict[str, Any], artifact: dict[str, Any]
+) -> bool:
+    declared_count = artifact.get("record_count")
+    if (
+        isinstance(declared_count, bool)
+        or not isinstance(declared_count, int)
+        or declared_count != 0
+        or artifact.get("is_last") is not True
+        or artifact.get("next_continuation") not in (None, "")
+        or document.get("next_url") not in (None, "")
+    ):
+        return False
+    explicit_zero_count = False
+    for field_name in ("count", "queryCount", "resultsCount"):
+        if field_name not in document:
+            continue
+        value = document[field_name]
+        if isinstance(value, bool) or not isinstance(value, int) or value != 0:
+            return False
+        explicit_zero_count = True
+    return explicit_zero_count
 
 
 def _canonical_row_sha256(row: dict[str, Any]) -> bytes | None:
