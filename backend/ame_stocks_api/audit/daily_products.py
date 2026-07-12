@@ -31,8 +31,8 @@ from ame_stocks_api.downloads import build_download_plan, market_session_dates
 from ame_stocks_api.flatfiles import FlatFileDataset, FlatFileObject
 from ame_stocks_core import PROVIDER_CONTRACT_VERSION, ProviderDataset, ProviderRequest
 
-DAILY_PRODUCT_AUDIT_SCHEMA_VERSION = 3
-DAILY_PRODUCT_CACHE_SCHEMA_VERSION = 3
+DAILY_PRODUCT_AUDIT_SCHEMA_VERSION = 4
+DAILY_PRODUCT_CACHE_SCHEMA_VERSION = 4
 DAILY_BARS_AVAILABLE_FROM = date(2016, 7, 13)
 
 _NEW_YORK = ZoneInfo("America/New_York")
@@ -754,25 +754,19 @@ class DailyProductCrossAuditor:
             )
         for row in rows:
             if not isinstance(row, dict):
-                issues.append(
+                _increment_issue_count(
+                    row_issue_counts,
                     _issue(
                         "row_not_object",
                         "rest_daily",
                         1,
                         "REST result row is not an object",
                         kind="source_integrity",
-                    )
+                    ),
                 )
                 continue
             for issue in _validate_rest_row(row, session, expected_window_end_ms):
-                row_issue_counts[
-                    (
-                        str(issue["code"]),
-                        str(issue["dataset"]),
-                        str(issue["kind"]),
-                        str(issue["message"]),
-                    )
-                ] += int(issue["count"])
+                _increment_issue_count(row_issue_counts, issue)
             vw = row.get("vw")
             transaction = row.get("n")
             vw_present += vw is not None
@@ -1454,6 +1448,20 @@ def _issue(
     if examples:
         issue["examples"] = examples
     return issue
+
+
+def _increment_issue_count(
+    counter: Counter[tuple[str, str, str, str]],
+    issue: dict[str, object],
+) -> None:
+    counter[
+        (
+            str(issue["code"]),
+            str(issue["dataset"]),
+            str(issue["kind"]),
+            str(issue["message"]),
+        )
+    ] += int(issue["count"])
 
 
 def _sort_issues(issues: list[dict[str, object]]) -> list[dict[str, object]]:

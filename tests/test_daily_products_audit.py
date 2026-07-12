@@ -96,7 +96,7 @@ def _write_flat(root: Path, rows: list[str], *, session: date = SESSION) -> Path
 
 def _write_rest(
     root: Path,
-    rows: list[dict[str, object]],
+    rows: list[object],
     *,
     session: date = SESSION,
     query_count: int | None = None,
@@ -201,7 +201,7 @@ def test_matching_products_pass_and_reuse_independent_cache(tmp_path: Path) -> N
         / "manifests"
         / "audits"
         / "daily_product_crosscheck"
-        / "schema=v3"
+        / "schema=v4"
         / f"{SESSION.isoformat()}.json"
     ).is_file()
     assert not (tmp_path / "manifests" / "audits" / "market_crosscheck").exists()
@@ -315,7 +315,15 @@ def test_rest_timestamp_anomalies_are_aggregated_per_session(
 
 def test_rest_timestamp_uses_nominal_window_end_on_half_day(tmp_path: Path) -> None:
     half_day = date(2016, 11, 25)
-    _write_matching_fixture(tmp_path, session=half_day)
+    _write_flat(
+        tmp_path,
+        [_flat_row("AAPL", session=half_day), _flat_row("MSFT", session=half_day)],
+        session=half_day,
+    )
+    rows = [_rest_row("AAPL", session=half_day), _rest_row("MSFT", session=half_day)]
+    for row in rows:
+        row["t"] = 1_480_107_600_000
+    _write_rest(tmp_path, rows, session=half_day)
 
     report = DailyProductCrossAuditor(
         tmp_path,
@@ -326,10 +334,27 @@ def test_rest_timestamp_uses_nominal_window_end_on_half_day(tmp_path: Path) -> N
 
     assert report["status"] == "passed"
     assert datetime.fromtimestamp(
-        _daily_window_end_ms(half_day) / 1000,
+        1_480_107_600_000 / 1000,
         tz=NEW_YORK,
     ).hour == 16
     assert XNYS.session_close(half_day.isoformat()).tz_convert(NEW_YORK).hour == 13
+
+
+def test_non_object_rest_rows_are_aggregated_per_session(tmp_path: Path) -> None:
+    _write_flat(tmp_path, [_flat_row("AAPL")])
+    _write_rest(tmp_path, [None, "not-an-object", 7])
+
+    report = _audit(tmp_path)
+
+    matching_issues = [
+        issue
+        for issue in report["sessions"][0]["issues"]
+        if issue["code"] == "row_not_object"
+    ]
+    assert report["status"] == "failed"
+    assert report["summary"]["issue_code_counts"]["row_not_object"] == 3
+    assert len(matching_issues) == 1
+    assert matching_issues[0]["count"] == 3
 
 
 def test_rest_query_count_must_match_decoded_results(tmp_path: Path) -> None:
