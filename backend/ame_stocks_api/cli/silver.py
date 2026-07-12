@@ -21,7 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="action", required=True)
 
-    subparsers.add_parser("fixed-cases", help="print the 14 mandatory review cases")
+    subparsers.add_parser("fixed-cases", help="print the 15 mandatory review cases")
 
     contract = subparsers.add_parser(
         "validate-contract",

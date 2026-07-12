@@ -6,7 +6,8 @@ can be inspected and reproduced.
 
 ## Current milestone
 
-The project is at the **Bronze data checkpoint** for the catalog frozen on 2026-07-12:
+The project has passed the **Bronze data checkpoint** for the catalog frozen on 2026-07-12 and is
+now at **Silver Phase 1 / S1 code-ready**:
 
 - ten years of full-market minute/day aggregate Flat Files and 29 required REST research
   datasets (31 dataset families in total) are stored immutably on the remote data volume;
@@ -17,7 +18,9 @@ The project is at the **Bronze data checkpoint** for the catalog frozen on 2026-
 - every saved file is manifest-bound, checksummed, resumable, and covered by the full Bronze audit;
 - the Silver S0 control plane is implemented: frozen schemas/QA rules, source inventories, immutable
   review workflows, approval-bound releases, and a release-only reader are covered by synthetic tests;
-- no real Silver family transformation, adjustment, or Gold factor/backtest output has started.
+- the exact S1 `reference/exchange_dim` schema is approved and its manifest-bound reader, pure
+  transform, QA/quarantine logic, and current-snapshot fixed case are code-ready;
+- no real Bronze-to-Silver preview/full build, adjustment, or Gold factor/backtest output has run.
 
 The final strict full audit is
 `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/bronze/full-2026-07-12-v9.json`
@@ -51,7 +54,8 @@ Formal Silver control-plane code lives in `backend/ame_stocks_api/silver/`. Its 
 documented in [docs/silver-s0-contracts.md](docs/silver-s0-contracts.md), while the dataset-by-dataset
 sequence and hard approval stops remain in
 [docs/silver-processing-plan.md](docs/silver-processing-plan.md). S0 does not read Bronze or run a
-transformation; S1 `exchanges` still requires separate user approval.
+transformation. S1 `exchanges` has passed schema approval and is stopped immediately before its first
+real 27-row Bronze preview.
 
 ## Python setup
 

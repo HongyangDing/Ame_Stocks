@@ -59,6 +59,20 @@ FIXED_CASES: Final[tuple[FixedCase, ...]] = (
         ),
     ),
     FixedCase(
+        case_id="current_reference_snapshot",
+        title="Current-only reference snapshot",
+        family="reference",
+        purpose=(
+            "Prevent a latest-only provider dictionary from being backfilled as historical fact."
+        ),
+        expected_invariants=(
+            "Capture date comes from the immutable manifest completion time, not a request label.",
+            "Availability begins at the first XNYS open strictly after the capture instant.",
+            "A later capture appends a new date partition and does not overwrite prior evidence.",
+            "Every row retains exact request, artifact, page, ordinal, and raw-row lineage.",
+        ),
+    ),
+    FixedCase(
         case_id="forward_split_2_for_1",
         title="2-for-1 forward split",
         family="corporate_actions",
@@ -199,8 +213,8 @@ FIXED_CASES: Final[tuple[FixedCase, ...]] = (
 
 FIXED_CASE_IDS: Final[tuple[str, ...]] = tuple(case.case_id for case in FIXED_CASES)
 
-if len(FIXED_CASE_IDS) != 14 or len(set(FIXED_CASE_IDS)) != len(FIXED_CASE_IDS):
-    raise RuntimeError("the Silver fixed-case registry must contain 14 unique case IDs")
+if len(FIXED_CASE_IDS) != 15 or len(set(FIXED_CASE_IDS)) != len(FIXED_CASE_IDS):
+    raise RuntimeError("the Silver fixed-case registry must contain 15 unique case IDs")
 
 FIXED_CASES_BY_ID: Final[Mapping[str, FixedCase]] = MappingProxyType(
     {case.case_id: case for case in FIXED_CASES}

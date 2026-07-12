@@ -8,28 +8,36 @@ from ame_stocks_api.silver.contracts import (
     QAStatus,
     TableContract,
 )
+from ame_stocks_api.silver.exchange_contract import (
+    EXCHANGE_DIM_CONTRACT,
+    EXCHANGE_DIM_CONTRACT_ID,
+)
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-_CANDIDATE_PATH = (
+_APPROVED_CONTRACT_PATH = (
     _REPOSITORY_ROOT
-    / "docs"
+    / "backend"
+    / "ame_stocks_api"
     / "silver"
-    / "contracts"
-    / "reference"
-    / "exchange_dim.schema-v1.candidate.json"
+    / "schema_resources"
+    / "exchange_dim.schema-v1.json"
 )
 
 
-def _candidate() -> TableContract:
-    return TableContract.from_dict(json.loads(_CANDIDATE_PATH.read_text(encoding="utf-8")))
+def _approved_contract() -> TableContract:
+    return TableContract.from_dict(
+        json.loads(_APPROVED_CONTRACT_PATH.read_text(encoding="utf-8"))
+    )
 
 
-def test_exchange_dim_candidate_is_a_valid_deterministic_table_contract() -> None:
-    contract = _candidate()
+def test_exchange_dim_approved_contract_is_valid_and_deterministic() -> None:
+    contract = _approved_contract()
 
     assert contract.contract_id == (
         "1803d28f2b4b6088e32d27d06c7102111e4f141b6645a1059829732442f0e479"
     )
+    assert contract.contract_id == EXCHANGE_DIM_CONTRACT_ID
+    assert contract == EXCHANGE_DIM_CONTRACT
     assert TableContract.from_dict(contract.to_dict()) == contract
     assert (contract.domain, contract.table, contract.schema_version) == (
         "reference",
@@ -42,8 +50,8 @@ def test_exchange_dim_candidate_is_a_valid_deterministic_table_contract() -> Non
     assert contract.source_datasets == ("exchanges",)
 
 
-def test_exchange_dim_candidate_freezes_reviewed_fields_and_nullability() -> None:
-    contract = _candidate()
+def test_exchange_dim_approved_contract_freezes_fields_and_nullability() -> None:
+    contract = _approved_contract()
     columns = {column.name: column for column in contract.columns}
 
     assert tuple(columns) == (
@@ -83,8 +91,8 @@ def test_exchange_dim_candidate_freezes_reviewed_fields_and_nullability() -> Non
     assert "not substituted" in columns["operating_mic"].description
 
 
-def test_exchange_dim_candidate_has_fail_closed_controls_and_reviewable_drift() -> None:
-    contract = _candidate()
+def test_exchange_dim_approved_contract_has_fail_closed_controls_and_drift() -> None:
+    contract = _approved_contract()
     rules = {rule.check_id: rule for rule in contract.qa_rules}
 
     assert set(rules) == {

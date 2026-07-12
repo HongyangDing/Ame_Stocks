@@ -272,27 +272,29 @@ Silver 清洗自动创造。
 - 只接受已发布 release ID 的公开 reader；
 - `ame-silver fixed-cases/validate-contract/status/inspect-release` 四个只读检查命令。
 
-S0 完成不授权 S1；下一步仍必须单独批准 `exchanges` schema review。
+S0 完成本身不授权 S1；`exchanges` schema 已于 2026-07-13 另行获得精确 contract 批准。
 
 - 输入：无数据转换；只读取已有 schema、manifest 和 fixture。
 - 输出：schema registry、build/release manifest、quarantine contract、QA contract、preview
   展示格式和固定案例清单。
 - 必须补齐：`preview → awaiting_review → published` 状态；现有 CLI 不能再直接把新正式产物
   写成“已完成”。
-- 固定案例：正常日、半日市、2:1 split、reverse split、普通/特殊分红、停牌/缺分钟、ticker
-  change、ticker reuse、退市、大小写相近 ticker、2019-08-12 异常、date-only filing、13-F
-  header-only。
+- 固定案例：正常日、半日市、current-only reference snapshot、2:1 split、reverse split、
+  普通/特殊分红、停牌/缺分钟、ticker change、ticker reuse、退市、大小写相近 ticker、
+  2019-08-12 异常、date-only filing、13-F header-only。
 - 验收：不接触全量数据；使用 fixture 证明 schema、原子写、幂等、lineage 和审批状态。
 
-S0 本身也需要用户批准。S0 通过后，第一类实际数据建议从 `exchanges` 开始。
+S0 与 S1 schema approval 均已通过；第一类实际 preview 仍从 `exchanges` 开始。
 
 ## 6. Phase 1：小型参考字典
 
 ### S1 — `exchanges`
 
-**状态（2026-07-12）：Phase 1 / `schema_review`。** 已完成 manifest-bound Bronze 只读画像并
-提交 [`exchange_dim` schema 候选](silver-s1-exchanges-schema-review.md)；当前等待用户批准精确
-contract，尚未编写或运行转换、preview、full build 或 publish。
+**状态（2026-07-13）：Phase 1 / `code_ready`。** 用户已批准精确 contract
+`1803d28f2b4b6088e32d27d06c7102111e4f141b6645a1059829732442f0e479`；已完成
+[`exchange_dim` schema 与 code-ready 实现](silver-s1-exchanges-schema-review.md)，包括
+manifest-bound reader、纯转换、20 项 QA、quarantine、row funnel 和第 15 个 fixed case。尚未
+运行真实 Bronze preview、full build 或 publish。
 
 - Bronze：当前快照，一行一个场所；主要字段为 `id, name, acronym, mic, operating_mic,
   participant_id, type, asset_class, locale, url`。

@@ -236,12 +236,13 @@ Data Health audit 执行。
 ## 6. 固定案例注册表
 
 [`fixed_cases.py`](../backend/ame_stocks_api/silver/fixed_cases.py) 用 frozen dataclass、tuple 和只读
-mapping 注册 14 个必须覆盖的场景：
+mapping 注册 15 个必须覆盖的场景：
 
 | Case ID | 场景 | 后续主要 family |
 | --- | --- | --- |
 | `normal_session` | 正常交易日 | 行情/日历 |
 | `half_day` | 美股半日市 | 行情/日历 |
+| `current_reference_snapshot` | 只有当前状态的参考快照 | 参考字典/PIT |
 | `forward_split_2_for_1` | 2:1 拆股 | 公司行动/复权 |
 | `reverse_split` | 反向拆股 | 公司行动/复权 |
 | `regular_dividend` | 普通现金分红 | 公司行动/收益 |
@@ -287,7 +288,7 @@ S0 的通过标准仅包括：
   quarantine 对账、原子不可变写、深层不可变 ID 和确定性 build ID；
 - 非法状态跳跃、过期 event hash、未批准 full run、阻断性 QA 和未批准 publish 都失败；
 - 只有 `published` release 能由公开 reader 解析，且任一信任链或输出被改动都会失败；
-- 14 个固定案例元数据完整、唯一、不可变；
+- 15 个固定案例元数据完整、唯一、不可变；
 - 全部测试只使用临时目录，没有触碰 Bronze 或远程数据盘。
 
 完成这些条件只表示控制框架可用，不表示任何 Silver family 已处理。下一步仍需用户单独批准

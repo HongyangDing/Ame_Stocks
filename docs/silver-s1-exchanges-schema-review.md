@@ -2,20 +2,23 @@
 
 ## 1. 当前状态与授权边界
 
-2026-07-12，S1 从 `planned` 进入 **`schema_review`**。这表示 Ame_Stocks 已进入
-**Phase 1：小型参考字典**，但本次批准只允许：
+2026-07-12，S1 从 `planned` 进入 `schema_review`。2026-07-13，用户明确批准 contract
+`1803d28f2b4b6088e32d27d06c7102111e4f141b6645a1059829732442f0e479`，因此 S1 已进入
+**Phase 1 / `code_ready`**。
+
+schema review 当时只允许：
 
 - 只读检查一份有界、manifest 绑定的 `exchanges` Bronze 快照；
 - 核对实际 envelope、字段、类型、空值、候选键、domain 和已有审计结果；
 - 提交一个精确、可由 S0 `TableContract` 解析的 schema 候选；
 - 识别进入 `code_ready` 前必须由用户决定的语义和框架缺口。
 
-本次没有编写业务转换，没有生成 preview/full build，没有登记远程 Silver workflow、schema
-approval 或 SourceInventory，没有写入数据盘，也没有读取未被 manifest 声明的文件。只有用户再次
-批准本文件绑定的精确 contract 后，S1 才能进入 `code_ready`。
+schema review 没有编写业务转换，也没有生成 preview/full build、登记 SourceInventory 或写入
+数据盘。schema 获批后的 code-ready 实现仍只使用 synthetic fixture；真实 Bronze preview 继续
+保持未执行。
 
-候选合同：
-[`exchange_dim.schema-v1.candidate.json`](silver/contracts/reference/exchange_dim.schema-v1.candidate.json)
+已批准并作为 Python package resource 冻结的合同：
+[`exchange_dim.schema-v1.json`](../backend/ame_stocks_api/silver/schema_resources/exchange_dim.schema-v1.json)
 
 - `contract_id`：`1803d28f2b4b6088e32d27d06c7102111e4f141b6645a1059829732442f0e479`
 - domain/table：`reference/exchange_dim`
@@ -67,7 +70,7 @@ Bronze canonical request 虽然记录 `start=end=2026-07-09`，该日期**没有
 - 本地 canonical request ID：`08b662df642512deb23442fcf12e397d5e30201f054cf9f355fde70168e6f9dc`
 - Massive response request ID：`806fdddbb346abb7d3846e3b4f65daa0`
 
-候选合同采用保守的 point-in-time 规则：
+已批准合同采用保守的 point-in-time 规则：
 
 1. `source_capture_at_utc = manifest.completed_at`；
 2. `capture_date` 是该时刻的 `America/New_York` 日期，即本快照的 `2026-07-11`；
@@ -236,13 +239,13 @@ source_record_id = stable_digest({
 - 对更早历史只做 diagnostic，不能把当前字典回填为历史事实；
 - 分别报告 non-null `primary_exchange` 的 unmatched row rate 和 unmatched distinct MIC rate。
 
-## 8. Preview 前发现的 S0 fixed-case 缺口
+## 8. 已修复的 S0 fixed-case 缺口
 
-S0 当前注册的 14 个 fixed case 都不完整覆盖 current-only reference snapshot，而
+schema review 时 S0 注册的 14 个 fixed case 都不完整覆盖 current-only reference snapshot，而
 `PreviewMetadata` 又要求 `fixed_case_ids` 非空。把 `normal_session` 硬套给 S1 会虚假声称 S1 已证明
 分钟稀疏性和 RTH 边界。
 
-因此候选 schema approval 应同时授权在 S1 code-ready 阶段新增第 15 个元数据案例：
+本次 schema approval 已授权并在 code-ready 阶段新增第 15 个元数据案例：
 
 `current_reference_snapshot`
 
@@ -254,18 +257,20 @@ S0 当前注册的 14 个 fixed case 都不完整覆盖 current-only reference s
 - 后续 capture 追加新日期分区，不覆盖旧分区；
 - 每行都能回溯到精确 request/page/ordinal/raw-row hash。
 
-这一步只扩展固定案例元数据和未来 synthetic fixture，不改变本次 S0 已发布控制面的安全边界。
-本 schema review 尚未修改 fixed-case registry。
+这一步只扩展固定案例元数据和 synthetic fixture，不改变 S0 控制面的安全边界。注册表现在有
+15 个不可变案例；S1 测试已证明上述 invariant，但尚未声称真实 Bronze preview 已通过。
 
-## 9. 下一硬停点
+## 9. Code-ready 实现与下一硬停点
 
-要进入 `code_ready`，需要用户明确批准：
+用户批准精确 contract 后，已实现：
 
-1. 上述 `exchange_dim` contract ID；
-2. `completed_at → capture_date → first XNYS open` 的 PIT 规则；
-3. 保留实际 `ORF` 并对未来新 type warning；
-4. 新增 `current_reference_snapshot` fixed case；
-5. 只使用 manifest-bound page，排除当前 `.swp` 及所有未声明对象。
+- `exchange_contract.py`：加载并在 import 时核对精确 approved contract ID；
+- `exchange_source.py`：只读构造 SourceInventory，并只消费 manifest 明确绑定的 gzip page；
+- `exchanges.py`：纯内存映射、PIT、lineage、去重、quarantine、row funnel 和 20 项 QA；
+- `fixed_cases.py`：新增 `current_reference_snapshot`；
+- `test_silver_exchanges.py`：只用 synthetic fixture 验证正常、ORF、空 MIC、时间边界、重复、
+  schema drift、主键/MIC 冲突、domain、同日双快照和未声明 `.swp` 排除。
 
-批准后下一步只编写 S1 转换、QA 和 synthetic fixed-case 测试，使状态进入 `code_ready`；仍不会
-自动运行 Bronze preview。preview 必须另行执行并展示，再等待 full-run approval。
+当前硬停点仍在真实 Bronze preview 之前。下一步得到明确指示后，才会针对 27 行权威输入登记
+SourceInventory、生成 bounded input/output sample、QA/quarantine Parquet 和 preview manifest；
+不会因此自动获得 full-run 或 publish 权限。

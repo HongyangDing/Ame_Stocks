@@ -49,7 +49,7 @@ def test_fixed_cases_cli_is_metadata_only(capsys: pytest.CaptureFixture[str]) ->
     assert main(["fixed-cases"]) == 0
     output = json.loads(capsys.readouterr().out)
     assert output["mode"] == "metadata_only"
-    assert output["case_count"] == len(output["cases"]) == 14
+    assert output["case_count"] == len(output["cases"]) == 15
 
 
 def test_validate_contract_cli_does_not_register_it(

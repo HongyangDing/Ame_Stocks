@@ -159,9 +159,11 @@ def test_data_artifacts_cannot_bypass_parquet_schema_validation() -> None:
 
 
 def test_fixed_case_registry_is_complete_unique_and_immutable() -> None:
-    assert len(FIXED_CASES) == len(FIXED_CASE_IDS) == len(FIXED_CASES_BY_ID) == 14
-    assert len(set(FIXED_CASE_IDS)) == 14
+    assert len(FIXED_CASES) == len(FIXED_CASE_IDS) == len(FIXED_CASES_BY_ID) == 15
+    assert len(set(FIXED_CASE_IDS)) == 15
     assert get_fixed_case("half_day").case_id == "half_day"
+    snapshot_case = get_fixed_case("current_reference_snapshot")
+    assert snapshot_case.family == "reference"
     with pytest.raises(FrozenInstanceError):
         FIXED_CASES[0].title = "changed"  # type: ignore[misc]
     with pytest.raises(TypeError):
