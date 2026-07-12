@@ -131,13 +131,13 @@ small endpoint.
 | --- | --- |
 | Trades | User-excluded and roughly multi-terabyte at ten-year scale |
 | Quotes | User-excluded as oversized and unnecessary for daily-factor/Barra research |
-| Per-ticker aggregate bars | Duplicates full-market Flat Files; retained only for tiny validation samples |
+| Bulk per-ticker aggregate bars | Bulk OHLCV duplicates full-market Flat Files; targeted Custom Bars remain available for exact interval VWAP after the Silver universe is fixed |
 | SMA/EMA/MACD/RSI | Deterministically reconstructed from stored bars |
 | Live snapshots, movers, last trade/quote | Not historical research inputs |
 | Related tickers | Current proprietary relationship graph is not point-in-time safe |
 | Market status/upcoming holidays | Operational, forward-looking data; exchange calendar is versioned locally |
 | OTC active/inactive universe | Outside the current exchange-listed Barra universe; add only as a separately versioned universe expansion |
-| Benzinga partner feeds | Separate paid expansion, not part of the current account |
+| Partner expansion feeds (Benzinga, ETF Global, TMX) | Separate paid expansions, not part of the current Stocks account |
 
 ## Safety and execution rules
 

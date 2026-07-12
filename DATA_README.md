@@ -1300,11 +1300,11 @@ Parquet String 列仍可为 null；类型为 String 不代表每行都有值。
 | 新 v1 financial statements / ratios | Income、Balance、Cash Flow 和 Ratios 四个新 endpoint 的 fresh probe 均返回 HTTP 403；适配器保留，等待 Massive 恢复 live access。可访问的旧 combined `legacy_financials` 已完整下载，但不是 v1/ratios 的等价替代。 |
 | OTC active/inactive universe | `market=otc` 不属于当前 exchange-listed Barra 股票池；若未来扩展，必须独立下载每日 active/inactive 快照并单独审计。 |
 | SMA / EMA / MACD / RSI | 可由 immutable bars 确定性重算，没有必要保存 provider 副本。 |
-| 全量逐 ticker REST minute bars | 与已经下载的全市场 Flat Files 重复；REST 只保留抽样 QA 能力。 |
+| 全量逐 ticker REST minute bars | 批量 OHLCV 与全市场 Flat Files 重复；保留在 Silver universe 确定后按目标股票定向调用 Custom Bars，以取得指定区间的 provider `vw`。 |
 | Live snapshot / movers / last trade | 只描述当前市场，不是历史回测输入。 |
 | Related tickers | 当前关系图不是 point-in-time 历史，直接回填会泄漏未来关系。 |
 | Ticker overview 全历史回填 | 某些 SEC 字段按报告期而非实际提交时间返回，容易产生未来数据。 |
-| Benzinga partner feeds | 独立付费扩展，不属于当前 Stocks 套餐。 |
+| Partner expansion feeds（Benzinga、ETF Global、TMX） | 独立付费扩展，不属于当前 Stocks 套餐；不计作当前账号可访问数据的遗漏。 |
 
 更完整的下载选择理由见
 [docs/massive-research-catalog.md](docs/massive-research-catalog.md)。
