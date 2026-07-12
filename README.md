@@ -17,6 +17,14 @@ The project is at the **Bronze data checkpoint** for the catalog frozen on 2026-
 - every saved file is manifest-bound, checksummed, resumable, and covered by the full Bronze audit;
 - full-universe Silver normalization, adjustment, and Gold factor/backtest outputs have not started.
 
+The final strict full audit is
+`/mnt/HC_Volume_106309665/american_stocks/manifests/audits/bronze/full-2026-07-12-v9.json`
+(SHA-256 `a23fdd2aa4c613274dfe0dcca611e8ed1bd62153146f787ecd415c345c1a15d6`). It verified
+238,814 files and 230,783,074 REST records with `authoritative_plan=passed` and
+`physical_integrity=passed`. Its overall status is `failed` only because known provider-content
+findings intentionally keep `semantic_consistency=failed`; no hash, gzip/parse, byte-count, or
+record-count damage was found.
+
 Two public Python contracts remain stable across these stages:
 
 - `DataProvider`: an asynchronous, resumable source adapter that returns immutable raw payload batches.

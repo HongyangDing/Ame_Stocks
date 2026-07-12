@@ -27,6 +27,15 @@ rows are only PIT candidates, not safe PIT inputs. The three new v1 statement en
 current-ratios endpoint still return HTTP 403 for the live key, so they remain optional
 replacement/cross-check contracts rather than unreported holes in this date-bounded Bronze scope.
 
+The final strict inventory audit is
+`/mnt/HC_Volume_106309665/american_stocks/manifests/audits/bronze/full-2026-07-12-v9.json`
+(SHA-256 `a23fdd2aa4c613274dfe0dcca611e8ed1bd62153146f787ecd415c345c1a15d6`). It passes the
+authoritative-plan and physical-integrity gates for 58,771 manifests and 238,814 files. The
+report-level `failed` status comes only from the separate semantic-consistency gate and must not
+be read as a download failure or local file corruption. REST semantic details are frozen in
+`manifests/audits/rest_semantics/full-2026-07-12-v7.json` (SHA-256
+`95366ec4abcdc9903b0c1aea972e2cf9f14da008f931bdfc3111523addfae301`).
+
 ## Flat Files do not solve survivorship by themselves
 
 The Flat File schema is:

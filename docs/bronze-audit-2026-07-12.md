@@ -5,14 +5,12 @@
 本次审计冻结的市场数据窗口为 **2016-07-11 至 2026-07-09**。结论不是“不同产品的
 每个数值都完全相同”，而是：
 
-- 已完成的全量物理审计对每个已登记 artifact 重新计算 SHA-256、完整解压 gzip/校验 CRC，
-  并重新解析 JSON/CSV、核对行数与 manifest。旧目录 232,519 个文件全部通过，新增的
-  Daily Market Summary 与 legacy financials 也分别完成逐页校验；没有证据表明本地文件
-  损坏、截断、错路径或成功响应漏页。新增数据纳入统一目录后的 Bronze checkpoint v6
-  （内部 `report_schema_version=3`）已证明物理完整性与正式计划覆盖；它同时暴露出审计合同
-  错把官方 optional 的 `vw` 当成必填。第一次修正版 v7 又在运行初期被代码复核发现共享合同
-  尚未强制名义 16:00 ET，因此主动终止且没有生成报告。最终统一结论以完整修正后的
-  checkpoint v8 为准。
+- 最终严格全量审计 v9 对每个已登记 artifact 重新计算 SHA-256、完整解压 gzip/校验 CRC，
+  并重新解析 JSON/CSV、核对压缩/原始字节数、记录数与 manifest。它覆盖 238,814 个文件和
+  230,783,074 条 REST 记录；`authoritative_plan=passed`、`physical_integrity=passed`，没有
+  本地文件损坏、截断、错路径、成功响应漏页或 hash/bytes/row mismatch。v9 使用严格的原生
+  非负整数合同，拒绝 bool、浮点数和数字字符串；其 summary、gates 与逐数据集结果和修复前
+  的 v8 checkpoint 完全一致。早期 v6 只保留为发现 optional `vw` 合同假阳性的诊断证据。
 - Flat Day、Flat Minute 和 REST Daily 是 Massive 的不同产品，不能期待逐字段相等。独立
   REST Daily ↔ Flat Day 全量对账发现价格差异率很低，但 volume/transactions 约 35% 不同；
   独立 Flat Day ↔ Minute 对账则因 RTH/全 session 与 condition update rules 的口径差异更大。
@@ -42,12 +40,11 @@
 | 既有 REST 目录 | 原 27 个正式数据集 | request plan、manifest/page、JSON、字段合同、候选键、SEC lineage | 物理完整；存在可解释或需隔离的内容异常 |
 | REST Daily Market Summary | 2016-07-13 至 2026-07-09；2,511 个 session/request/page | 下载终态、逐页 hash/JSON/行数、Flat Day 独立对账 | 完整保存；2016-07-11/12 当前权限为 403 |
 | Legacy combined financials | 2009-03-29 至 2026-07-09；18 个年度 request、3,784 pages | 全量结构/数值/provenance、候选键、EDGAR accession/date/CIK | 完整保存；39 行存在 PIT 日期危险，另有小量 coverage 异常 |
-| 统一 Bronze 目录 | 29 REST + 2 Flat File | v6 全量诊断；v7 初期终止；完整合同重跑 v8 | v6 物理/计划通过；**待最终 v8 回填** |
-| 代码 | 下载器、4 套审计器、计划与字段合同 | Ruff + pytest；时间边界、故障注入、缓存失效、进程回收 | **255 项测试通过** |
+| 统一 Bronze 目录 | 29 REST + 2 Flat File | 最终严格 checkpoint v9；v8 为严格整数元数据修复前的同结果 checkpoint | 计划与物理完整性通过；语义 gate 保留已知 provider 内容异常 |
+| 代码 | 下载器、4 套审计器、计划与字段合同 | Ruff + pytest；时间边界、故障注入、缓存失效、进程回收、畸形 manifest 整数 | **263 项测试通过** |
 
 所有数据检查均为只读。下表列有路径的机器可复核报告写到数据盘的 `manifests/audits/`；
-legacy financials 的两次补充深扫统计由本文汇总，在统一 REST v7 报告完成前不把它们称为一份
-独立 durable JSON 报告。没有重写 Bronze、删除旧文件、修改旧 Docker Volume 或触碰
+legacy financials 的补充深扫与统一 REST v7 报告共同提供语义证据。没有重写 Bronze、删除旧文件、修改旧 Docker Volume 或触碰
 Mogikabu。API Key 不进入 Git、报告或日志。
 
 ## 机器可复核报告索引
@@ -55,8 +52,9 @@ Mogikabu。API Key 不进入 Git、报告或日志。
 | 审计 | 报告 | SHA-256 | 状态 |
 | --- | --- | --- | --- |
 | Bronze 全目录 checkpoint v6（诊断；report schema v3） | `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/bronze/full-2026-07-12-v6.json` | `2288daa04de1ef97af832dbca86909eca26dc9a00037ac4b5fecc9a0bdf626f0` | `failed`：物理/计划通过；含 optional `vw` 合同假阳性 |
-| Bronze 全目录 checkpoint v8（最终；report schema v4） | `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/bronze/full-2026-07-12-v8.json` | `PENDING_BRONZE_V8_SHA256` | `PENDING_BRONZE_V8_STATUS` |
-| REST semantic schema v7（29 个 REST 中的 26 个） | `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/rest_semantics/full-2026-07-12-v7.json` | `PENDING_REST_V7_SHA256` | `PENDING_REST_V7_STATUS` |
+| Bronze 全目录 checkpoint v9（最终严格版；report schema v4） | `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/bronze/full-2026-07-12-v9.json` | `a23fdd2aa4c613274dfe0dcca611e8ed1bd62153146f787ecd415c345c1a15d6` | `failed`：计划/物理通过；仅语义 gate 失败 |
+| Bronze 全目录 checkpoint v8（严格整数修复前；report schema v4） | `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/bronze/full-2026-07-12-v8.json` | `c1af6c184aca4343c797a9089e548389cd80724f7c9f08851cdff9d74f678040` | `failed`：与 v9 summary/gates/datasets 相同 |
+| REST semantic schema v7（29 个 REST 中的 26 个） | `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/rest_semantics/full-2026-07-12-v7.json` | `95366ec4abcdc9903b0c1aea972e2cf9f14da008f931bdfc3111523addfae301` | `failed`：已知内容、候选键及 legacy accession coverage 异常 |
 | REST Daily ↔ Flat Day schema v4 | `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/daily_product_crosscheck/full-2026-07-12-v4.json` | `f0588ca0b1ac54dcd2d4883c010725cafe723d0931977200f5c8b0486d34c7fe` | `failed`：仅 1 个 source-integrity 异常日；coverage/numerical 为 `different` |
 | Flat Day ↔ Minute schema v5 | `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/market_crosscheck/full-2026-07-12-v5.json` | `d5a2e03a2c04f9f3fc4157b5499ed14c4f7ed61ca9ad65662b0918613243009d` | `failed`：同一个 2019-08-12 provider 异常；两项 reconciliation 为 `different` |
 | Assets 重复版本 | `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/assets/duplicate-versions-2026-07-12.json` | `bf5abe8e8bde1671b69c2d1e0546212fa5b99189e660cf2cef8f0936000d3641` | 4,853 组可确定处理的 inactive 版本行 |
@@ -83,7 +81,7 @@ v5 在扫描开始时冻结 manifest 清单，后来下载的 Daily/legacy 6,295
 当作“审计快照外新增”提示，不能把它视为新目录的最终证明。checkpoint v6 已从当前 31 个正式
 数据集重新构建权威计划，并对所有新旧文件统一执行 hash、解压、解析和记录数核对。
 
-### Bronze checkpoint v6 诊断结果与 v8 最终回填点
+### Bronze checkpoint v6 诊断与 v9 最终结果
 
 v6 报告为 72,124 bytes，耗时 6,990.179 秒，覆盖 31 个数据集、58,771 manifests、238,814
 个 artifacts、230,783,074 条 REST 记录和 60,920,727,431 bytes 压缩数据；声明行数与重新
@@ -99,11 +97,17 @@ missing 分开记录，且没有 REST source-integrity failure。统一合同现
 危险行的 legacy 页面，均为已知内容 QA。
 
 第一次修正版 v7 在全量运行初期主动终止：独立代码复核发现共享合同尚未强制 REST Daily
-实测的名义 16:00 ET window end。v7 没有落盘报告，也未修改任何 Bronze 文件。最终 v8 同时
-校验 optional `n/vw/otc`、正数 OHLC、名义 16:00 ET 与安全的 zero-row optional `results`。
+实测的名义 16:00 ET window end。v8 随后完成 optional `n/vw/otc`、正数 OHLC、名义 16:00 ET
+与安全 zero-row optional `results` 的全量验证。最终 v9 再把 manifest 数值合同收紧为只接受
+非负原生整数，并从零重跑全部文件。
 
-`PENDING`：checkpoint v8 完成后回填 SHA-256、状态和 gate；v6 保留为审计器发现并修复自身
-合同错误的诊断证据，不能冒充最终语义结论。
+v9 报告为 57,776 bytes，运行于 2026-07-12 09:57:18–11:54:07 UTC，耗时 7,009.173 秒；
+覆盖 31 个数据集、58,771 manifests、238,814 个 artifacts、230,783,074 条 REST 记录、
+60,920,727,431 bytes 压缩数据和 116,628,775,208 bytes 原始数据。声明记录与重新解析记录
+完全一致；`authoritative_plan=passed`、`physical_integrity=passed`，两道 gate 的 issue code
+均为空。`semantic_consistency=failed` 只包含 Assets 214、legacy financials 38 个页面、Float
+1 个页面和 Ticker Events 193 个响应的已知内容 QA。报告中的 error/warning 数量按页面、请求、
+manifest 或聚合 issue 实例计数，统计单位异质，不能相加解释为唯一坏行数。
 
 ### 新增数据的独立下载完整性
 
@@ -266,14 +270,30 @@ legacy financials 的候选键使用 canonical accession，并纳入字段合同
 Bronze 和各自专项规则检查。旧 schema v3 checkpoint 只作为历史证据，最终结论以下方 v7
 为准。
 
-<!-- PENDING_REST_V7_START -->
-### REST semantic schema v7 最终回填点
+### REST semantic schema v7 最终结果
 
-`PENDING`：主任务在 schema v7 完成后替换本段，至少填写 26 个语义审计数据集的报告
-SHA-256、状态、authoritative manifest/page/row 总量、uniqueness、taxonomy、SEC/legacy
-accession coverage，以及 hard issue 和 diagnostic difference 分类。独立 legacy 深扫不能
-代替统一 v7 报告，也不能把这里的 26 个数据集误写成全部 29 个 REST 数据集。
-<!-- PENDING_REST_V7_END -->
+最终报告为 30,740 bytes，SHA-256
+`95366ec4abcdc9903b0c1aea972e2cf9f14da008f931bdfc3111523addfae301`，耗时 7,267.774 秒。
+它覆盖 26 个数据集、2,702 个完整权威 manifests、116,111 pages 和 157,947,737 行；预期
+manifest 缺失和 invalid 均为 0，另有 5 个 non-authoritative pilot 被明确忽略。进入候选键
+合同的 57,660,403 行均完成有界检查。
+
+三道语义 gate 因已知内容异常分别标为 `failed`，而不是物理损坏：
+
+- `semantic_corruption` 共 50 个 issue instances：Float 1 行缺候选 ticker；legacy financials
+  47 个 row-contract findings（39 条 `end_date > filing_date` 加 8 条重复 ticker-list 行）；
+  另有 2 条 legacy accession filing-date mismatch。
+- `candidate_key_consistency` 与 diagnostic differences 共记录 16,062 个候选键歧义、52,494
+  个 provider 精确重复 excess rows。这些按数据集合同保留为版本或去重输入，不等于丢页。
+- `accession_coverage` 中 8-K、Forms 3/4/13-F 的受检 accession 均为 missing 0、date mismatch 0、
+  identity mismatch 0；legacy 有 492 行（480 个 accession）无法在当前 EDGAR index 找到，另有
+  上述 2 条 filing-date mismatch，根 CIK mismatch 为 0。
+- Disclosure taxonomy 的 definition/use 分别为 119/118，Risk taxonomy 为 140/140，版本均为
+  1.0 且 missing code 为 0。REST Daily 的 2,511 manifests、24,460,838 行候选键全部唯一，
+  conflict、exact duplicate 和 row-contract invalid 均为 0。
+
+这 26 个数据集不能误写成全部 29 个 REST 数据集；Assets、Ticker Overview 与 Ticker Events
+继续由统一 Bronze 和专项规则覆盖。这里所有计数也具有不同单位，不能直接求和成“坏记录数”。
 
 既有目录中已经定位、且无须重下的主要内容差异为：
 
@@ -387,7 +407,7 @@ cd /opt/american_stocks
   --data-root /mnt/HC_Volume_106309665/american_stocks \
   --start 2016-07-11 --end 2026-07-09 \
   --mode full --workers 8 \
-  --output manifests/audits/bronze/full-2026-07-12-v8.json
+  --output manifests/audits/bronze/full-2026-07-12-v9.json
 
 .venv/bin/ame-audit-rest-semantics \
   --data-root /mnt/HC_Volume_106309665/american_stocks \

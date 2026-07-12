@@ -18,6 +18,16 @@ not for every Massive product or a later catalog date. The detailed file-integri
 provider differences, and Barra-readiness boundary are recorded in
 [the bounded Bronze audit](bronze-audit-2026-07-12.md).
 
+The final strict inventory report is
+`/mnt/HC_Volume_106309665/american_stocks/manifests/audits/bronze/full-2026-07-12-v9.json`
+(SHA-256 `a23fdd2aa4c613274dfe0dcca611e8ed1bd62153146f787ecd415c345c1a15d6`): its
+authoritative-plan and physical-integrity gates pass across 58,771 manifests and 238,814 files.
+The complementary REST semantic report is
+`manifests/audits/rest_semantics/full-2026-07-12-v7.json` (SHA-256
+`95366ec4abcdc9903b0c1aea972e2cf9f14da008f931bdfc3111523addfae301`). Both reports retain known
+provider-content findings; a report-level `failed` status must not be interpreted as a missing
+dataset or damaged local artifact without inspecting its individual gates.
+
 The daily universe plan explicitly uses `locale=us, market=stocks`. Massive exposes OTC as a
 separate `market=otc` universe, so the audited coverage claim is exchange-listed U.S. stocks,
 including inactive listings, not OTC securities. OTC is not required for the current Barra-style
