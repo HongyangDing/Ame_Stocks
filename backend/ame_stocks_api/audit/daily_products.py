@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import exchange_calendars as xcals
 import polars as pl
 
 from ame_stocks_api.artifacts import (
@@ -31,11 +32,12 @@ from ame_stocks_api.downloads import build_download_plan, market_session_dates
 from ame_stocks_api.flatfiles import FlatFileDataset, FlatFileObject
 from ame_stocks_core import PROVIDER_CONTRACT_VERSION, ProviderDataset, ProviderRequest
 
-DAILY_PRODUCT_AUDIT_SCHEMA_VERSION = 1
-DAILY_PRODUCT_CACHE_SCHEMA_VERSION = 1
+DAILY_PRODUCT_AUDIT_SCHEMA_VERSION = 2
+DAILY_PRODUCT_CACHE_SCHEMA_VERSION = 2
 DAILY_BARS_AVAILABLE_FROM = date(2016, 7, 13)
 
 _NEW_YORK = ZoneInfo("America/New_York")
+_XNYS = xcals.get_calendar("XNYS")
 _PRICE_FIELDS = ("open", "high", "low", "close")
 _FLOAT_FIELDS = (*_PRICE_FIELDS, "volume")
 _FLAT_COLUMNS = (
@@ -381,8 +383,15 @@ class DailyProductCrossAuditor:
                 "tzdata": _package_version("tzdata"),
             },
             "max_examples": self.max_examples,
-            "tolerance": self.tolerance.to_dict(),
+            "tolerance": self._tolerance_config(),
         }
+
+    def _tolerance_config(self) -> dict[str, object]:
+        details = self.tolerance.to_dict()
+        details["float_formula"] = (
+            "abs(rest-flat) <= max(absolute, relative * max(abs(rest), abs(flat)))"
+        )
+        return details
 
     def _cache_path(self, session: date) -> Path:
         return self.cache_dir / f"{session.isoformat()}.json"
@@ -733,7 +742,7 @@ class DailyProductCrossAuditor:
         issues: list[dict[str, object]] = []
         vw_present = 0
         transactions_present = 0
-        expected_start_ms = _session_start_ns(session) // 1_000_000
+        expected_close_ms = _session_close_ms(session)
         if not rows:
             issues.append(
                 _issue(
@@ -756,7 +765,7 @@ class DailyProductCrossAuditor:
                     )
                 )
                 continue
-            row_issues = _validate_rest_row(row, session, expected_start_ms)
+            row_issues = _validate_rest_row(row, session, expected_close_ms)
             issues.extend(row_issues)
             vw = row.get("vw")
             transaction = row.get("n")
@@ -948,7 +957,7 @@ class DailyProductCrossAuditor:
                     "examples": rest_only[: self.max_examples],
                 },
                 "status": "different" if issues else "matched",
-                "tolerance": self.tolerance.to_dict(),
+                "tolerance": self._tolerance_config(),
             },
             issues,
         )
@@ -1114,7 +1123,7 @@ def _validate_flat_frame(frame: pl.DataFrame, session: date) -> list[dict[str, o
 
 
 def _validate_rest_row(
-    row: dict[str, Any], session: date, expected_start_ms: int
+    row: dict[str, Any], session: date, expected_close_ms: int
 ) -> list[dict[str, object]]:
     issues: list[dict[str, object]] = []
     ticker = row.get("T")
@@ -1173,13 +1182,13 @@ def _validate_rest_row(
             ).date()
         except (OSError, OverflowError, ValueError):
             et_date = None
-        if et_date != session or timestamp != expected_start_ms:
+        if et_date != session or timestamp != expected_close_ms:
             issues.append(
                 _issue(
                     "noncanonical_session_timestamp",
                     "rest_daily",
                     1,
-                    "REST timestamp must identify ET midnight for the requested session",
+                    "REST timestamp must equal the XNYS session close",
                     kind="source_integrity",
                 )
             )
@@ -1369,6 +1378,10 @@ def _sources_unchanged(sources: dict[str, _Source]) -> bool:
 def _session_start_ns(session: date) -> int:
     observed = datetime.combine(session, time.min, tzinfo=_NEW_YORK)
     return int(observed.timestamp() * 1_000_000_000)
+
+
+def _session_close_ms(session: date) -> int:
+    return int(_XNYS.session_close(session.isoformat()).value // 1_000_000)
 
 
 def _valid_number(value: object, *, positive: bool) -> bool:

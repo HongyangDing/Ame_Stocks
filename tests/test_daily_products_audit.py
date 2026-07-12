@@ -7,6 +7,8 @@ from datetime import date, datetime, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import exchange_calendars as xcals
+
 from ame_stocks_api.artifacts import write_json_atomic
 from ame_stocks_api.audit.daily_products import DailyProductCrossAuditor
 from ame_stocks_api.cli.daily_products_audit import main as daily_products_audit_main
@@ -16,6 +18,7 @@ from ame_stocks_core import ProviderBatch, ProviderDataset, ProviderRequest
 
 SESSION = date(2026, 6, 30)
 NEW_YORK = ZoneInfo("America/New_York")
+XNYS = xcals.get_calendar("XNYS")
 HEADER = "ticker,volume,open,close,high,low,window_start,transactions\n"
 
 
@@ -50,8 +53,8 @@ def _session_start_ns(session: date) -> int:
     return int(_session_start(session).timestamp() * 1_000_000_000)
 
 
-def _session_start_ms(session: date) -> int:
-    return int(_session_start(session).timestamp() * 1000)
+def _session_close_ms(session: date) -> int:
+    return int(XNYS.session_close(session.isoformat()).value // 1_000_000)
 
 
 def _write_flat(root: Path, rows: list[str], *, session: date = SESSION) -> Path:
@@ -145,7 +148,7 @@ def _rest_row(
         "h": 11.25,
         "l": 9.75,
         "o": 10.0,
-        "t": _session_start_ms(session),
+        "t": _session_close_ms(session),
         "v": 250.0,
     }
     if transactions is not None:
@@ -197,7 +200,7 @@ def test_matching_products_pass_and_reuse_independent_cache(tmp_path: Path) -> N
         / "manifests"
         / "audits"
         / "daily_product_crosscheck"
-        / "schema=v1"
+        / "schema=v2"
         / f"{SESSION.isoformat()}.json"
     ).is_file()
     assert not (tmp_path / "manifests" / "audits" / "market_crosscheck").exists()
@@ -299,6 +302,24 @@ def test_rest_timestamp_outside_requested_et_session_fails_integrity(
     assert report["summary"]["issue_code_counts"] == {
         "noncanonical_session_timestamp": 1
     }
+
+
+def test_rest_timestamp_uses_actual_half_day_session_close(tmp_path: Path) -> None:
+    half_day = date(2016, 11, 25)
+    _write_matching_fixture(tmp_path, session=half_day)
+
+    report = DailyProductCrossAuditor(
+        tmp_path,
+        start=half_day,
+        end=half_day,
+        workers=1,
+    ).run()
+
+    assert report["status"] == "passed"
+    assert datetime.fromtimestamp(
+        _session_close_ms(half_day) / 1000,
+        tz=NEW_YORK,
+    ).hour == 13
 
 
 def test_rest_query_count_must_match_decoded_results(tmp_path: Path) -> None:
