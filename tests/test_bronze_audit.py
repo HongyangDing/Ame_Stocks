@@ -7,6 +7,8 @@ from collections.abc import AsyncIterator
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from ame_stocks_api.artifacts import write_json_atomic
 from ame_stocks_api.audit import BronzeAuditor
 from ame_stocks_api.audit.bronze import _gate_issue_code_counts, _iso_datetime_date
@@ -961,6 +963,304 @@ def test_form_13f_partial_holding_payload_still_fails(tmp_path: Path) -> None:
         "invalid_form_13f_value": 1,
         "required_fields_missing": 1,
     }
+
+
+@pytest.mark.parametrize("form_type", ["13F-HR/A", "13F-NT/A"])
+def test_form_13f_amendment_filing_only_shapes(tmp_path: Path, form_type: str) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    request = build_download_plan(
+        dataset=ProviderDataset.FORM_13F,
+        start=session,
+        end=session,
+    ).requests[0]
+    row = {
+        "accession_number": "0000000001-26-000001",
+        "filer_cik": "0000000001",
+        "filing_date": session.isoformat(),
+        "form_type": form_type,
+        "period": session.isoformat(),
+    }
+    asyncio.run(
+        BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
+            StaticProvider([row]), request
+        )
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=(ProviderDataset.ASSETS, ProviderDataset.FORM_13F),
+    ).run()
+
+    if form_type == "13F-HR/A":
+        assert report["status"] == "passed_with_warnings"
+        assert report["summary"]["issue_code_counts"] == {
+            "form_13f_filing_only_row": 1
+        }
+    else:
+        assert report["status"] == "passed"
+        assert report["summary"]["issue_counts"] == {}
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {
+            "cusip": "",
+            "investment_discretion": "",
+            "issuer_name": "",
+            "market_value": None,
+            "shares_or_principal_amount": None,
+            "shares_or_principal_type": "",
+            "title_of_class": "",
+        },
+        {
+            "cusip": "   ",
+            "investment_discretion": "SOLE",
+            "issuer_name": [],
+            "market_value": 1,
+            "shares_or_principal_amount": 1,
+            "shares_or_principal_type": "SH",
+            "title_of_class": "COM",
+        },
+        {
+            "cusip": "000000001",
+            "investment_discretion": "INVALID",
+            "issuer_name": "Fixture",
+            "market_value": 1,
+            "shares_or_principal_amount": 1,
+            "shares_or_principal_type": "SH",
+            "title_of_class": "COM",
+        },
+    ],
+)
+def test_form_13f_present_but_invalid_holding_values_fail(
+    tmp_path: Path, updates: dict[str, object]
+) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    request = build_download_plan(
+        dataset=ProviderDataset.FORM_13F,
+        start=session,
+        end=session,
+    ).requests[0]
+    row = {
+        "accession_number": "0000000001-26-000001",
+        "filer_cik": "0000000001",
+        "filing_date": session.isoformat(),
+        "form_type": "13F-HR",
+        "period": session.isoformat(),
+        **updates,
+    }
+    asyncio.run(
+        BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
+            StaticProvider([row]), request
+        )
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=(ProviderDataset.ASSETS, ProviderDataset.FORM_13F),
+    ).run()
+
+    assert report["status"] == "failed"
+    assert report["gates"]["semantic_consistency"] == "failed"
+    assert report["summary"]["issue_code_counts"]["invalid_form_13f_value"] == 1
+    assert "form_13f_filing_only_row" not in report["summary"]["issue_code_counts"]
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"put_call": "INVALID"},
+        {"put_call": []},
+        {"other_managers": {"name": "Manager"}},
+        {"shares_or_principal_type": []},
+        {"voting_authority_none": -1},
+        {"voting_authority_shared": 1.5},
+        {"voting_authority_sole": True},
+    ],
+)
+def test_form_13f_optional_holding_domains_are_validated(
+    tmp_path: Path, updates: dict[str, object]
+) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    request = build_download_plan(
+        dataset=ProviderDataset.FORM_13F,
+        start=session,
+        end=session,
+    ).requests[0]
+    row = {
+        "accession_number": "0000000001-26-000001",
+        "cusip": "000000001",
+        "filer_cik": "0000000001",
+        "filing_date": session.isoformat(),
+        "form_type": "13F-HR",
+        "investment_discretion": "SOLE",
+        "issuer_name": "Fixture",
+        "market_value": 1,
+        "period": session.isoformat(),
+        "shares_or_principal_amount": 1,
+        "shares_or_principal_type": "SH",
+        "title_of_class": "COM",
+        **updates,
+    }
+    asyncio.run(
+        BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
+            StaticProvider([row]), request
+        )
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=(ProviderDataset.ASSETS, ProviderDataset.FORM_13F),
+    ).run()
+
+    assert report["status"] == "failed"
+    assert report["summary"]["issue_code_counts"]["invalid_form_13f_value"] == 1
+
+
+@pytest.mark.parametrize(
+    ("investment_discretion", "put_call"),
+    [
+        ("SOLE", None),
+        ("DFND", "Call"),
+        ("OTR", "Put"),
+        ("SHARED", "CALL"),
+    ],
+)
+def test_form_13f_observed_and_documented_domains_are_accepted(
+    tmp_path: Path, investment_discretion: str, put_call: str | None
+) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    request = build_download_plan(
+        dataset=ProviderDataset.FORM_13F,
+        start=session,
+        end=session,
+    ).requests[0]
+    row = {
+        "accession_number": "0000000001-26-000001",
+        "cusip": "000000001",
+        "filer_cik": "0000000001",
+        "filing_date": session.isoformat(),
+        "form_type": "13F-HR",
+        "investment_discretion": investment_discretion,
+        "issuer_name": "Fixture",
+        "market_value": 1,
+        "other_managers": ["Manager"] if investment_discretion != "SOLE" else None,
+        "period": session.isoformat(),
+        "put_call": put_call,
+        "shares_or_principal_amount": 1,
+        "shares_or_principal_type": "SH",
+        "title_of_class": "COM",
+        "voting_authority_none": 0,
+        "voting_authority_shared": 0,
+        "voting_authority_sole": 1,
+    }
+    asyncio.run(
+        BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
+            StaticProvider([row]), request
+        )
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=(ProviderDataset.ASSETS, ProviderDataset.FORM_13F),
+    ).run()
+
+    assert report["status"] == "passed"
+    assert report["summary"]["issue_counts"] == {}
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("accession_number", "   "),
+        ("accession_number", 1),
+        ("filer_cik", "   "),
+        ("filer_cik", {"cik": "0000000001"}),
+        ("form_type", []),
+    ],
+)
+def test_form_13f_filing_identity_requires_canonical_strings(
+    tmp_path: Path, field_name: str, value: object
+) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    request = build_download_plan(
+        dataset=ProviderDataset.FORM_13F,
+        start=session,
+        end=session,
+    ).requests[0]
+    row: dict[str, object] = {
+        "accession_number": "0000000001-26-000001",
+        "filer_cik": "0000000001",
+        "filing_date": session.isoformat(),
+        "form_type": "13F-NT",
+        "period": session.isoformat(),
+    }
+    row[field_name] = value
+    asyncio.run(
+        BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
+            StaticProvider([row]), request
+        )
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=(ProviderDataset.ASSETS, ProviderDataset.FORM_13F),
+    ).run()
+
+    assert report["status"] == "failed"
+    assert report["summary"]["issue_code_counts"]["invalid_form_13f_value"] == 1
+    assert "audit_internal_error" not in report["summary"]["issue_code_counts"]
+
+
+@pytest.mark.parametrize("period", ["2026-05-17", "2026-09-30", "9999-12-31"])
+def test_form_13f_period_requires_a_nonfuture_calendar_quarter_end(
+    tmp_path: Path, period: str
+) -> None:
+    session, _ = _complete_fixture(tmp_path)
+    request = build_download_plan(
+        dataset=ProviderDataset.FORM_13F,
+        start=session,
+        end=session,
+    ).requests[0]
+    row = {
+        "accession_number": "0000000001-26-000001",
+        "filer_cik": "0000000001",
+        "filing_date": session.isoformat(),
+        "form_type": "13F-NT",
+        "period": period,
+    }
+    asyncio.run(
+        BronzeDownloader(tmp_path, minimum_free_bytes=0).download(
+            StaticProvider([row]), request
+        )
+    )
+
+    report = BronzeAuditor(
+        tmp_path,
+        start=session,
+        end=session,
+        workers=1,
+        required_rest_datasets=(ProviderDataset.ASSETS, ProviderDataset.FORM_13F),
+    ).run()
+
+    assert report["status"] == "failed"
+    assert report["summary"]["issue_code_counts"]["invalid_form_13f_value"] == 1
 
 
 def test_bronze_cli_persists_the_same_report_it_prints(tmp_path: Path, capsys) -> None:

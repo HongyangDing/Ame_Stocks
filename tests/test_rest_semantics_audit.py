@@ -416,6 +416,166 @@ def test_detail_filing_date_must_match_edgar_for_the_same_accession(
     ] == 1
 
 
+def test_form_13f_identity_accepts_any_matching_edgar_pair(tmp_path: Path) -> None:
+    accession = "0000000001-26-000001"
+    _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.EDGAR_INDEX),
+        [
+            {
+                "accession_number": accession,
+                "cik": "0000000001",
+                "filing_date": "2026-06-30",
+                "form_type": "13F-HR",
+            },
+            {
+                "accession_number": accession,
+                "cik": "0000000002",
+                "filing_date": "2026-06-30",
+                "form_type": "13F-HR",
+            },
+        ],
+    )
+    _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.FORM_13F),
+        [
+            {
+                "accession_number": accession,
+                "filer_cik": "0000000002",
+                "filing_date": "2026-06-30",
+                "form_type": "13F-HR",
+            }
+        ],
+    )
+
+    report = _audit(tmp_path, ProviderDataset.EDGAR_INDEX, ProviderDataset.FORM_13F)
+
+    assert report["status"] == "passed"
+    assert report["gates"]["accession_coverage"] == "matched"
+    assert report["accession_coverage"]["identity_mismatch_rows"] == 0
+
+
+def test_form_13f_identity_mismatch_fails_accession_gate(tmp_path: Path) -> None:
+    accession = "0000000001-26-000001"
+    _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.EDGAR_INDEX),
+        [
+            {
+                "accession_number": accession,
+                "cik": "0000000001",
+                "filing_date": "2026-06-30",
+                "form_type": "13F-HR",
+            }
+        ],
+    )
+    _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.FORM_13F),
+        [
+            {
+                "accession_number": accession,
+                "filer_cik": "0000000002",
+                "filing_date": "2026-06-30",
+                "form_type": "13F-NT",
+            }
+        ],
+    )
+
+    report = _audit(tmp_path, ProviderDataset.EDGAR_INDEX, ProviderDataset.FORM_13F)
+
+    assert report["status"] == "failed"
+    assert report["gates"]["accession_coverage"] == "failed"
+    assert report["summary"]["corruption_code_counts"] == {
+        "accession_identity_mismatch": 1
+    }
+    details = report["accession_coverage"]["datasets"]["form_13f"]
+    assert details["identity_mismatch_rows"] == 1
+
+
+def test_form_13f_identity_requires_one_edgar_row_to_match_all_fields(
+    tmp_path: Path,
+) -> None:
+    accession = "0000000001-26-000001"
+    _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.EDGAR_INDEX),
+        [
+            {
+                "accession_number": accession,
+                "cik": "0000000001",
+                "filing_date": "2026-06-30",
+                "form_type": "13F-HR",
+            },
+            {
+                "accession_number": accession,
+                "cik": "0000000002",
+                "filing_date": "2026-01-01",
+                "form_type": "13F-NT",
+            },
+        ],
+    )
+    _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.FORM_13F),
+        [
+            {
+                "accession_number": accession,
+                "filer_cik": "0000000001",
+                "filing_date": "2026-01-01",
+                "form_type": "13F-HR",
+            }
+        ],
+    )
+
+    report = _audit(tmp_path, ProviderDataset.EDGAR_INDEX, ProviderDataset.FORM_13F)
+
+    assert report["status"] == "failed"
+    assert report["gates"]["accession_coverage"] == "failed"
+    assert report["summary"]["corruption_code_counts"] == {
+        "accession_identity_mismatch": 1
+    }
+
+
+def test_form_13f_pure_filing_date_mismatch_is_not_double_counted(
+    tmp_path: Path,
+) -> None:
+    accession = "0000000001-26-000001"
+    _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.EDGAR_INDEX),
+        [
+            {
+                "accession_number": accession,
+                "cik": "0000000001",
+                "filing_date": "2026-06-30",
+                "form_type": "13F-HR",
+            }
+        ],
+    )
+    _write_request(
+        tmp_path,
+        _formal_request(ProviderDataset.FORM_13F),
+        [
+            {
+                "accession_number": accession,
+                "filer_cik": "0000000001",
+                "filing_date": "2026-01-01",
+                "form_type": "13F-HR",
+            }
+        ],
+    )
+
+    report = _audit(tmp_path, ProviderDataset.EDGAR_INDEX, ProviderDataset.FORM_13F)
+
+    assert report["status"] == "failed"
+    assert report["summary"]["corruption_code_counts"] == {
+        "accession_filing_date_mismatch": 1
+    }
+    assert report["accession_coverage"]["identity_mismatch_rows"] == 0
+
+
 def test_taxonomy_snapshot_must_have_one_explicit_version(tmp_path: Path) -> None:
     _write_request(
         tmp_path,

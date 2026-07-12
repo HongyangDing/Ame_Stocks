@@ -26,7 +26,7 @@ from ame_stocks_core import ProviderDataset, ProviderRequest
 
 IssueKind = Literal["corruption", "difference"]
 
-REST_SEMANTIC_AUDIT_SCHEMA_VERSION = 3
+REST_SEMANTIC_AUDIT_SCHEMA_VERSION = 4
 
 KEY_DATASETS: dict[ProviderDataset, tuple[str, ...]] = {
     ProviderDataset.SPLITS: ("id",),
@@ -346,8 +346,9 @@ class RestSemanticAuditor:
                 "page is decoded independently; candidate keys, canonical row SHA-256 values, "
                 "taxonomy paths, and accession sets are aggregated in an automatically removed "
                 "temporary SQLite database. Form 13-F participates in accession coverage and "
-                "filing-date agreement without materializing 103 million row hashes; its required "
-                "holding fields are enforced by the full Bronze audit."
+                "filing-date agreement without materializing 103 million row hashes; its filer "
+                "CIK/form identity is matched to EDGAR, and its holding fields are enforced by "
+                "the full Bronze audit."
             ),
         }
 
@@ -1063,6 +1064,7 @@ class RestSemanticAuditor:
         datasets: dict[str, object] = {}
         missing_total = 0
         filing_date_mismatch_total = 0
+        identity_mismatch_total = 0
         rows_without_accession_total = self.metrics[
             ProviderDataset.EDGAR_INDEX.value
         ].rows_without_accession
@@ -1150,8 +1152,67 @@ class RestSemanticAuditor:
                     ),
                 )
             ]
+            identity_mismatch_rows = 0
+            identity_mismatch_examples: list[str] = []
+            if dataset is ProviderDataset.FORM_13F:
+                identity_mismatch_rows = int(
+                    connection.execute(
+                        """
+                        SELECT COALESCE(SUM(detail.occurrences), 0)
+                        FROM accessions AS detail
+                        WHERE detail.dataset = ?
+                          AND EXISTS (
+                            SELECT 1 FROM accessions AS edgar
+                            WHERE edgar.dataset = ? AND edgar.accession = detail.accession
+                              AND edgar.filing_date = detail.filing_date
+                          )
+                          AND NOT EXISTS (
+                            SELECT 1 FROM accessions AS edgar
+                            WHERE edgar.dataset = ? AND edgar.accession = detail.accession
+                              AND edgar.filing_date = detail.filing_date
+                              AND edgar.cik = detail.cik
+                              AND edgar.form_type = detail.form_type
+                          )
+                        """,
+                        (
+                            dataset.value,
+                            ProviderDataset.EDGAR_INDEX.value,
+                            ProviderDataset.EDGAR_INDEX.value,
+                        ),
+                    ).fetchone()[0]
+                )
+                identity_mismatch_examples = [
+                    f"{row[0]}:{row[1]}:{row[2]}"
+                    for row in connection.execute(
+                        """
+                        SELECT detail.accession, detail.cik, detail.form_type
+                        FROM accessions AS detail
+                        WHERE detail.dataset = ?
+                          AND EXISTS (
+                            SELECT 1 FROM accessions AS edgar
+                            WHERE edgar.dataset = ? AND edgar.accession = detail.accession
+                              AND edgar.filing_date = detail.filing_date
+                          )
+                          AND NOT EXISTS (
+                            SELECT 1 FROM accessions AS edgar
+                            WHERE edgar.dataset = ? AND edgar.accession = detail.accession
+                              AND edgar.filing_date = detail.filing_date
+                              AND edgar.cik = detail.cik
+                              AND edgar.form_type = detail.form_type
+                          )
+                        ORDER BY detail.accession, detail.cik, detail.form_type LIMIT ?
+                        """,
+                        (
+                            dataset.value,
+                            ProviderDataset.EDGAR_INDEX.value,
+                            ProviderDataset.EDGAR_INDEX.value,
+                            self.max_examples,
+                        ),
+                    )
+                ]
             missing_total += missing_rows
             filing_date_mismatch_total += filing_date_mismatch_rows
+            identity_mismatch_total += identity_mismatch_rows
             rows_without_accession = self.metrics[dataset.value].rows_without_accession
             rows_without_accession_total += rows_without_accession
             if missing_rows:
@@ -1176,6 +1237,19 @@ class RestSemanticAuditor:
                         else None
                     ),
                 )
+            if identity_mismatch_rows:
+                self.issues.add(
+                    "corruption",
+                    "accession_identity_mismatch",
+                    dataset.value,
+                    "Form 13F filer_cik/form_type is not an EDGAR identity for the accession",
+                    count=identity_mismatch_rows,
+                    example=(
+                        identity_mismatch_examples[0]
+                        if identity_mismatch_examples
+                        else None
+                    ),
+                )
             datasets[dataset.value] = {
                 "distinct_accessions": distinct_accessions,
                 "rows_without_accession": rows_without_accession,
@@ -1183,14 +1257,21 @@ class RestSemanticAuditor:
                 "missing_edgar_examples": examples,
                 "filing_date_mismatch_rows": filing_date_mismatch_rows,
                 "filing_date_mismatch_examples": filing_date_mismatch_examples,
+                "identity_mismatch_rows": identity_mismatch_rows,
+                "identity_mismatch_examples": identity_mismatch_examples,
             }
         return {
             "status": (
                 "failed"
-                if rows_without_accession_total or filing_date_mismatch_total
+                if (
+                    rows_without_accession_total
+                    or filing_date_mismatch_total
+                    or identity_mismatch_total
+                )
                 else ("different" if missing_total else "matched")
             ),
             "filing_date_mismatch_rows": filing_date_mismatch_total,
+            "identity_mismatch_rows": identity_mismatch_total,
             "missing_edgar_rows": missing_total,
             "rows_without_accession": rows_without_accession_total,
             "datasets": datasets,

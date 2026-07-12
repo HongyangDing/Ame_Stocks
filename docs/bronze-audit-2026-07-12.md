@@ -36,7 +36,7 @@
 | Flat File | 2 × 2,513 sessions | header、类型、UTC 分钟边界、OHLC 不变量、唯一 `(ticker, window_start)`、manifest-bound cache | 文件与键完整；发现 29 行上游日线时间戳异常 |
 | Universe | 每日 active + inactive | 两次请求身份、flag、交集、ticker 唯一性及重复版本字段级比较 | 发现可处理的上游版本行 |
 | REST 语义 | 173 个权威 manifests、109,816 pages、133,109,323 行 | 候选键、整行 hash、taxonomy path、SEC accession/date，用临时 SQLite 有界聚合；13-F 不做全行 hash | 1 行 Float 缺键；有 provider differences |
-| 代码 | 下载器、三套审计器及计划构造 | Ruff、182 项 pytest、边界/故障注入和三轮独立对抗复核 | 通过；13-F header-only 规则将在 v5 全量复跑 |
+| 代码 | 下载器、三套审计器及计划构造 | Ruff、210 项 pytest、边界/故障注入和多轮独立对抗复核 | 通过；13-F/EDGAR 强化规则将在 v5/v4 全量复跑 |
 
 全量校验是只读操作。审计报告写入数据盘的 `manifests/audits/`；没有重写 Bronze、删除旧
 文件或触碰 Mogikabu。
@@ -136,7 +136,7 @@ minute-only 16,579，合计占 union 的 2.62458%。另有 4,893 个日线 ticke
 
 ## REST 语义检查
 
-权威子集语义报告：
+当前已完成的权威子集语义报告：
 
 ```text
 /mnt/HC_Volume_106309665/american_stocks/manifests/audits/rest_semantics/
@@ -144,6 +144,11 @@ minute-only 16,579，合计占 union 的 2.62458%。另有 4,893 个日线 ticke
 ```
 
 报告 SHA-256：`35bca7148216c76efe47a4dbd4e59d0a96d89321003cc3dfef8127a8ec3d5c75`。
+
+代码中的 REST semantic schema 已升级到 v4：除 accession 和 filing date 外，还要求 Form 13-F
+的 `(filing_date, filer_cik, form_type)` 能由同一条 EDGAR identity row 见证，避免多 CIK、
+多 form 或多 date 行产生 split-witness 假通过。补充全量只读核验得到 0 mismatch；正式 v4
+JSON 将在复跑完成后替换本段 v3 证据。
 
 | 检查 | 结果 |
 | --- | ---: |
@@ -159,6 +164,7 @@ minute-only 16,579，合计占 union 的 2.62458%。另有 4,893 个日线 ticke
 | 13-F / Form 3 / Form 4 唯一 accession | 329,958 / 93,020 / 1,831,837 |
 | 8-K disclosure / 8-K text 唯一 accession | 203,169 / 448,167 |
 | 上述 SEC 数据缺失 EDGAR accession / filing date mismatch | 0 / 0 |
+| 13-F EDGAR exact date + CIK + form mismatch | 0（补充全量核验） |
 
 这里的 133,109,323 行是纳入 endpoint-specific 语义规则的权威子集，不是物理审计读取的全部
 REST 205,944,660 行。13-F 因超过一亿行，语义层验证 accession/date coverage 和 Bronze 字段
@@ -195,7 +201,7 @@ REST 205,944,660 行。13-F 因超过一亿行，语义层验证 accession/date 
 - 每条只有 accession、file number、filer CIK、filing date/URL、film number、form type 和
   period；7 个必需 holding 字段整组 absent；
 - 没有 partial holding、负值、非整数 market value/share amount 或非法 share type；正式
-  accession 全部能在 EDGAR 找到且 filing date 一致。
+  accession 全部能在 EDGAR 找到，且同一 EDGAR row 的 filing date、CIK、form type 精确匹配。
 
 这只能证明 filing metadata 有效，不能区分零公开持仓、保密省略或 provider 未解析到
 information table。Silver 应保留 filing header，设置 `holdings_status=not_public_or_unavailable`，
@@ -297,7 +303,7 @@ cd /opt/american_stocks
 .venv/bin/ame-audit-rest-semantics \
   --data-root /mnt/HC_Volume_106309665/american_stocks \
   --start 2016-07-11 --end 2026-07-09 \
-  --output manifests/audits/rest_semantics/full-2026-07-12-v3.json
+  --output manifests/audits/rest_semantics/full-2026-07-12-v4.json
 ```
 
 代码入口：

@@ -12,6 +12,7 @@ import csv
 import gzip
 import hashlib
 import json
+import re
 import zlib
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -212,6 +213,8 @@ _FORM_13F_HOLDING_SIGNAL_FIELDS = (
     "voting_authority_shared",
     "voting_authority_sole",
 )
+_FORM_13F_ACCESSION_PATTERN = re.compile(r"[0-9]{10}-[0-9]{2}-[0-9]{6}")
+_FORM_13F_CIK_PATTERN = re.compile(r"[0-9]{10}")
 _PHYSICAL_FAILURE_CODES = frozenset(
     {
         "artifact_missing",
@@ -1101,9 +1104,11 @@ class BronzeAuditor:
                 )
                 continue
             row_required = required
+            form_type = row.get("form_type")
             if (
                 dataset == ProviderDataset.FORM_13F.value
-                and row.get("form_type") in {"13F-HR", "13F-HR/A"}
+                and isinstance(form_type, str)
+                and form_type in {"13F-HR", "13F-HR/A"}
             ):
                 if _form_13f_has_holding_payload(row):
                     row_required = (*required, *_FORM_13F_HOLDING_FIELDS)
@@ -1220,7 +1225,10 @@ class BronzeAuditor:
                 AuditIssue(
                     "error",
                     "invalid_form_13f_value",
-                    f"{invalid_form_13f} rows violate numeric/domain constraints",
+                    (
+                        f"{invalid_form_13f} rows violate Form 13F "
+                        "identity/temporal/holding constraints"
+                    ),
                     dataset,
                     str(payload_path),
                 )
@@ -1796,16 +1804,43 @@ def _result_rows(document: dict[str, Any], dataset: str) -> list[Any] | None:
 
 
 def _valid_form_13f_values(row: dict[str, Any]) -> bool:
-    if _iso_date(row.get("period")) is None:
+    accession_number = row.get("accession_number")
+    if (
+        not isinstance(accession_number, str)
+        or _FORM_13F_ACCESSION_PATTERN.fullmatch(accession_number) is None
+    ):
+        return False
+    filer_cik = row.get("filer_cik")
+    if (
+        not isinstance(filer_cik, str)
+        or _FORM_13F_CIK_PATTERN.fullmatch(filer_cik) is None
+    ):
+        return False
+    filing_date = _iso_date(row.get("filing_date"))
+    period = _iso_date(row.get("period"))
+    if (
+        filing_date is None
+        or period is None
+        or period > filing_date
+        or period[5:] not in {"03-31", "06-30", "09-30", "12-31"}
+    ):
         return False
     form_type = row.get("form_type")
+    if not isinstance(form_type, str):
+        return False
     if form_type in {"13F-NT", "13F-NT/A"}:
         return True
     if form_type not in {"13F-HR", "13F-HR/A"}:
         return False
     if not _form_13f_has_holding_payload(row):
         return True
-    if any(_form_13f_value_is_blank(row.get(field)) for field in _FORM_13F_HOLDING_FIELDS):
+    if any(field not in row for field in _FORM_13F_HOLDING_FIELDS):
+        return False
+    for field_name in ("cusip", "investment_discretion", "issuer_name", "title_of_class"):
+        value = row.get(field_name)
+        if not isinstance(value, str) or not value.strip() or value != value.strip():
+            return False
+    if row.get("investment_discretion") not in {"DFND", "OTR", "SHARED", "SOLE"}:
         return False
     for field_name in ("market_value", "shares_or_principal_amount"):
         value = row.get(field_name)
@@ -1816,18 +1851,38 @@ def _valid_form_13f_values(row: dict[str, Any]) -> bool:
         ):
             return False
     share_type = row.get("shares_or_principal_type")
-    return share_type in {"PRN", "SH"}
+    if not isinstance(share_type, str) or share_type not in {"PRN", "SH"}:
+        return False
+    put_call = row.get("put_call")
+    if put_call is not None and (
+        not isinstance(put_call, str)
+        or put_call not in {"", "CALL", "PUT", "Call", "Put"}
+    ):
+        return False
+    other_managers = row.get("other_managers")
+    if other_managers is not None and (
+        not isinstance(other_managers, list)
+        or any(
+            not isinstance(item, str) or not item.strip() or item != item.strip()
+            for item in other_managers
+        )
+    ):
+        return False
+    for field_name in (
+        "voting_authority_none",
+        "voting_authority_shared",
+        "voting_authority_sole",
+    ):
+        value = row.get(field_name)
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+        ):
+            return False
+    return True
 
 
 def _form_13f_has_holding_payload(row: dict[str, Any]) -> bool:
-    return any(
-        not _form_13f_value_is_blank(row.get(field_name))
-        for field_name in _FORM_13F_HOLDING_SIGNAL_FIELDS
-    )
-
-
-def _form_13f_value_is_blank(value: Any) -> bool:
-    return value is None or value == "" or value == [] or value == {}
+    return any(field_name in row for field_name in _FORM_13F_HOLDING_SIGNAL_FIELDS)
 
 
 def _safe_continuation(value: object) -> str | None:
