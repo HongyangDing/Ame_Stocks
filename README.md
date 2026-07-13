@@ -7,7 +7,7 @@ can be inspected and reproduced.
 ## Current milestone
 
 The project has passed the **Bronze data checkpoint** for the catalog frozen on 2026-07-12 and is
-now at **Silver Phase 2 / S4 Assets `code_ready`; S1–S3 remain published**:
+now at **Silver Phase 2 / S4 Assets `awaiting_review`; S1–S3 remain published**:
 
 - ten years of full-market minute/day aggregate Flat Files and 29 required REST research
   datasets (31 dataset families in total) are stored immutably on the remote data volume;
@@ -43,13 +43,17 @@ now at **Silver Phase 2 / S4 Assets `code_ready`; S1–S3 remain published**:
   72,038 pages, and 69,381,182 rows. It confirmed zero active-flag mismatch and zero same-day
   active/inactive exact-ticker overlap, and refined the 4,853 duplicate groups into 2 exact,
   2,115 last-updated-only, and 2,736 delisted-plus-last-updated groups;
-- the three exact S4 contracts are approved and packaged. Their independent remote workflows are
-  `code_ready` at sequence 3, with the user's one approval text bound to three immutable schema
-  receipts and no waiver or accepted quarantine issue;
+- the three exact S4 contracts are approved and packaged. A manifest-bound 2026-05-11 preview used
+  all 37 active/inactive pages and 35,647 source rows, with S1/S2 release manifests registered as
+  upstream lineage;
 - the manifest-bound Assets reader and session-bounded pure transform now implement lossless daily
   observations, multi-version evidence, fail-closed selection, and the one-row-per-session/ticker
-  source universe. Synthetic boundary tests are complete; no real S4 SourceInventory, preview,
-  staging output, full build, or release has been created.
+  source universe. The three preview outputs contain 35,647 observations, 82 version rows, and
+  35,606 universe rows; all have zero quarantine and zero blocking QA;
+- the three S4 workflows are stopped at `awaiting_review` sequence 5. Exact idempotent replay kept
+  the same build and event IDs. No full build, full-run approval, published Silver directory, or
+  S4 release exists; any later ten-year build requires a separately reviewed immutable
+  `FullRunPlan`.
 
 The final strict full audit is
 `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/bronze/full-2026-07-12-v9.json`
@@ -100,9 +104,9 @@ reviewed result. S3's paired contracts, source profile, runtime IDs, QA results,
 are documented in
 [docs/silver-s3-condition-codes-schema-review.md](docs/silver-s3-condition-codes-schema-review.md).
 S3 is finished. S4's full source profile, reconstructed-membership caveat, duplicate selection rule,
-approved contracts, runtime workflow IDs, and code-ready evidence are documented in
+approved contracts, runtime workflow IDs, and bounded-preview evidence are documented in
 [docs/silver-s4-assets-schema-review.md](docs/silver-s4-assets-schema-review.md). The current hard
-stop is a separate bounded-preview authorization; no preview is authorized.
+stop is human review of the three immutable preview builds; no full run or publish is authorized.
 The approved schemas are loaded by
 [asset_contract.py](backend/ame_stocks_api/silver/asset_contract.py); the manifest-bound reader and
 session-bounded pure transform live in
