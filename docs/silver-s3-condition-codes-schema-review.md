@@ -447,36 +447,39 @@ bridge rows 都找到 94-row Dim 中的唯一 parent；最终数字必须以 run
 因此 S3 的价值是提供可追溯的 reference semantics 和未来 QA 基础，不是声称已经解决 provider
 aggregate 差异。真正的逐笔验证只有在以后明确增加有界 trade/quote 样本并单独审批时才能进行。
 
-<!-- RUNTIME_EVIDENCE_TODO -->
+## 10. Runtime evidence 与发布结果
 
-## 10. Runtime evidence 待最终运行后填写
-
-本节必须由实际 registry、build manifests、release manifests 和远程文件现场检查回填。以下值在
-运行前均未知，禁止根据 contract ID 推测或预先填写。
+2026-07-13，精确实现 commit
+`46a2e5093aa305f52e22b51db3f1674f795bf0c4` 先经 post-commit hook 同步为
+local = GitHub `origin/main` = remote `/opt/american_stocks`，随后在远程数据根运行。Source
+inventory `e1b6e83c75e96c14a9e8b30ee70f7119433ec8de5807b4b265fdd63253ffac4d`
+的 manifest SHA 为 `4f0e610a1f0c6f4c8a9dc1bd25cd178d26322c6a639f5fac0832eff378b9e5c4`；
+它同时绑定 condition Bronze manifest 与已发布 S1 release manifest，两个上游 SHA 均经 trust
+chain 重验。
 
 | Evidence | `condition_code_dim` | `condition_code_data_type_bridge` |
 | --- | --- | --- |
-| workflow ID / final event SHA / sequence | 待运行后填写 | 待运行后填写 |
-| schema approval ID | 待运行后填写 | 待运行后填写 |
-| preview build ID / manifest SHA | 待运行后填写 | 待运行后填写 |
-| preview row funnel / QA / quarantine | 待运行后填写 | 待运行后填写 |
-| full-run approval ID | 待运行后填写 | 待运行后填写 |
-| full build ID / manifest SHA | 待运行后填写 | 待运行后填写 |
-| full row funnel / QA / DATA SHA | 待运行后填写 | 待运行后填写 |
-| publish approval ID | 待运行后填写 | 待运行后填写 |
-| release ID / release manifest SHA | 待运行后填写 | 待运行后填写 |
-| released DATA path / bytes / rows / SHA | 待运行后填写 | 待运行后填写 |
-| exact published replay result | 待运行后填写 | 待运行后填写 |
+| workflow ID / final event SHA / sequence | `d875506a147058657601c759340e2f44e8cab127f67b8d1f4a0cf63b411fd143` / `64ab8753df99f848a0acd89440e57aa151bf0773835261c416dc7ff8b1d1a1cf` / 9 | `1c74b2821339a6cbff6bd01194d46350102b0fefb9563b036a28bfd7cbeb664c` / `47558a5dce8a94262b04717ba17bd176eae772291a71cd99562ffaa51b0f9070` / 9 |
+| schema approval ID | `01e5b832dbdde671a1f5e869020df32422d3e4e7e9da1d446e64cdbfad6513eb` | `dd3334646e8c95ef0670536526378e5baf2dfc2945da13343adba26c3e4ed2b8` |
+| preview build ID / manifest SHA | `e3936c3ad21c410a174e805c9100fc9f81b36194972104e1ee76175c34ebeb08` / `562fc119546dd753f640806d368eb46279d8403e25c2ba934555b640052402fe` | `03dc2221ff53813dcb11f066ef5d6365dfcbd5236f5b46eae78142d451609348` / `fe49a951420b317831ab5d75bf2fff82c0b019f87883061d3cf4db3b1b567f8a` |
+| preview row funnel / QA / quarantine | 94 → 94；27/27 passed；0 | 94 → 123；23/23 passed；0 |
+| full-run approval ID | `ff15700e0c347aa138ca8e27b92882c6b54bc545e8e2fce15ffefea880a1db49` | `43e8fe06c0a12464affc5f5cc8392e4e1bc516dffc50557bea838c2463a51b11` |
+| full build ID / manifest SHA | `425ed683ddf36d3f85ea628270db3b72777ee860a8fbbcd2aea10432b5c4d151` / `c2fd17eca896abd4052a1c09a0acb5609ff372ed074cf72421c6b2b603badb4f` | `404ccddd8eb37edaf0f3f5a6760ebc992f7970c61f2e9e14cf0a86d9e38c6f02` / `e6d329b30a966515583f361d75cf09e23443b1ad5174a9a1cde267d3a22f2c7f` |
+| full row funnel / QA / DATA SHA | 94 input = 94 accepted → 94 output；27/27 passed；`075831cae0d04cde63dc3e194e50cc5833159c86421150b1973b9d80e04fd6f7` | 94 input = 94 accepted → 123 output；23/23 passed；`9cfc763a79ff54bb7c7f5af21c7acdd77b0e85193b216dc7d584dbd1a39bfdec` |
+| publish approval ID | `d33c6e8448436b8bfa1a787f3a377c9fb4acce5bc0ad66e1bddfc110eca5c38f` | `7bf7e8d4c3bf87f5092132bf9b904e29b46450149bd5be703abe817e82fabf1b` |
+| release ID / release manifest SHA | `9c0eb2eec54428bfa58754fc0b6f58a33b5fd804fe5917253f2a411574ab35b2` / `9c67cc2acf869c25e2e848018fdc575835e4b230e6e015ad91aa277d70f1607d` | `bdb5286b592dae80477cc45025f822c53aab140202f74cf41d2fc39075b86d66` / `31a7248b6d55dc76ef08010e74e858fa2b9f381fbf210280d1811a1cbada9768` |
+| released DATA path / bytes / rows / SHA | `silver/schema=v1/reference/condition_code_dim/build_id=425ed683ddf36d3f85ea628270db3b72777ee860a8fbbcd2aea10432b5c4d151/data/capture_date=2026-07-11/part-00000.parquet` / 19,890 / 94 / `075831…` | `silver/schema=v1/reference/condition_code_data_type_bridge/build_id=404ccddd8eb37edaf0f3f5a6760ebc992f7970c61f2e9e14cf0a86d9e38c6f02/data/capture_date=2026-07-11/part-00000.parquet` / 14,934 / 123 / `9cfc76…` |
+| exact published replay result | sequence/event/build/release 不变；文件清单一致 | sequence/event/build/release 不变；文件清单一致 |
 
-最终验收还须记录：
+两条完整 workflow trust chain 与 release-only reader 都已通过。Preview 与 Full 的 DATA SHA、row
+funnel、QA core 和 quarantine evidence 分别精确一致；Dim 的 2/2 显式 exchange FK 与 Bridge 的
+123/123 parent FK 均通过。每个 Full build 恰有六个 manifest-declared regular files，全部为
+`0444`、`nlink=1`；正式 release 各自只暴露一个 DATA Parquet。六张 approval receipt 均为
+approved，QA waiver 和 accepted quarantine issue 集合都为空。
 
-- 两条 workflow trust chain 和 release-only reader 均通过；
-- Dim/Bridge preview 与 full 的 schema、row funnel、QA core、quarantine 和 DATA SHA 是否一致；
-- 2/2 exchange FK 与 123/123 bridge-to-dim FK 的实际结果；
-- 所有正式 output 是否为 regular file、`0444`、`nlink=1`，manifest 是否声明完整文件集合；
-- 发布和精确 replay 前后 Bronze manifest/page 的 SHA、bytes、mtime、inode 是否不变；
-- S1/S2 release 是否保持原 published 状态，S4 是否仍未创建 workflow/build/release；
-- 本地、GitHub `origin/main`、远程 `/opt/american_stocks` HEAD 是否完全一致且工作树干净。
-
-在这些 runtime evidence 填入前，本文件只证明 S3 的 source profile、schema 决策和授权边界，
-不声称两个 release 已经发布。
+精确 published replay 前后，对两个 workflow、四个 build、source inventory 及全部 S3 output
+生成的 74 行 SHA/bytes/mtime/inode/mode/nlink 清单逐字节相同，清单 SHA-256 为
+`68a97161586c1e7a9df185023d15bc9c4f7da0104cc23154ee785529f7354e04`，两个 event chain 仍各有
+9 个 event。Bronze manifest/page 仍为原 SHA、1,178/2,100 bytes、inode 5,391,030/5,391,033 和原
+mtime。S1/S2 仍分别是原 `published` sequence 9；检查未发现 S4 `assets` workflow、build、release
+或 output。S3 至此完成并停在 S4 之前。
