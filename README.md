@@ -7,7 +7,7 @@ can be inspected and reproduced.
 ## Current milestone
 
 The project has passed the **Bronze data checkpoint** for the catalog frozen on 2026-07-12 and is
-now at **Silver Phase 1 / S1 published, S2 code ready**:
+now at **Silver Phase 1 / S1 published, S2 preview awaiting review**:
 
 - ten years of full-market minute/day aggregate Flat Files and 29 required REST research
   datasets (31 dataset families in total) are stored immutably on the remote data volume;
@@ -24,11 +24,12 @@ now at **Silver Phase 1 / S1 published, S2 code ready**:
   is published through the immutable release-only reader;
 - the exact 17-field S2 `reference/ticker_type_dim` contract
   `b2297d0631ae7560e7c3a9f73a288c62154db36b3188275e62f69c642884e38d` is approved and packaged;
-  its manifest-bound source reader, pure transform, PIT timing, temporal QA, duplicate/quarantine
-  behavior, and all 20 QA checks have been exercised only with synthetic fixtures;
-- S2 is stopped at `code_ready` before the real manifest-bound 24-row preview. No S2 preview, full
-  build, release, or Silver data artifact has run, and no later Silver adjustment or Gold
-  factor/backtest output has run.
+- its bounded manifest-bound preview accepted all 24 source rows into 24 output rows, with zero
+  duplicate excess, zero quarantine, all 20 QA checks passed, complete 24-row input/output samples,
+  and all five fixed-case assertions passed;
+- S2 workflow `40cde0fb24a52dbce894b52700f25c21074ad8d97ae5011a0a83cc773cee4b97` is stopped at
+  `awaiting_review` (sequence 5). The six preview outputs are immutable staging evidence; no S2 full
+  build, release, formal Silver dataset, S3 work, or later Gold factor/backtest output has run.
 
 The final strict full audit is
 `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/bronze/full-2026-07-12-v9.json`
@@ -62,16 +63,18 @@ Formal Silver control-plane code lives in `backend/ame_stocks_api/silver/`. Its 
 documented in [docs/silver-s0-contracts.md](docs/silver-s0-contracts.md), while the dataset-by-dataset
 sequence and hard approval stops remain in
 [docs/silver-processing-plan.md](docs/silver-processing-plan.md). S0 does not read Bronze or run a
-transformation. S1 `exchanges` is fully published. S2 is now stopped at `code_ready`; its approved
-contract, bounded evidence, synthetic-only implementation, and next preview gate are documented in
+transformation. S1 `exchanges` is fully published. S2 is now stopped at `awaiting_review`; its
+approved contract, bounded 24-row preview evidence, and next full-run gate are documented in
 [docs/silver-s2-ticker-types-schema-review.md](docs/silver-s2-ticker-types-schema-review.md). The
 approved packaged schema is
 [ticker_type_dim.schema-v1.json](backend/ame_stocks_api/silver/schema_resources/ticker_type_dim.schema-v1.json),
 loaded by [ticker_type_contract.py](backend/ame_stocks_api/silver/ticker_type_contract.py); the
 manifest-bound reader and pure transform live in
 [ticker_type_source.py](backend/ame_stocks_api/silver/ticker_type_source.py) and
-[ticker_types.py](backend/ame_stocks_api/silver/ticker_types.py). These modules have not been run on
-the real 24-row Bronze source; another explicit authorization is required before preview.
+[ticker_types.py](backend/ame_stocks_api/silver/ticker_types.py). The bounded runner in
+[ticker_type_preview.py](backend/ame_stocks_api/silver/ticker_type_preview.py) has run only the exact
+approved 24-row source and cannot run full or publish; another explicit authorization is required
+before any full build.
 
 ## Python setup
 

@@ -1,12 +1,12 @@
-# Silver S2 `ticker_types` approved schema and code-ready checkpoint
+# Silver S2 `ticker_types` approved schema and bounded-preview checkpoint
 
 ## 1. 当前状态与硬边界
 
 2026-07-13，用户逐字批准精确 contract
-`b2297d0631ae7560e7c3a9f73a288c62154db36b3188275e62f69c642884e38d`，S2 从
-`schema_review` 进入 **Phase 1 / `code_ready`**。Bronze 只读画像、字段语义、17 字段 schema、
-20 项 QA、manifest-bound source reader 和纯转换现已冻结；实现目前只在 synthetic fixtures 上
-运行。
+`b2297d0631ae7560e7c3a9f73a288c62154db36b3188275e62f69c642884e38d`，随后另行明确批准只运行
+当前 24 行 bounded preview。S2 现处于 **Phase 1 / `awaiting_review`（sequence 5）**。Bronze
+只读画像、字段语义、17 字段 schema、20 项 QA、manifest-bound source reader 和纯转换已经冻结；
+synthetic fixtures 与真实 manifest-bound preview 均已验收。
 
 本检查点已完成：
 
@@ -14,12 +14,15 @@
 - 冻结目标表的 grain、字段、类型、键、PIT availability、lineage、重复和 quarantine 规则；
 - 登记并批准精确 contract，将 workflow 推进到 `code_ready`；
 - 将批准内容封装为 package resource，并实现只读 source inventory/reader 与无 I/O 的纯转换；
-- 用 synthetic fixtures 验证 schema、lineage、PIT、temporal QA、重复、quarantine 和 domain QA。
+- 用 synthetic fixtures 验证 schema、lineage、PIT、temporal QA、重复、quarantine 和 domain QA；
+- 只消费批准 manifest 绑定的 24 行 source，生成六个不可变 staging preview outputs；
+- 复验完整 workflow trust chain、source/artifact checksum、输出权限和 bounded replay 幂等性，然后
+  在 `awaiting_review` 停止。
 
-本检查点**不授权真实数据运行**：没有读取真实 24 行 source 来执行转换，没有生成 S2 preview，
-没有运行 full build，没有批准或发布 release，也没有写入任何 S2 Silver 数据。它同样不读取或
-修改 S4 `assets`。下一硬停点在真实 24 行 preview **之前**；代码和 synthetic tests 通过不等于
-数据已经进入 Silver。
+本检查点授权范围仅为上述 24 行 preview。它**不授权 full build、release、正式 Silver 或 S3**，
+也不读取或修改 S4 `assets`。当前六个文件只是 `staging/silver` 下的人工 review 证据，不是可供
+下游消费的正式 Silver release；下一硬停点就是当前 `awaiting_review`，未经另一次明确批准不得
+继续。
 
 已批准合同的 review source：
 [`ticker_type_dim.schema-v1.candidate.json`](silver/contracts/reference/ticker_type_dim.schema-v1.candidate.json)
@@ -34,7 +37,7 @@
 这两个 digest 由合同内容确定；任何字段、顺序、类型、nullability、key 或 QA 变更都会产生新 ID，
 必须重新 review，不能沿用本次批准。
 
-### 1.1 Packaged contract 与 code-ready 模块
+### 1.1 Packaged contract 与 bounded-preview 模块
 
 - package resource：
   [`ticker_type_dim.schema-v1.json`](../backend/ame_stocks_api/silver/schema_resources/ticker_type_dim.schema-v1.json)
@@ -44,9 +47,12 @@
   [`ticker_type_source.py`](../backend/ame_stocks_api/silver/ticker_type_source.py)
 - 纯 Arrow 转换、row funnel、quarantine、PIT 与 20 项 QA：
   [`ticker_types.py`](../backend/ame_stocks_api/silver/ticker_types.py)
-- synthetic contract/transform tests：
+- 只允许精确 source/contract/workflow 的 bounded preview runner：
+  [`ticker_type_preview.py`](../backend/ame_stocks_api/silver/ticker_type_preview.py)
+- synthetic contract/transform 与 preview fail-closed tests：
   [`test_silver_ticker_type_contract.py`](../tests/test_silver_ticker_type_contract.py) 与
-  [`test_silver_ticker_types.py`](../tests/test_silver_ticker_types.py)
+  [`test_silver_ticker_types.py`](../tests/test_silver_ticker_types.py)、
+  [`test_silver_ticker_type_preview.py`](../tests/test_silver_ticker_type_preview.py)
 
 packaged resource 与批准的 candidate 解析为同一 `TableContract`；运行时 loader 对精确
 `contract_id` fail closed。Source reader 只接受 inventory 明确列出的 canonical manifest/page，
@@ -282,9 +288,10 @@ S2 字典未来用于解释 S4 `assets.type`，但 S4 尚未进入 schema review
 这项推迟不是漏测，而是避免跨数据集顺序错误和 survivorship/look-ahead bias。S2 的 required QA
 只证明字典自身完整、可追溯和可按捕获时点使用。
 
-## 7. 已批准的精确决定与下一硬停点
+## 7. 已批准的精确决定
 
-用户对精确 contract 的批准确认了以下边界，但**没有**批准运行 preview：
+用户对精确 contract 的批准确认了以下边界；该次 schema 批准本身没有授权 preview，真实 24 行
+preview 是在后续明确指令下单独运行：
 
 1. 接受 `reference/ticker_type_dim` 的 17 字段、字段顺序和唯一 nullable `description`；
 2. 接受主键 `(capture_date, asset_class, locale, type_code)` 和按 capture date append-only；
@@ -296,11 +303,33 @@ S2 字典未来用于解释 S4 `assets.type`，但 S4 尚未进入 schema review
 7. 批准精确 contract ID
    `b2297d0631ae7560e7c3a9f73a288c62154db36b3188275e62f69c642884e38d`。
 
-上述 contract 已进入 `code_ready`，纯转换和 synthetic fixture 测试已经完成。Synthetic tests
+上述 contract 先进入 `code_ready`，纯转换和 synthetic fixture 测试已经完成。Synthetic tests
 覆盖 request date label 与 capture time 分离、首个严格晚于 capture 的 XNYS open、current-only
 snapshot、相邻 capture temporal diff、首个 capture 的 0/0 temporal 指标、精确重复、主键冲突、
 required-field quarantine，以及保留 domain mismatch 后产生 High failure。
 
-当前再次停在真实 manifest-bound 24 行 preview **之前**。截至本检查点，没有 S2 preview、full
-build、release 或 S2 Silver 数据产物；未经另一次明确授权，不读取真实 source 执行转换，也不
-创建 staging preview，更不会推进 full build 或 publish。
+## 8. Bounded preview 结果与下一硬停点
+
+后续获批的真实 preview 只处理权威 manifest 中的当前 24 行，并在 `awaiting_review` 停止：
+
+| Evidence | ID / 结果 |
+| --- | --- |
+| workflow | `40cde0fb24a52dbce894b52700f25c21074ad8d97ae5011a0a83cc773cee4b97` |
+| final state/event | `awaiting_review`，sequence 5；`b40d81b23cebfe729186638f3f1e209305e067d44581349d16d5ba9df58b2ecb` |
+| preview build | `38998bc76c2ed04f3d9064e3a019cc953e6f1ed5d6594d9485a4978862f0b90d` |
+| build manifest SHA-256 | `d7ce6dde58914bebe2afcb064599925c75e8c2333821100608ce01d9ee387f66` |
+| source inventory | `09e2b24c34db14ae3075df5ee13549f7b48e415ee6f5ece81bb196a60ac22e9b` |
+| row funnel | 24 input → 24 accepted；0 exact duplicate excess；0 quarantine |
+| schema / QA | 17 columns；20/20 QA passed |
+| review samples | input 24/24、output 24/24，均未截断 |
+| fixed case | `current_reference_snapshot`，5/5 assertions passed |
+
+六个输出分别为 DATA Parquet、QA Parquet、空 quarantine Parquet、完整 input sample JSON、完整
+output sample JSON 和 current-reference fixed-case JSON。它们的实际 file set 与 build manifest
+完全一致；每个文件均为只读 `0444`、`nlink=1`，登记的 bytes 和 SHA-256 与重读结果一致。完整
+workflow trust chain（含 artifacts）已复验通过，Bronze manifest/page 的 bytes 与 checksum 在运行
+前后保持不变。使用最终 event 重放同一精确命令后，build、文件 bytes/metadata 和 workflow
+sequence 均保持不变，证明 bounded preview 幂等。
+
+当前硬停点是这份 preview 的人工 review。**没有 S2 full build、full-run approval、release 或正式
+Silver 输出，也没有启动 S3**；除非用户另行明确授权，否则不得继续 full、publish 或下一类数据。
