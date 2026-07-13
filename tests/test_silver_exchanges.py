@@ -14,6 +14,7 @@ import pytest
 
 from ame_stocks_api.artifacts import stable_digest
 from ame_stocks_api.silver import exchange_preview as exchange_preview_module
+from ame_stocks_api.silver import exchange_release as exchange_release_module
 from ame_stocks_api.silver.contracts import ArtifactRole, BuildKind, QAStatus, SourceLayer
 from ame_stocks_api.silver.exchange_contract import EXCHANGE_DIM_CONTRACT
 from ame_stocks_api.silver.exchange_source import (
@@ -409,6 +410,63 @@ def _init_preview_git_checkout(root: Path) -> tuple[Path, Path, str]:
     return repo, module_path, head
 
 
+def _init_release_git_checkout(root: Path) -> tuple[Path, Path, str]:
+    repo = root / "repo"
+    for relative in exchange_release_module._REVIEWED_LOGIC_CLOSURE:
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"# reviewed fixture: {relative}\n", encoding="utf-8")
+    source_pyproject = Path(__file__).parents[1] / "pyproject.toml"
+    (repo / "pyproject.toml").write_text(
+        source_pyproject.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    commands = (
+        ("git", "init", "-q", str(repo)),
+        ("git", "-C", str(repo), "config", "user.email", "release@example.test"),
+        ("git", "-C", str(repo), "config", "user.name", "Release Test"),
+        ("git", "-C", str(repo), "add", "."),
+        ("git", "-C", str(repo), "commit", "-q", "-m", "reviewed logic"),
+    )
+    for command in commands:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+    head = subprocess.run(
+        ("git", "-C", str(repo), "rev-parse", "HEAD"),
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    preview_module = repo / "backend/ame_stocks_api/silver/exchange_preview.py"
+    return repo, preview_module, head
+
+
+def _advance_release_git_checkout(repo: Path, *, drift_logic: bool = False) -> tuple[Path, str]:
+    release_module = repo / "backend/ame_stocks_api/silver/exchange_release.py"
+    release_module.write_text("# orchestration adapter fixture\n", encoding="utf-8")
+    if drift_logic:
+        changed = repo / "backend/ame_stocks_api/silver/exchanges.py"
+        changed.write_text("# forbidden reviewed logic drift\n", encoding="utf-8")
+    subprocess.run(
+        ("git", "-C", str(repo), "add", "."),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ("git", "-C", str(repo), "commit", "-q", "-m", "add release adapter"),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    head = subprocess.run(
+        ("git", "-C", str(repo), "rev-parse", "HEAD"),
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return release_module, head
+
+
 def _exchange_code_ready(root: Path) -> tuple[SilverStore, str, str]:
     store = SilverStore(root)
     snapshot = store.create_workflow(
@@ -767,5 +825,243 @@ def test_exchange_preview_cli_requires_all_fail_closed_guards() -> None:
                 "manifests/massive/exchanges/example.json",
                 "--git-commit",
                 "c" * 40,
+            ]
+        )
+
+
+def test_reviewed_exchange_preview_completes_one_verified_published_release(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_root = tmp_path / "data"
+    fixture = _write_preview_fixture(data_root)
+    repo_root, preview_module, preview_commit = _init_release_git_checkout(tmp_path)
+    monkeypatch.setattr(exchange_preview_module, "__file__", str(preview_module))
+    store, workflow_id, event_sha256 = _exchange_code_ready(data_root)
+    preview_run = _run_fixture_preview(
+        data_root,
+        workflow_id=workflow_id,
+        event_sha256=event_sha256,
+        repo_root=repo_root,
+        git_commit=preview_commit,
+        fixture=fixture,
+    )
+    release_module, runner_commit = _advance_release_git_checkout(repo_root)
+    monkeypatch.setattr(exchange_release_module, "__file__", str(release_module))
+
+    completed = exchange_release_module._complete_exchange_release_authorized(
+        data_root,
+        workflow_id=workflow_id,
+        expected_event_sha256=preview_run.workflow.event_sha256,
+        reviewed_preview_build_id=preview_run.build.build_id,
+        reviewed_preview_manifest_sha256=preview_run.build_document.sha256,
+        repo_root=repo_root,
+        runner_git_commit=runner_commit,
+        actor="release-test-runner",
+        approver="user-approved-s1-completion",
+        authorization=fixture.authorization,
+    )
+
+    assert completed.workflow.state is WorkflowState.PUBLISHED
+    assert completed.workflow.sequence == 9
+    assert len(store.workflow_events(workflow_id)) == 9
+    assert completed.full.intent.kind is BuildKind.FULL
+    assert completed.full.intent.git_commit == preview_commit
+    assert completed.full.intent.parameters["approved_preview_build_id"] == (
+        preview_run.build.build_id
+    )
+    assert completed.full.preview is None
+    assert completed.full.row_funnel == preview_run.build.row_funnel
+    assert len(completed.full.qa_checks) == 20
+    assert all(check.status is QAStatus.PASSED for check in completed.full.qa_checks)
+    assert completed.full.quarantine_issue_rows == 0
+    assert len(completed.full.outputs) == 7
+
+    preview_data = next(
+        item for item in preview_run.build.outputs if item.role is ArtifactRole.DATA
+    )
+    full_data = next(item for item in completed.full.outputs if item.role is ArtifactRole.DATA)
+    assert full_data.sha256 == preview_data.sha256
+    assert full_data.path.startswith("silver/schema=v1/reference/exchange_dim/")
+    assert completed.release.outputs == (full_data,)
+    assert completed.published.data_paths == (data_root / full_data.path,)
+    assert not (data_root / "silver/schema=v1/reference/exchange_dim/current").exists()
+
+    provenance_output = next(
+        item for item in completed.full.outputs if item.path.endswith("runtime-provenance.json")
+    )
+    provenance_rows = json.loads((data_root / provenance_output.path).read_text())
+    assert provenance_rows[0]["runner_git_commit"] == runner_commit
+    assert provenance_rows[0]["preview_transform_git_commit"] == preview_commit
+    assert provenance_rows[0]["full_build_id"] == completed.full.build_id
+    assert set(provenance_rows[0]["logic_closure_paths"]) == set(
+        exchange_release_module._REVIEWED_LOGIC_CLOSURE
+    )
+    for output in completed.full.outputs:
+        details = (data_root / output.path).stat()
+        assert stat.S_IMODE(details.st_mode) == 0o444
+        assert details.st_nlink == 1
+
+    approval_events = [
+        record
+        for record in store.workflow_events(workflow_id)
+        if record.event.to_state
+        in {WorkflowState.APPROVED_FULL_RUN, WorkflowState.PUBLISHED}
+    ]
+    assert len(approval_events) == 2
+    for event in approval_events:
+        approval, _ = store.load_approval(str(event.event.evidence["approval_id"]))
+        assert approval.waived_qa_result_ids == ()
+        assert approval.accepted_quarantine_issue_ids == ()
+
+    file_state = {
+        item.path: (item.sha256, (data_root / item.path).stat().st_mtime_ns)
+        for item in completed.full.outputs
+    }
+    repeated = exchange_release_module._complete_exchange_release_authorized(
+        data_root,
+        workflow_id=workflow_id,
+        expected_event_sha256=completed.workflow.event_sha256,
+        reviewed_preview_build_id=preview_run.build.build_id,
+        reviewed_preview_manifest_sha256=preview_run.build_document.sha256,
+        repo_root=repo_root,
+        runner_git_commit=runner_commit,
+        actor="release-test-runner",
+        approver="user-approved-s1-completion",
+        authorization=fixture.authorization,
+    )
+    assert repeated.release.release_id == completed.release.release_id
+    assert len(store.workflow_events(workflow_id)) == 9
+    assert file_state == {
+        item.path: (item.sha256, (data_root / item.path).stat().st_mtime_ns)
+        for item in repeated.full.outputs
+    }
+
+
+def test_exchange_release_refuses_reviewed_logic_drift_before_full_approval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_root = tmp_path / "data"
+    fixture = _write_preview_fixture(data_root)
+    repo_root, preview_module, preview_commit = _init_release_git_checkout(tmp_path)
+    monkeypatch.setattr(exchange_preview_module, "__file__", str(preview_module))
+    store, workflow_id, event_sha256 = _exchange_code_ready(data_root)
+    preview_run = _run_fixture_preview(
+        data_root,
+        workflow_id=workflow_id,
+        event_sha256=event_sha256,
+        repo_root=repo_root,
+        git_commit=preview_commit,
+        fixture=fixture,
+    )
+    release_module, runner_commit = _advance_release_git_checkout(
+        repo_root,
+        drift_logic=True,
+    )
+    monkeypatch.setattr(exchange_release_module, "__file__", str(release_module))
+
+    with pytest.raises(SilverStoreError, match="logic closure changed"):
+        exchange_release_module._complete_exchange_release_authorized(
+            data_root,
+            workflow_id=workflow_id,
+            expected_event_sha256=preview_run.workflow.event_sha256,
+            reviewed_preview_build_id=preview_run.build.build_id,
+            reviewed_preview_manifest_sha256=preview_run.build_document.sha256,
+            repo_root=repo_root,
+            runner_git_commit=runner_commit,
+            actor="release-test-runner",
+            approver="user-approved-s1-completion",
+            authorization=fixture.authorization,
+        )
+    assert store.status(workflow_id).state is WorkflowState.AWAITING_REVIEW
+    assert not (data_root / "silver").exists()
+
+
+@pytest.mark.parametrize(
+    ("failing_method", "expected_state"),
+    (
+        ("record_full_build", WorkflowState.APPROVED_FULL_RUN),
+        ("request_publish", WorkflowState.FULL_READY),
+        ("publish", WorkflowState.AWAITING_PUBLISH),
+    ),
+)
+def test_exchange_release_resumes_from_each_post_review_hard_stop(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failing_method: str,
+    expected_state: WorkflowState,
+) -> None:
+    data_root = tmp_path / "data"
+    fixture = _write_preview_fixture(data_root)
+    repo_root, preview_module, preview_commit = _init_release_git_checkout(tmp_path)
+    monkeypatch.setattr(exchange_preview_module, "__file__", str(preview_module))
+    store, workflow_id, event_sha256 = _exchange_code_ready(data_root)
+    preview_run = _run_fixture_preview(
+        data_root,
+        workflow_id=workflow_id,
+        event_sha256=event_sha256,
+        repo_root=repo_root,
+        git_commit=preview_commit,
+        fixture=fixture,
+    )
+    release_module, runner_commit = _advance_release_git_checkout(repo_root)
+    monkeypatch.setattr(exchange_release_module, "__file__", str(release_module))
+    arguments = {
+        "workflow_id": workflow_id,
+        "reviewed_preview_build_id": preview_run.build.build_id,
+        "reviewed_preview_manifest_sha256": preview_run.build_document.sha256,
+        "repo_root": repo_root,
+        "runner_git_commit": runner_commit,
+        "actor": "release-test-runner",
+        "approver": "user-approved-s1-completion",
+        "authorization": fixture.authorization,
+    }
+
+    def simulated_interruption(*_args, **_kwargs):
+        raise RuntimeError("simulated release interruption")
+
+    with monkeypatch.context() as interruption:
+        interruption.setattr(SilverStore, failing_method, simulated_interruption)
+        with pytest.raises(RuntimeError, match="simulated release interruption"):
+            exchange_release_module._complete_exchange_release_authorized(
+                data_root,
+                expected_event_sha256=preview_run.workflow.event_sha256,
+                **arguments,
+            )
+
+    stopped = store.status(workflow_id)
+    assert stopped.state is expected_state
+    completed = exchange_release_module._complete_exchange_release_authorized(
+        data_root,
+        expected_event_sha256=stopped.event_sha256,
+        **arguments,
+    )
+    assert completed.workflow.state is WorkflowState.PUBLISHED
+    assert completed.workflow.sequence == 9
+
+
+def test_exchange_release_cli_requires_review_and_provenance_guards() -> None:
+    from ame_stocks_api.cli.silver_exchanges_release import build_parser
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            [
+                "--data-root",
+                "/tmp/data",
+                "--repo-root",
+                "/tmp/repo",
+                "--workflow-id",
+                "a" * 64,
+                "--expected-event-sha256",
+                "b" * 64,
+                "--reviewed-preview-build-id",
+                "c" * 64,
+                "--runner-git-commit",
+                "d" * 40,
+                "--actor",
+                "runner",
+                "--approver",
+                "reviewer",
             ]
         )
