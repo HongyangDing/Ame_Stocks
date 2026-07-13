@@ -1,0 +1,538 @@
+{
+  "columns": [
+    {
+      "arrow_type": "int64",
+      "description": "Four-digit year derived exactly from session_date for physical partitioning.",
+      "name": "session_year",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "XNYS session date sent literally as the Massive date query; membership-effective evidence, not local capture time.",
+      "name": "session_date",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Native Boolean decoded from the request active=true or active=false parameter.",
+      "name": "requested_active",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Native Boolean active field returned by Massive; it must equal requested_active.",
+      "name": "provider_active",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact case-sensitive provider ticker preserved without trim, uppercasing, casefolding, suffix parsing, or alias merging.",
+      "name": "ticker",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional Massive type value preserved byte-for-byte as a case-sensitive code; no current dictionary value is backfilled.",
+      "name": "type_code",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional provider security name preserved verbatim.",
+      "name": "name",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional provider market value preserved verbatim.",
+      "name": "market",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional provider locale value preserved verbatim.",
+      "name": "locale",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional provider primary_exchange value preserved verbatim as a candidate MIC; no S1 value is substituted.",
+      "name": "primary_exchange_mic",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional provider currency_name value preserved verbatim without currency-code normalization.",
+      "name": "currency_name",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional provider CIK preserved as a string without zero padding or issuer merging.",
+      "name": "cik",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional provider Composite FIGI preserved verbatim; it is identity evidence, not a final asset_id.",
+      "name": "composite_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional provider share-class FIGI preserved verbatim; it is identity evidence, not an issuer join by itself.",
+      "name": "share_class_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional delisted_utc source string preserved verbatim, including any unparseable value.",
+      "name": "delisted_utc_raw",
+      "nullable": true
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "Strict UTC parse of delisted_utc_raw; null when the source key is absent or null.",
+      "name": "delisted_at_utc",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional last_updated_utc source string preserved verbatim, including any unparseable value.",
+      "name": "last_updated_utc_raw",
+      "nullable": true
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "Strict UTC parse of last_updated_utc_raw; metadata revision time, never research availability.",
+      "name": "last_updated_at_utc",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed provider_historical_date_membership_snapshot_v1 marker: session_date is the date sent to Massive and is only membership-effective evidence.",
+      "name": "reference_time_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed metadata_as_returned_at_source_capture_not_historical_vintage_v1 marker; descriptive fields cannot be treated as archived session-date metadata.",
+      "name": "metadata_time_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "Immutable authoritative Bronze manifest completed_at timestamp for this request.",
+      "name": "source_capture_at_utc",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session whose open is strictly after source_capture_at_utc; operational ingestion availability only.",
+      "name": "source_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "XNYS open timestamp for source_available_session; it does not replace session_date membership semantics.",
+      "name": "source_available_at_utc",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed first_xnys_open_after_source_capture_v1 operational availability rule.",
+      "name": "source_availability_rule",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed reconstructed_historical_snapshot_without_archived_vintage marker.",
+      "name": "source_availability_quality",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Deterministic SHA-256 over dataset, request, page artifact, page sequence, row ordinal, and source row hash.",
+      "name": "source_record_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Canonical local Bronze request ID from the authoritative manifest.",
+      "name": "source_request_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Server-assigned request ID from the Massive response envelope.",
+      "name": "source_provider_request_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of the stored gzip Bronze page containing this source row.",
+      "name": "source_artifact_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Zero-based page sequence from the manifest-bound paginated response.",
+      "name": "source_page_sequence",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Zero-based result ordinal within the source page.",
+      "name": "source_row_ordinal",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of canonical JSON for the unmodified provider result object.",
+      "name": "source_row_hash",
+      "nullable": false
+    }
+  ],
+  "contract_id": "dd916b8528b9ce1a341e6b8ad897ae80e40d5df118b8e102e4ea1f1ea6e9c045",
+  "contract_schema_version": 1,
+  "description": "Every valid manifest-bound Massive Assets source row for each historical date and requested active flag, including all duplicate provider versions, with raw/parsed time evidence, explicit reconstructed-snapshot semantics, and complete Bronze lineage.",
+  "domain": "identity",
+  "grain": "One manifest-bound provider result object for an exact XNYS session_date and requested_active request; duplicate ticker versions remain separate rows.",
+  "partition_by": [
+    "session_year",
+    "session_date"
+  ],
+  "primary_key": [
+    "session_date",
+    "source_record_id"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "schema_exact",
+      "description": "Every output Parquet field, order, Arrow type, and nullability must equal this contract.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_plan_invalid",
+      "description": "The complete authoritative Assets date range and active=true/false request plan must reconcile with no missing or extra accepted request.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_integrity_invalid",
+      "description": "No authoritative manifest or manifest-bound artifact may fail status, path, byte count, stored/raw checksum, gzip, JSON, or declared-row validation.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_envelope_invalid",
+      "description": "Every page must have an OK envelope, array results, provider request ID, monotone pagination, and reconciled count when present.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_session_pair_cardinality_invalid",
+      "description": "Every reviewed XNYS session must have exactly one complete active=true and one complete active=false authoritative request.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_query_date_invalid",
+      "description": "Each request start/end and transmitted date must equal its partition session_date.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_calendar_coverage_invalid",
+      "description": "Authoritative session dates must equal the frozen XNYS calendar range with no non-session or missing session.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "active_snapshot_empty_sessions",
+      "description": "No session may have an empty active=true ticker snapshot.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "required_field_invalid_rows",
+      "description": "No accepted row may have invalid session fields, request flag, provider active Boolean, or missing, non-string, empty, or whitespace-only ticker.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "provider_active_mismatch_rows",
+      "description": "Every provider_active value must be the same native Boolean as requested_active.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "row_funnel_unreconciled",
+      "description": "Source rows must reconcile exactly to accepted observations and structurally quarantined rows without dropping duplicate versions.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_duplicate_excess",
+      "description": "The output must contain no duplicate excess for session_date and source_record_id.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "lineage_invalid_rows",
+      "description": "Every output row must reproduce its request, page, ordinal, artifact, raw row, and record digests.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_availability_invalid_rows",
+      "description": "Every source capture and operational availability field must follow the frozen calendar and first-open-after-capture rule.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "reference_time_scope_invalid_rows",
+      "description": "Every row must carry the exact historical-date membership scope marker.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "metadata_time_scope_invalid_rows",
+      "description": "Every row must carry the exact non-archived metadata scope marker.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_availability_quality_invalid_rows",
+      "description": "Every row must disclose reconstructed historical snapshot quality without claiming an archived vintage.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "active_inactive_overlap_rows",
+      "description": "No exact case-sensitive ticker may appear in both active=true and active=false source sets on one session.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "session_year_invalid_rows",
+      "description": "session_year must equal the four-digit year of session_date.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "ticker_whitespace_rows",
+      "description": "Non-empty tickers with leading or trailing whitespace are preserved in observation evidence but block downstream universe selection; no trim is allowed.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "timestamp_parse_invalid_rows",
+      "description": "Every present non-null delisted_utc or last_updated_utc value must parse strictly as UTC while the raw value remains preserved.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "source_timestamp_after_capture_rows",
+      "description": "No parsed last_updated_at_utc or delisted_at_utc may be later than its authoritative source_capture_at_utc.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "optional_field_type_invalid_rows",
+      "description": "Every present non-null optional provider field must retain its reviewed native string type; no coercion may hide source drift.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "provider_scope_invalid_rows",
+      "description": "Every present market and locale value must retain the requested stocks and us provider scope.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "same_session_ticker_identity_conflict_groups",
+      "description": "Duplicate exact-ticker groups whose identity fields differ must remain visible and block automatic universe selection.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "exact_duplicate_excess_rows",
+      "description": "Canonical-JSON-equivalent provider result objects remain countable as separate source occurrences and may only use source position for deterministic physical selection.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "unexpected_source_field_rows",
+      "description": "Any provider field outside the exact reviewed 13-field source set blocks output until the schema is reviewed; lineage hashes alone cannot make a dropped field lossless.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "optional_string_whitespace_rows",
+      "description": "Leading or trailing whitespace in optional provider strings is preserved verbatim and reported without automatic trimming.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "currency_domain_unreviewed_rows",
+      "description": "Non-null currency_name values outside the reviewed usd value remain preserved and require review rather than coercion.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "casefold_collision_groups",
+      "description": "Distinct exact tickers that collide after casefold remain separate and are surfaced because ticker case is meaningful.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "current_type_dictionary_unmatched_values",
+      "description": "Distinct non-null type codes missing from the current-only published S2 dictionary are reported diagnostically and never mapped to OTHER or dropped.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "current_exchange_dictionary_unmatched_values",
+      "description": "Distinct non-null primary exchange MICs missing from the current-only published S1 dictionary are reported diagnostically and never backfilled or dropped.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "metadata_updated_after_session_rows",
+      "description": "Rows whose last_updated_at_utc is after session_date are disclosed because returned metadata is not an archived historical vintage.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "inactive_without_delisted_rows",
+      "description": "Inactive rows without a delisted timestamp remain valid membership observations and are reported without invented dates.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "cross_session_ticker_identity_churn_groups",
+      "description": "Exact tickers linked to changing FIGI or CIK evidence across sessions remain unmerged for S7 identity resolution.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    }
+  ],
+  "schema_version": 1,
+  "sort_by": [
+    "session_date",
+    "ticker",
+    "requested_active",
+    "source_page_sequence",
+    "source_row_ordinal"
+  ],
+  "source_datasets": [
+    "assets"
+  ],
+  "table": "asset_observation_daily"
+}

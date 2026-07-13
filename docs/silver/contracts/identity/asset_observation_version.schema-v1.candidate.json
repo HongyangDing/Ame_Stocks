@@ -1,0 +1,402 @@
+{
+  "columns": [
+    {
+      "arrow_type": "int64",
+      "description": "Four-digit year derived from session_date for physical partitioning.",
+      "name": "session_year",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Provider historical date query and XNYS session for the version group.",
+      "name": "session_date",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Exact request active flag shared by the group; active and inactive sets are never merged.",
+      "name": "requested_active",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact case-sensitive provider ticker shared by the group, without normalization.",
+      "name": "ticker",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "stable_digest of the exact mapping {requested_active: native bool, session_date: ISO date string, ticker: exact string}, using lexicographically sorted JSON keys.",
+      "name": "version_group_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Number of source observations in the multi-row version group; always greater than one.",
+      "name": "version_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Parent asset_observation_daily source_record_id for this version member.",
+      "name": "source_record_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "stable_digest over exact raw active,ticker,type,name,market,locale,primary_exchange,currency_name,cik,composite_figi,share_class_figi values with missing encoded as JSON null; differing signatures prohibit selection.",
+      "name": "identity_signature",
+      "nullable": false
+    },
+    {
+      "arrow_type": "json_string",
+      "description": "Canonical sorted JSON array over all 13 reviewed provider result-object fields. A selected group may only have [], [last_updated_utc], or [delisted_utc,last_updated_utc]; every other set is unresolved.",
+      "name": "difference_fields_json",
+      "nullable": false
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "Parsed provider metadata revision time used only after exact identity-field agreement.",
+      "name": "last_updated_at_utc",
+      "nullable": true
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "Parsed provider delisted time retained as evidence but never ranked as newer-is-better.",
+      "name": "delisted_at_utc",
+      "nullable": true
+    },
+    {
+      "arrow_type": "int64",
+      "description": "One-based rank: exact rows sort by page sequence,row ordinal,source record ID; semantic versions sort by last_updated descending then source record ID. All unresolved ranks are null.",
+      "name": "selection_rank",
+      "nullable": true
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "True only for the single auditable winner of a resolved version group.",
+      "name": "is_selected",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact group status domain: resolved_exact_duplicate, resolved_unique_latest_last_updated, unresolved_identity_conflict, unresolved_timestamp_missing_or_invalid, unresolved_timestamp_tie, or unresolved_difference_set.",
+      "name": "selection_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact row reason domain: selected_min_source_position_exact_duplicate, rejected_later_source_position_exact_duplicate, selected_unique_max_last_updated, rejected_older_last_updated, or the group unresolved status.",
+      "name": "selection_reason",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed s4_asset_source_version_selection_v1: canonical-JSON-equivalent provider result objects choose minimum (page sequence,row ordinal,source record ID); otherwise identity signatures and reviewed difference set must agree and unique maximum last_updated wins; delisted and row hash never rank semantic versions.",
+      "name": "selection_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Winning parent source_record_id repeated on every resolved group member; null for unresolved groups.",
+      "name": "selected_source_record_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "Parent observation Bronze manifest completed_at timestamp.",
+      "name": "source_capture_at_utc",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Canonical local Bronze request ID from the authoritative manifest.",
+      "name": "source_request_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Server-assigned request ID from the Massive response envelope.",
+      "name": "source_provider_request_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of the stored gzip Bronze page containing this source row.",
+      "name": "source_artifact_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Zero-based page sequence from the manifest-bound paginated response.",
+      "name": "source_page_sequence",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Zero-based result ordinal within the source page.",
+      "name": "source_row_ordinal",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of canonical JSON for the unmodified provider result object.",
+      "name": "source_row_hash",
+      "nullable": false
+    }
+  ],
+  "contract_id": "14ce114f5911f7e4d1c15e58f0f42a8307066d6517e859d6233fa23c199616fc",
+  "contract_schema_version": 1,
+  "description": "Audit projection containing every member of each multi-row session/request-active/exact-ticker group, with reproducible difference evidence and fail-closed selection decisions; singleton observations are intentionally excluded.",
+  "domain": "identity",
+  "grain": "One source observation belonging to a group with more than one row for exact (session_date, requested_active, ticker).",
+  "partition_by": [
+    "session_year",
+    "session_date"
+  ],
+  "primary_key": [
+    "session_date",
+    "version_group_id",
+    "source_record_id"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "schema_exact",
+      "description": "Every output Parquet field, order, Arrow type, and nullability must equal this contract.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "observation_parent_missing_rows",
+      "description": "Every version row must match exactly one asset_observation_daily parent by session_date and source_record_id.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "version_projection_unreconciled",
+      "description": "Version rows must equal the sum of all group sizes greater than one reconstructed from accepted observations.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "singleton_version_rows",
+      "description": "No singleton observation group may be copied into this multi-version evidence table.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "version_group_id_invalid_rows",
+      "description": "Every version_group_id must reproduce the frozen digest of session_date, requested_active, and exact ticker.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "version_group_cardinality_invalid_groups",
+      "description": "Each group must have version_count greater than one and exactly that many output members.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "difference_fields_invalid_rows",
+      "description": "Every difference_fields_json must reproduce all 13 reviewed provider result-object fields; only [], [last_updated_utc], and [delisted_utc,last_updated_utc] may resolve under v1.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_signature_invalid_rows",
+      "description": "Every identity_signature must reproduce exact active,ticker,type,name,market,locale,primary_exchange,currency_name,cik,composite_figi,share_class_figi values with missing as null.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "selection_evidence_invalid_rows",
+      "description": "Status, reason, rank, selected Boolean and selected ID must match the exact frozen domains and ordering in s4_asset_source_version_selection_v1.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "selection_count_invalid_groups",
+      "description": "Each resolved group must have exactly one selected member and each unresolved group must have zero.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "selected_source_record_id_invalid_rows",
+      "description": "Every non-null selected_source_record_id must name the one selected parent within the same group.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_conflict_selected_groups",
+      "description": "No group with different identity signatures may select a winner.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "invalid_last_updated_selected_groups",
+      "description": "No semantically distinct group may select a winner without valid parsed last_updated evidence for every member.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "nonunique_latest_selected_groups",
+      "description": "No semantically distinct group with a tied maximum last_updated value may select a winner.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "hash_only_semantic_selection_groups",
+      "description": "No source row hash may decide a winner when raw provider payloads differ semantically.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "lineage_invalid_rows",
+      "description": "Every version row must reproduce the complete parent source pointer and hashes.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "row_funnel_unreconciled",
+      "description": "All multi-version observation members must reconcile to selected, rejected, or unresolved decision rows without loss.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_duplicate_excess",
+      "description": "The output must contain no duplicate excess for session_date, version_group_id, and source_record_id.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "session_year_invalid_rows",
+      "description": "session_year must equal the four-digit year of session_date.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "unresolved_version_groups",
+      "description": "Unresolved version groups remain preserved for review and block universe_source_daily build or publication.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "semantic_tie_groups",
+      "description": "Groups with different payloads and no unique latest revision remain unresolved rather than being hash-selected.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "exact_duplicate_groups",
+      "description": "Groups containing canonical-JSON-equivalent result-object occurrences are disclosed even when a stable source-position winner is allowed.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "delisted_changed_groups",
+      "description": "Groups whose delisted_utc changes are surfaced explicitly; the delisted value is never used as a recency sort key.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "unexpected_difference_field_groups",
+      "description": "Difference-field sets outside the reviewed profile remain unresolved until separately reviewed.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "selection_rule_unreviewed_rows",
+      "description": "Rows carrying a selection rule marker other than s4_asset_source_version_selection_v1 require review.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    }
+  ],
+  "schema_version": 1,
+  "sort_by": [
+    "session_date",
+    "ticker",
+    "requested_active",
+    "version_group_id",
+    "selection_rank",
+    "source_record_id"
+  ],
+  "source_datasets": [
+    "assets"
+  ],
+  "table": "asset_observation_version"
+}

@@ -7,7 +7,7 @@ can be inspected and reproduced.
 ## Current milestone
 
 The project has passed the **Bronze data checkpoint** for the catalog frozen on 2026-07-12 and is
-now at **Silver Phase 1 / S1–S3 published, stopped before S4**:
+now at **Silver Phase 2 / S4 Assets schema review; S1–S3 remain published**:
 
 - ten years of full-market minute/day aggregate Flat Files and 29 required REST research
   datasets (31 dataset families in total) are stored immutably on the remote data volume;
@@ -38,7 +38,15 @@ now at **Silver Phase 1 / S1–S3 published, stopped before S4**:
 - S3 releases `9c0eb2eec54428bfa58754fc0b6f58a33b5fd804fe5917253f2a411574ab35b2`
   and `bdb5286b592dae80477cc45025f822c53aab140202f74cf41d2fc39075b86d66`
   are published and release-only verified; exact replay preserved all file SHA/metadata and both
-  event chains at sequence 9. S1/S2 and Bronze remained unchanged, and S4 was not started.
+  event chains at sequence 9. S1/S2 and Bronze remain unchanged;
+- S4 has completed a read-only full profile of all 5,026 active/inactive Assets manifests,
+  72,038 pages, and 69,381,182 rows. It confirmed zero active-flag mismatch and zero same-day
+  active/inactive exact-ticker overlap, and refined the 4,853 duplicate groups into 2 exact,
+  2,115 last-updated-only, and 2,736 delisted-plus-last-updated groups;
+- three Git-only S4 candidates now freeze the lossless daily observations, the 9,706-row
+  multi-version evidence projection, and the one-row-per-session/ticker source universe. They are
+  awaiting explicit digest approval; no S4 workflow, transform, preview, staging output, or Silver
+  release has been created.
 
 The final strict full audit is
 `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/bronze/full-2026-07-12-v9.json`
@@ -88,7 +96,10 @@ exact approved 24-row source; after separate explicit authorization, the review-
 reviewed result. S3's paired contracts, source profile, runtime IDs, QA results, and replay evidence
 are documented in
 [docs/silver-s3-condition-codes-schema-review.md](docs/silver-s3-condition-codes-schema-review.md).
-S3 is finished, and the next explicit approval stop is before S4.
+S3 is finished. S4's full source profile, reconstructed-membership caveat, duplicate selection rule,
+and three candidate contract IDs are documented in
+[docs/silver-s4-assets-schema-review.md](docs/silver-s4-assets-schema-review.md). The current hard
+stop is S4 schema approval; no preview is authorized.
 
 ## Python setup
 

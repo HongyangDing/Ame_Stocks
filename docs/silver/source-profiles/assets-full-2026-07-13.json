@@ -1,0 +1,279 @@
+{
+  "authoritative_inputs": {
+    "artifact_count": 72038,
+    "artifact_inventory_digest": "3a019c3a1568d16dc873bff79010b5afcbeff490779215abddb75599e7c0f11b",
+    "bronze_audit_sha256": "a23fdd2aa4c613274dfe0dcca611e8ed1bd62153146f787ecd415c345c1a15d6",
+    "bronze_audit_status": {
+      "authoritative_plan": "passed",
+      "physical_integrity": "passed"
+    },
+    "data_root": "/mnt/HC_Volume_106309665/american_stocks",
+    "date_end": "2026-07-09",
+    "date_start": "2016-07-11",
+    "duplicate_audit_sha256": "bf5abe8e8bde1671b69c2d1e0546212fa5b99189e660cf2cef8f0936000d3641",
+    "manifest_count": 5026,
+    "manifest_inventory_digest": "43da9c7cd2adc2a69e1badffb947807e5db04b45a627619765986b7d85bc1853",
+    "session_count": 2513
+  },
+  "case_and_whitespace": {
+    "casefold_collision_distinct_keys": 126,
+    "casefold_collision_group_instances": 240771,
+    "name_trim_mismatch_rows": 1913,
+    "ticker_contains_lowercase_rows": 7456564,
+    "ticker_empty_rows": 0,
+    "ticker_non_ascii_rows": 0,
+    "ticker_trim_mismatch_rows": 0,
+    "ticker_whitespace_rows": 0
+  },
+  "current_reference_diagnostics": {
+    "exchange": {
+      "matched_non_null_rows": 58457063,
+      "non_null_rows": 58457063,
+      "published_release_id": "feab0e1f32a5685d1115a6e4e87aab8ff50c18b99c6336a8790ecba44464d838",
+      "scope": "current_only_non_pit_diagnostic",
+      "unmatched_values": []
+    },
+    "ticker_type": {
+      "matched_non_null_rows": 50087233,
+      "non_null_rows": 51276110,
+      "published_release_id": "11a62f9c06ea5c609c159a7d619ba94cabbe39d3b07518fec279fa4758c882f6",
+      "scope": "current_only_non_pit_diagnostic",
+      "unmatched_rows": 1188877,
+      "unmatched_values": [
+        "INDEX"
+      ]
+    }
+  },
+  "domain_counts": {
+    "currency_name": {
+      "usd": 69381182
+    },
+    "locale": {
+      "us": 69381182
+    },
+    "market": {
+      "stocks": 69381182
+    },
+    "primary_exchange": {
+      "ARCX": 8107353,
+      "BATS": 1705164,
+      "IEXG": 251,
+      "XASE": 4619101,
+      "XBOS": 3665,
+      "XNAS": 19696771,
+      "XNYS": 24324758
+    }
+  },
+  "distinct_counts": {
+    "primary_exchange": 7,
+    "type": 15
+  },
+  "duplicate_versions": {
+    "active_group_count": 0,
+    "all_identity_field_conflict_groups": 0,
+    "delisted_and_last_updated_only_group_count": 2736,
+    "duplicate_excess_rows": 4853,
+    "exact_canonical_object_group_count": 2,
+    "group_count": 4853,
+    "group_size_domain": {
+      "2": 4853
+    },
+    "inactive_group_count": 4853,
+    "last_updated_only_group_count": 2115,
+    "non_exact_timestamp_tie_groups": 0,
+    "non_exact_unique_max_last_updated_groups": 4851,
+    "selected_unresolved_groups": 0,
+    "version_member_rows": 9706
+  },
+  "field_profile": {
+    "active": {
+      "empty": 0,
+      "explicit_null": 0,
+      "missing": 0,
+      "native_type": "boolean",
+      "present": 69381182,
+      "wrong_native_type": 0
+    },
+    "cik": {
+      "empty": 0,
+      "explicit_null": 0,
+      "missing": 10972475,
+      "native_type": "string",
+      "present": 58408707,
+      "wrong_native_type": 0
+    },
+    "composite_figi": {
+      "empty": 0,
+      "explicit_null": 0,
+      "missing": 43676798,
+      "native_type": "string",
+      "present": 25704384,
+      "wrong_native_type": 0
+    },
+    "currency_name": {
+      "empty": 0,
+      "explicit_null": 0,
+      "missing": 0,
+      "native_type": "string",
+      "present": 69381182,
+      "wrong_native_type": 0
+    },
+    "delisted_utc": {
+      "empty": 0,
+      "explicit_null": 0,
+      "missing": 26246362,
+      "native_type": "string",
+      "present": 43134820,
+      "wrong_native_type": 0
+    },
+    "last_updated_utc": {
+      "empty": 0,
+      "explicit_null": 0,
+      "missing": 0,
+      "native_type": "string",
+      "present": 69381182,
+      "wrong_native_type": 0
+    },
+    "locale": {
+      "empty": 0,
+      "explicit_null": 0,
+      "missing": 0,
+      "native_type": "string",
+      "present": 69381182,
+      "wrong_native_type": 0
+    },
+    "market": {
+      "empty": 0,
+      "explicit_null": 0,
+      "missing": 0,
+      "native_type": "string",
+      "present": 69381182,
+      "wrong_native_type": 0
+    },
+    "name": {
+      "empty": 0,
+      "explicit_null": 0,
+      "missing": 27377,
+      "native_type": "string",
+      "present": 69353805,
+      "wrong_native_type": 0
+    },
+    "primary_exchange": {
+      "empty": 0,
+      "explicit_null": 0,
+      "missing": 10924119,
+      "native_type": "string",
+      "present": 58457063,
+      "wrong_native_type": 0
+    },
+    "share_class_figi": {
+      "empty": 0,
+      "explicit_null": 0,
+      "missing": 44607454,
+      "native_type": "string",
+      "present": 24773728,
+      "wrong_native_type": 0
+    },
+    "ticker": {
+      "empty": 0,
+      "explicit_null": 0,
+      "missing": 0,
+      "native_type": "string",
+      "present": 69381182,
+      "wrong_native_type": 0
+    },
+    "type": {
+      "empty": 0,
+      "explicit_null": 0,
+      "missing": 18105072,
+      "native_type": "string",
+      "present": 51276110,
+      "wrong_native_type": 0
+    }
+  },
+  "hard_gate_numerators": {
+    "active_inactive_exact_ticker_overlap_rows": 0,
+    "currency_not_usd_rows": 0,
+    "delisted_after_source_capture_rows": 0,
+    "delisted_timestamp_invalid_rows": 0,
+    "explicit_null_values": 0,
+    "last_updated_after_source_capture_rows": 0,
+    "last_updated_timestamp_invalid_rows": 0,
+    "locale_not_us_rows": 0,
+    "manifest_record_count_mismatch": 0,
+    "manifest_structural_or_status_issues": 0,
+    "market_not_stocks_rows": 0,
+    "optional_field_wrong_native_type_values": 0,
+    "page_envelope_count_mismatch": 0,
+    "page_provider_request_id_missing": 0,
+    "page_results_not_list": 0,
+    "page_status_not_ok": 0,
+    "provider_active_request_mismatch_rows": 0,
+    "required_ticker_invalid_rows": 0,
+    "unexpected_source_field_rows": 0
+  },
+  "identity_relationships": {
+    "full_history_cik_to_multiple_composite_figi_keys": 2647,
+    "full_history_cik_to_multiple_ticker_keys": 5966,
+    "full_history_composite_figi_to_multiple_ticker_keys": 1692,
+    "full_history_share_class_figi_to_multiple_ticker_keys": 1678,
+    "full_history_ticker_to_multiple_cik_keys": 3345,
+    "full_history_ticker_to_multiple_composite_figi_keys": 2199,
+    "full_history_ticker_to_multiple_share_class_figi_keys": 523,
+    "same_session_composite_figi_to_multiple_ticker_distinct_keys": 1652,
+    "same_session_composite_figi_to_multiple_ticker_group_instances": 1397034,
+    "same_session_exact_ticker_to_multiple_cik_groups": 0,
+    "same_session_exact_ticker_to_multiple_composite_figi_groups": 0,
+    "same_session_exact_ticker_to_multiple_share_class_figi_groups": 0,
+    "same_session_share_class_figi_to_multiple_ticker_distinct_keys": 1649,
+    "same_session_share_class_figi_to_multiple_ticker_group_instances": 1569364
+  },
+  "manifest_profile": {
+    "active_pages": 27014,
+    "active_rows": 25630067,
+    "completed_at_max_utc": "2026-07-11T16:23:47.148540Z",
+    "completed_at_min_utc": "2026-07-11T12:29:46.302322Z",
+    "complete_manifests": 5026,
+    "created_at_max_utc": "2026-07-11T16:23:34.452338Z",
+    "created_at_min_utc": "2026-07-11T12:29:41.671172Z",
+    "failed_or_in_progress_manifests": 0,
+    "inactive_pages": 45024,
+    "inactive_rows": 43751115,
+    "missing_active_inactive_session_pairs": 0
+  },
+  "profile_date": "2026-07-13",
+  "profile_elapsed_seconds": 1104.032,
+  "profile_method": "four_worker_manifest_bound_streaming_profile_v1",
+  "profile_summary_schema_version": 1,
+  "profile_summary_source": "successful_read_only_stdout_transcript",
+  "row_funnel": {
+    "accepted_observation_rows": 69381182,
+    "expected_universe_rows": 69376329,
+    "source_rows": 69381182,
+    "structurally_invalid_rows": 0,
+    "version_duplicate_excess_rows": 4853,
+    "version_member_rows": 9706
+  },
+  "time_relationships": {
+    "delisted": {
+      "active_missing_rows": 25630067,
+      "after_session_rows": 0,
+      "before_session_rows": 43121748,
+      "inactive_missing_rows": 616295,
+      "present_rows": 43134820,
+      "same_session_date_rows": 13072
+    },
+    "last_updated": {
+      "after_session_rows": 61106281,
+      "before_session_rows": 8251430,
+      "present_rows": 69381182,
+      "same_session_date_rows": 23471
+    }
+  },
+  "total_pages": 72038,
+  "total_rows": 69381182,
+  "write_boundary": {
+    "bronze_or_manifest_mtime_changes_after_profile_start": 0,
+    "profile_artifact_written_to_data_root": false
+  }
+}
