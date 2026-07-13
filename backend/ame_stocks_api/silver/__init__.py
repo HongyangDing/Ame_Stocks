@@ -48,6 +48,10 @@ from ame_stocks_api.silver.ticker_type_preview import (
     TickerTypePreviewRun,
     run_ticker_type_preview,
 )
+from ame_stocks_api.silver.ticker_type_release import (
+    TickerTypeReleaseRun,
+    complete_ticker_type_release,
+)
 from ame_stocks_api.silver.ticker_type_source import (
     TickerTypeSourceBatch,
     TickerTypeSourceError,
@@ -96,6 +100,7 @@ __all__ = [
     "SourceLayer",
     "TableContract",
     "TickerTypePreviewRun",
+    "TickerTypeReleaseRun",
     "TickerTypeSourceBatch",
     "TickerTypeSourceError",
     "TickerTypeSourcePage",
@@ -108,6 +113,7 @@ __all__ = [
     "build_exchange_source_inventory",
     "build_ticker_type_source_inventory",
     "complete_exchange_release",
+    "complete_ticker_type_release",
     "read_exchange_source_inventory",
     "read_ticker_type_source_inventory",
     "run_exchange_preview",
