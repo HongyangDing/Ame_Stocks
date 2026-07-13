@@ -1074,6 +1074,8 @@ class SilverStore:
         workflow_id: str,
         *,
         expected_event_sha256: str,
+        expected_plan_id: str,
+        expected_plan_sha256: str,
         approver: str,
         decided_at: str,
         note: str = "",
@@ -1082,12 +1084,23 @@ class SilverStore:
     ) -> WorkflowSnapshot:
         """Approve the exact immutable plan shown at full_run_plan_review."""
 
+        _digest(expected_plan_id, "expected full-run plan ID")
+        _digest(expected_plan_sha256, "expected full-run plan SHA-256")
         with self._workflow_lock(workflow_id):
             current = self._require_current(
                 workflow_id,
                 expected_event_sha256,
                 WorkflowState.FULL_RUN_PLAN_REVIEW,
             )
+            if (
+                self._evidence_text(current.evidence, "full_run_plan_id")
+                != expected_plan_id
+                or self._evidence_text(current.evidence, "full_run_plan_sha256")
+                != expected_plan_sha256
+            ):
+                raise SilverStoreError(
+                    "explicit full-run plan ID/SHA does not match the reviewed plan"
+                )
             contract, _ = self.load_workflow_contract(workflow_id)
             plan, plan_document = self.load_full_run_plan(
                 contract.table,

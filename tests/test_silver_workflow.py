@@ -638,6 +638,8 @@ def test_separate_full_run_plan_allows_later_scope_and_git_commit(
     snapshot = store.approve_full_run_plan(
         workflow_id,
         expected_event_sha256=snapshot.event_sha256,
+        expected_plan_id=plan.plan_id,
+        expected_plan_sha256=str(snapshot.evidence["full_run_plan_sha256"]),
         approver="reviewer",
         decided_at=T5,
     )
@@ -713,6 +715,8 @@ def test_full_build_must_match_the_separately_approved_plan(
     snapshot = store.approve_full_run_plan(
         preview.intent.workflow_id,
         expected_event_sha256=snapshot.event_sha256,
+        expected_plan_id=plan.plan_id,
+        expected_plan_sha256=str(snapshot.evidence["full_run_plan_sha256"]),
         approver="reviewer",
         decided_at=T5,
     )
@@ -778,6 +782,42 @@ def test_full_run_plan_document_is_part_of_the_trust_chain(tmp_path: Path) -> No
         store.status(preview.intent.workflow_id)
 
 
+@pytest.mark.parametrize("mismatch", ("plan_id", "plan_sha256"))
+def test_full_run_plan_approval_requires_explicit_exact_plan_identity(
+    tmp_path: Path,
+    mismatch: str,
+) -> None:
+    store, contract, preview, event_sha = _advance_to_preview_review(
+        tmp_path,
+        full_run_scope_policy=SEPARATE_FULL_RUN_PLAN_POLICY,
+    )
+    plan = _full_run_plan(tmp_path, store, contract, preview, event_sha)
+    snapshot = store.record_full_run_plan(
+        plan,
+        expected_event_sha256=event_sha,
+        actor="author",
+        recorded_at=T4,
+    )
+    expected_plan_id = plan.plan_id
+    expected_plan_sha256 = str(snapshot.evidence["full_run_plan_sha256"])
+    if mismatch == "plan_id":
+        expected_plan_id = "f" * 64
+    else:
+        expected_plan_sha256 = "f" * 64
+
+    with pytest.raises(SilverStoreError, match="explicit full-run plan ID/SHA"):
+        store.approve_full_run_plan(
+            preview.intent.workflow_id,
+            expected_event_sha256=snapshot.event_sha256,
+            expected_plan_id=expected_plan_id,
+            expected_plan_sha256=expected_plan_sha256,
+            approver="reviewer",
+            decided_at=T5,
+        )
+
+    assert store.status(preview.intent.workflow_id) == snapshot
+
+
 def test_full_run_plan_approval_reuses_the_exact_preview_qa_gate(tmp_path: Path) -> None:
     checks = _qa_checks(status=QAStatus.WARNING, severity=QASeverity.MEDIUM)
     store, contract, preview, event_sha = _advance_to_preview_review(
@@ -798,12 +838,16 @@ def test_full_run_plan_approval_reuses_the_exact_preview_qa_gate(tmp_path: Path)
         store.approve_full_run_plan(
             preview.intent.workflow_id,
             expected_event_sha256=snapshot.event_sha256,
+            expected_plan_id=plan.plan_id,
+            expected_plan_sha256=str(snapshot.evidence["full_run_plan_sha256"]),
             approver="reviewer",
             decided_at=T5,
         )
     approved = store.approve_full_run_plan(
         preview.intent.workflow_id,
         expected_event_sha256=snapshot.event_sha256,
+        expected_plan_id=plan.plan_id,
+        expected_plan_sha256=str(snapshot.evidence["full_run_plan_sha256"]),
         approver="reviewer",
         decided_at=T5,
         waived_qa_result_ids=tuple(check.result_id for check in checks),
@@ -826,6 +870,8 @@ def test_full_run_plan_preserves_exact_retry_lineage(tmp_path: Path) -> None:
     snapshot = store.approve_full_run_plan(
         preview.intent.workflow_id,
         expected_event_sha256=snapshot.event_sha256,
+        expected_plan_id=plan.plan_id,
+        expected_plan_sha256=str(snapshot.evidence["full_run_plan_sha256"]),
         approver="reviewer",
         decided_at=T5,
     )
@@ -885,6 +931,8 @@ def test_full_run_plan_approval_requires_exact_high_quarantine_acceptance(
         store.approve_full_run_plan(
             preview.intent.workflow_id,
             expected_event_sha256=snapshot.event_sha256,
+            expected_plan_id=plan.plan_id,
+            expected_plan_sha256=str(snapshot.evidence["full_run_plan_sha256"]),
             approver="reviewer",
             decided_at=T5,
         )
@@ -892,6 +940,8 @@ def test_full_run_plan_approval_requires_exact_high_quarantine_acceptance(
     approved = store.approve_full_run_plan(
         preview.intent.workflow_id,
         expected_event_sha256=snapshot.event_sha256,
+        expected_plan_id=plan.plan_id,
+        expected_plan_sha256=str(snapshot.evidence["full_run_plan_sha256"]),
         approver="reviewer",
         decided_at=T5,
         accepted_quarantine_issue_ids=accepted,

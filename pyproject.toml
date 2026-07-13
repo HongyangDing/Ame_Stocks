@@ -52,6 +52,9 @@ ame-silver-assets-source-profile = "ame_stocks_api.cli.silver_asset_source_profi
 ame-silver-assets-schema-review = "ame_stocks_api.cli.silver_assets_schema_review:main"
 ame-silver-assets-schema-approval = "ame_stocks_api.cli.silver_assets_schema_approval:main"
 ame-silver-assets-preview = "ame_stocks_api.cli.silver_assets_preview:main"
+ame-silver-assets-full-run-plan = "ame_stocks_api.cli.silver_assets_full_run_plan:main"
+ame-silver-assets-full-run-plan-approval = "ame_stocks_api.cli.silver_assets_full_run_plan_approval:main"
+ame-silver-assets-full = "ame_stocks_api.cli.silver_assets_full:main"
 ame-view-parquet = "ame_stocks_api.cli.parquet_view:main"
 
 [tool.pytest.ini_options]
