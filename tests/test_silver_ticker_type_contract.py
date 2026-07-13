@@ -8,6 +8,10 @@ from ame_stocks_api.silver.contracts import (
     QAStatus,
     TableContract,
 )
+from ame_stocks_api.silver.ticker_type_contract import (
+    TICKER_TYPE_DIM_CONTRACT,
+    TICKER_TYPE_DIM_CONTRACT_ID,
+)
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 _CANDIDATE_CONTRACT_PATH = (
@@ -18,21 +22,32 @@ _CANDIDATE_CONTRACT_PATH = (
     / "reference"
     / "ticker_type_dim.schema-v1.candidate.json"
 )
-_EXPECTED_CONTRACT_ID = (
-    "b2297d0631ae7560e7c3a9f73a288c62154db36b3188275e62f69c642884e38d"
+_APPROVED_CONTRACT_PATH = (
+    _REPOSITORY_ROOT
+    / "backend"
+    / "ame_stocks_api"
+    / "silver"
+    / "schema_resources"
+    / "ticker_type_dim.schema-v1.json"
 )
+_EXPECTED_CONTRACT_ID = "b2297d0631ae7560e7c3a9f73a288c62154db36b3188275e62f69c642884e38d"
 
 
 def _candidate_contract() -> TableContract:
-    return TableContract.from_dict(
-        json.loads(_CANDIDATE_CONTRACT_PATH.read_text(encoding="utf-8"))
-    )
+    return TableContract.from_dict(json.loads(_CANDIDATE_CONTRACT_PATH.read_text(encoding="utf-8")))
+
+
+def _approved_contract() -> TableContract:
+    return TableContract.from_dict(json.loads(_APPROVED_CONTRACT_PATH.read_text(encoding="utf-8")))
 
 
 def test_ticker_type_dim_candidate_is_valid_and_deterministic() -> None:
     contract = _candidate_contract()
 
     assert contract.contract_id == _EXPECTED_CONTRACT_ID
+    assert contract.contract_id == TICKER_TYPE_DIM_CONTRACT_ID
+    assert contract == _approved_contract()
+    assert contract == TICKER_TYPE_DIM_CONTRACT
     assert TableContract.from_dict(contract.to_dict()) == contract
     assert (contract.domain, contract.table, contract.schema_version) == (
         "reference",
@@ -79,9 +94,7 @@ def test_ticker_type_dim_candidate_freezes_fields_and_nullability() -> None:
         "source_row_hash",
     )
     assert len(columns) == 17
-    assert {name for name, column in columns.items() if column.nullable} == {
-        "description"
-    }
+    assert {name for name, column in columns.items() if column.nullable} == {"description"}
 
     # S2 is a provider-code dictionary, not a requested-date, surrogate-ID,
     # coarse-bucket, or research-eligibility mapping.
@@ -132,20 +145,17 @@ def test_ticker_type_dim_candidate_freezes_exact_qa_policy() -> None:
     assert {
         check_id
         for check_id, rule in rules.items()
-        if rule.failure_status is QAStatus.FAILED
-        and rule.severity is QASeverity.CRITICAL
+        if rule.failure_status is QAStatus.FAILED and rule.severity is QASeverity.CRITICAL
     } == failed_critical
     assert {
         check_id
         for check_id, rule in rules.items()
-        if rule.failure_status is QAStatus.FAILED
-        and rule.severity is QASeverity.HIGH
+        if rule.failure_status is QAStatus.FAILED and rule.severity is QASeverity.HIGH
     } == failed_high
     assert {
         check_id
         for check_id, rule in rules.items()
-        if rule.failure_status is QAStatus.WARNING
-        and rule.severity is QASeverity.MEDIUM
+        if rule.failure_status is QAStatus.WARNING and rule.severity is QASeverity.MEDIUM
     } == warning_medium
     assert all(type(rule.limit) is float and rule.limit == 0.0 for rule in rules.values())
 
@@ -166,12 +176,14 @@ def test_ticker_type_dim_candidate_keeps_temporal_drift_review_only() -> None:
         assert rule.failure_status is QAStatus.WARNING
         assert "prior capture" in rule.description
 
-    assert "earliest capture is excluded" in rules[
-        "new_type_code_rows_since_prior_capture"
-    ].description
-    assert "earliest capture is excluded" in rules[
-        "disappeared_type_code_rows_since_prior_capture"
-    ].description
+    assert (
+        "earliest capture is excluded"
+        in rules["new_type_code_rows_since_prior_capture"].description
+    )
+    assert (
+        "earliest capture is excluded"
+        in rules["disappeared_type_code_rows_since_prior_capture"].description
+    )
 
     # Coverage against assets.type belongs to the later S4 point-in-time join,
     # not to this current-only S2 dictionary contract.

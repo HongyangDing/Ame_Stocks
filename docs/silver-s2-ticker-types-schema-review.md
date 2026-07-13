@@ -1,23 +1,27 @@
-# Silver S2 `ticker_types` schema review
+# Silver S2 `ticker_types` approved schema and code-ready checkpoint
 
 ## 1. 当前状态与硬边界
 
-2026-07-13，S2 从 `planned` 进入 **Phase 1 / `schema_review`**。本次只完成 Bronze
-只读画像、字段语义判断、候选 schema 和 QA contract；硬停点仍在用户对精确 contract 的批准
-之前。
+2026-07-13，用户逐字批准精确 contract
+`b2297d0631ae7560e7c3a9f73a288c62154db36b3188275e62f69c642884e38d`，S2 从
+`schema_review` 进入 **Phase 1 / `code_ready`**。Bronze 只读画像、字段语义、17 字段 schema、
+20 项 QA、manifest-bound source reader 和纯转换现已冻结；实现目前只在 synthetic fixtures 上
+运行。
 
-本检查点只允许：
+本检查点已完成：
 
 - 只读检查 manifest 明确绑定的一份 `ticker_types` Bronze 当前快照；
 - 冻结目标表的 grain、字段、类型、键、PIT availability、lineage、重复和 quarantine 规则；
-- 登记候选 contract 和 `schema_review` workflow 状态；
-- 展示候选 contract ID，等待用户逐字批准。
+- 登记并批准精确 contract，将 workflow 推进到 `code_ready`；
+- 将批准内容封装为 package resource，并实现只读 source inventory/reader 与无 I/O 的纯转换；
+- 用 synthetic fixtures 验证 schema、lineage、PIT、temporal QA、重复、quarantine 和 domain QA。
 
-本检查点**不授权**编写或运行 S2 业务转换，不生成 preview，不运行 full build，不批准或发布
-release，也不读取或修改 S4 `assets`。候选 schema 即使通过本地测试，也不等于数据已经进入
-Silver。
+本检查点**不授权真实数据运行**：没有读取真实 24 行 source 来执行转换，没有生成 S2 preview，
+没有运行 full build，没有批准或发布 release，也没有写入任何 S2 Silver 数据。它同样不读取或
+修改 S4 `assets`。下一硬停点在真实 24 行 preview **之前**；代码和 synthetic tests 通过不等于
+数据已经进入 Silver。
 
-候选合同：
+已批准合同的 review source：
 [`ticker_type_dim.schema-v1.candidate.json`](silver/contracts/reference/ticker_type_dim.schema-v1.candidate.json)
 
 - candidate `contract_id`：
@@ -27,8 +31,27 @@ Silver。
 - domain/table：`reference/ticker_type_dim`
 - schema version：`1`
 
-这两个 digest 由候选内容确定；任何字段、顺序、类型、nullability、key 或 QA 变更都会产生新 ID，
+这两个 digest 由合同内容确定；任何字段、顺序、类型、nullability、key 或 QA 变更都会产生新 ID，
 必须重新 review，不能沿用本次批准。
+
+### 1.1 Packaged contract 与 code-ready 模块
+
+- package resource：
+  [`ticker_type_dim.schema-v1.json`](../backend/ame_stocks_api/silver/schema_resources/ticker_type_dim.schema-v1.json)
+- 固定加载与 contract ID guard：
+  [`ticker_type_contract.py`](../backend/ame_stocks_api/silver/ticker_type_contract.py)
+- manifest/checksum/envelope-bound source inventory 与 reader：
+  [`ticker_type_source.py`](../backend/ame_stocks_api/silver/ticker_type_source.py)
+- 纯 Arrow 转换、row funnel、quarantine、PIT 与 20 项 QA：
+  [`ticker_types.py`](../backend/ame_stocks_api/silver/ticker_types.py)
+- synthetic contract/transform tests：
+  [`test_silver_ticker_type_contract.py`](../tests/test_silver_ticker_type_contract.py) 与
+  [`test_silver_ticker_types.py`](../tests/test_silver_ticker_types.py)
+
+packaged resource 与批准的 candidate 解析为同一 `TableContract`；运行时 loader 对精确
+`contract_id` fail closed。Source reader 只接受 inventory 明确列出的 canonical manifest/page，
+逐项重验 status、路径、bytes、stored/raw SHA、gzip、JSON envelope 和 row count；纯转换只接收
+已验证的内存 batch，本身不写 staging/Silver，也不推进 workflow。
 
 ## 2. 只读证据边界
 
@@ -222,6 +245,11 @@ source_record_id = stable_digest({
 | `disappeared_type_code_rows_since_prior_capture` | Medium / warning | 相比紧邻前次 capture 消失的 key 数 |
 | `description_changed_rows_since_prior_capture` | Medium / warning | 两次 capture 共有 key 中 description 原值改变的 key 数 |
 
+`asset_class_domain_invalid_rows` 和 `locale_domain_invalid_rows` 的语义特意与 required-field
+quarantine 分开：只要原值是非空 string，domain mismatch 行就原样保留在候选输出中，同时产生
+High `failed` QA 并阻断 build。实现不会通过删除、改写或 quarantine 非 `stocks`/`us` 行来让
+domain 检查变绿；这样 review 能看到 provider domain drift 的原始值和 lineage。
+
 ### 5.1 Temporal QA 的分母
 
 三项 temporal QA 都只比较同一 build 内按 `capture_date` 排序后、当前 capture 与紧邻前次
@@ -254,9 +282,9 @@ S2 字典未来用于解释 S4 `assets.type`，但 S4 尚未进入 schema review
 这项推迟不是漏测，而是避免跨数据集顺序错误和 survivorship/look-ahead bias。S2 的 required QA
 只证明字典自身完整、可追溯和可按捕获时点使用。
 
-## 7. 本次 review 需要批准的精确决定
+## 7. 已批准的精确决定与下一硬停点
 
-批准 candidate contract 等于批准以下边界，而不是批准运行 preview：
+用户对精确 contract 的批准确认了以下边界，但**没有**批准运行 preview：
 
 1. 接受 `reference/ticker_type_dim` 的 17 字段、字段顺序和唯一 nullable `description`；
 2. 接受主键 `(capture_date, asset_class, locale, type_code)` 和按 capture date append-only；
@@ -265,8 +293,14 @@ S2 字典未来用于解释 S4 `assets.type`，但 S4 尚未进入 schema review
 5. 接受 13 个 Critical/High hard checks、7 个 Medium warnings，以及 temporal earliest-capture
    denominator=0 的语义；
 6. 接受 `assets.type` coverage 和研究 eligibility 推迟到 S4/S7；
-7. 批准精确 candidate contract ID
+7. 批准精确 contract ID
    `b2297d0631ae7560e7c3a9f73a288c62154db36b3188275e62f69c642884e38d`。
 
-批准后下一步也只进入 `code_ready`：实现纯转换和 synthetic fixture 测试，然后再次停在真实
-24 行 preview 之前。未经另一次明确授权，不运行 preview；更不会运行 full build 或 publish。
+上述 contract 已进入 `code_ready`，纯转换和 synthetic fixture 测试已经完成。Synthetic tests
+覆盖 request date label 与 capture time 分离、首个严格晚于 capture 的 XNYS open、current-only
+snapshot、相邻 capture temporal diff、首个 capture 的 0/0 temporal 指标、精确重复、主键冲突、
+required-field quarantine，以及保留 domain mismatch 后产生 High failure。
+
+当前再次停在真实 manifest-bound 24 行 preview **之前**。截至本检查点，没有 S2 preview、full
+build、release 或 S2 Silver 数据产物；未经另一次明确授权，不读取真实 source 执行转换，也不
+创建 staging preview，更不会推进 full build 或 publish。
