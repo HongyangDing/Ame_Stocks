@@ -4,53 +4,49 @@ import hashlib
 import json
 from pathlib import Path
 
+from ame_stocks_api.silver.asset_contract import (
+    ASSET_CONTRACTS,
+    ASSET_OBSERVATION_DAILY_CONTRACT,
+    ASSET_OBSERVATION_DAILY_CONTRACT_ID,
+    ASSET_OBSERVATION_VERSION_CONTRACT,
+    ASSET_OBSERVATION_VERSION_CONTRACT_ID,
+    UNIVERSE_SOURCE_DAILY_CONTRACT,
+    UNIVERSE_SOURCE_DAILY_CONTRACT_ID,
+)
 from ame_stocks_api.silver.contracts import QASeverity, QAStatus, TableContract
 
 _ROOT = Path(__file__).resolve().parents[1]
 _CANDIDATES = {
     "asset_observation_daily": (
-        _ROOT
-        / "docs/silver/contracts/identity/asset_observation_daily.schema-v1.candidate.json"
+        _ROOT / "docs/silver/contracts/identity/asset_observation_daily.schema-v1.candidate.json"
     ),
     "asset_observation_version": (
-        _ROOT
-        / "docs/silver/contracts/identity/asset_observation_version.schema-v1.candidate.json"
+        _ROOT / "docs/silver/contracts/identity/asset_observation_version.schema-v1.candidate.json"
     ),
     "universe_source_daily": (
-        _ROOT
-        / "docs/silver/contracts/reference/universe_source_daily.schema-v1.candidate.json"
+        _ROOT / "docs/silver/contracts/reference/universe_source_daily.schema-v1.candidate.json"
     ),
 }
 _EXPECTED_IDS = {
-    "asset_observation_daily": (
-        "dd916b8528b9ce1a341e6b8ad897ae80e40d5df118b8e102e4ea1f1ea6e9c045"
-    ),
+    "asset_observation_daily": ("dd916b8528b9ce1a341e6b8ad897ae80e40d5df118b8e102e4ea1f1ea6e9c045"),
     "asset_observation_version": (
         "14ce114f5911f7e4d1c15e58f0f42a8307066d6517e859d6233fa23c199616fc"
     ),
-    "universe_source_daily": (
-        "9711320ee9227df347224b7cd17a41fe10a352fddf089cd72b758bde7a7f0c58"
-    ),
+    "universe_source_daily": ("9711320ee9227df347224b7cd17a41fe10a352fddf089cd72b758bde7a7f0c58"),
 }
 _EXPECTED_SCHEMA_DIGESTS = {
-    "asset_observation_daily": (
-        "402d0ea624dc26e43ea63974572ede5a46ae20e0741e97a3d01d07075a71bc1e"
-    ),
+    "asset_observation_daily": ("402d0ea624dc26e43ea63974572ede5a46ae20e0741e97a3d01d07075a71bc1e"),
     "asset_observation_version": (
         "4c797ca373d697078b2061b9a76696dc036a1d2db0a5f8e1fe3ce2dac4b6bb4b"
     ),
-    "universe_source_daily": (
-        "78b799cd5a2621b5a78e4ed8c23c090f6aea686fcd786366e5c258e81ad278a5"
-    ),
+    "universe_source_daily": ("78b799cd5a2621b5a78e4ed8c23c090f6aea686fcd786366e5c258e81ad278a5"),
 }
 _PROFILE_PATH = _ROOT / "docs/silver/source-profiles/assets-full-2026-07-13.json"
 _PROFILE_SHA256 = "5d813c13d6e79c8da43d230b223b19e3d6aebb9846f865be1236e4299e6e48a6"
 
 
 def _contract(name: str) -> TableContract:
-    return TableContract.from_dict(
-        json.loads(_CANDIDATES[name].read_text(encoding="utf-8"))
-    )
+    return TableContract.from_dict(json.loads(_CANDIDATES[name].read_text(encoding="utf-8")))
 
 
 def test_s4_full_source_profile_summary_is_machine_readable_and_reconciled() -> None:
@@ -80,21 +76,24 @@ def test_s4_full_source_profile_summary_is_machine_readable_and_reconciled() -> 
     assert duplicates["delisted_and_last_updated_only_group_count"] == 2_736
     assert duplicates["non_exact_unique_max_last_updated_groups"] == 4_851
     assert duplicates["selected_unresolved_groups"] == 0
-    assert sum(
-        duplicates[name]
-        for name in (
-            "exact_canonical_object_group_count",
-            "last_updated_only_group_count",
-            "delisted_and_last_updated_only_group_count",
+    assert (
+        sum(
+            duplicates[name]
+            for name in (
+                "exact_canonical_object_group_count",
+                "last_updated_only_group_count",
+                "delisted_and_last_updated_only_group_count",
+            )
         )
-    ) == duplicates["group_count"]
+        == duplicates["group_count"]
+    )
     assert profile["row_funnel"]["expected_universe_rows"] == (
         profile["total_rows"] - duplicates["duplicate_excess_rows"]
     )
     assert profile["distinct_counts"] == {"primary_exchange": 7, "type": 15}
 
 
-def test_s4_candidates_are_valid_deterministic_and_not_packaged_as_approved() -> None:
+def test_s4_candidates_are_valid_and_packaged_byte_for_byte_as_approved() -> None:
     contracts = {name: _contract(name) for name in _CANDIDATES}
 
     assert {name: contract.contract_id for name, contract in contracts.items()} == _EXPECTED_IDS
@@ -102,8 +101,7 @@ def test_s4_candidates_are_valid_deterministic_and_not_packaged_as_approved() ->
         name: contract.schema_digest for name, contract in contracts.items()
     } == _EXPECTED_SCHEMA_DIGESTS
     assert all(
-        TableContract.from_dict(contract.to_dict()) == contract
-        for contract in contracts.values()
+        TableContract.from_dict(contract.to_dict()) == contract for contract in contracts.values()
     )
     assert {
         name: (contract.domain, contract.table, contract.schema_version)
@@ -116,9 +114,21 @@ def test_s4_candidates_are_valid_deterministic_and_not_packaged_as_approved() ->
     assert all(contract.source_datasets == ("assets",) for contract in contracts.values())
 
     approved_root = _ROOT / "backend/ame_stocks_api/silver/schema_resources"
-    assert not (approved_root / "asset_observation_daily.schema-v1.json").exists()
-    assert not (approved_root / "asset_observation_version.schema-v1.json").exists()
-    assert not (approved_root / "universe_source_daily.schema-v1.json").exists()
+    resources = {
+        "asset_observation_daily": (approved_root / "asset_observation_daily.schema-v1.json"),
+        "asset_observation_version": (approved_root / "asset_observation_version.schema-v1.json"),
+        "universe_source_daily": approved_root / "universe_source_daily.schema-v1.json",
+    }
+    assert all(
+        resources[name].read_bytes() == path.read_bytes() for name, path in _CANDIDATES.items()
+    )
+    assert dict(ASSET_CONTRACTS) == contracts
+    assert contracts["asset_observation_daily"] == ASSET_OBSERVATION_DAILY_CONTRACT
+    assert contracts["asset_observation_version"] == ASSET_OBSERVATION_VERSION_CONTRACT
+    assert contracts["universe_source_daily"] == UNIVERSE_SOURCE_DAILY_CONTRACT
+    assert _EXPECTED_IDS["asset_observation_daily"] == ASSET_OBSERVATION_DAILY_CONTRACT_ID
+    assert _EXPECTED_IDS["asset_observation_version"] == ASSET_OBSERVATION_VERSION_CONTRACT_ID
+    assert _EXPECTED_IDS["universe_source_daily"] == UNIVERSE_SOURCE_DAILY_CONTRACT_ID
 
 
 def test_asset_observation_daily_freezes_full_source_evidence_without_deduplication() -> None:
@@ -232,18 +242,15 @@ def test_asset_observation_version_is_a_bounded_duplicate_projection() -> None:
     assert contract.partition_by == ("session_year", "session_date")
     assert "more than one row" in contract.grain
     assert "singleton observations are intentionally excluded" in contract.description
-    assert "active,ticker,type,name,market,locale,primary_exchange" in columns[
-        "identity_signature"
-    ].description
-    assert "[delisted_utc,last_updated_utc]" in columns[
-        "difference_fields_json"
-    ].description
+    assert (
+        "active,ticker,type,name,market,locale,primary_exchange"
+        in columns["identity_signature"].description
+    )
+    assert "[delisted_utc,last_updated_utc]" in columns["difference_fields_json"].description
     assert "resolved_exact_duplicate" in columns["selection_status"].description
     assert "unresolved_timestamp_tie" in columns["selection_status"].description
     assert "canonical-JSON-equivalent" in columns["selection_rule_version"].description
-    assert "unique maximum last_updated wins" in columns[
-        "selection_rule_version"
-    ].description
+    assert "unique maximum last_updated wins" in columns["selection_rule_version"].description
 
     rules = {rule.check_id: rule for rule in contract.qa_rules}
     assert rules["singleton_version_rows"].severity is QASeverity.CRITICAL
@@ -314,14 +321,13 @@ def test_universe_source_daily_is_source_membership_not_final_identity() -> None
         "last_updated_at_utc",
         "version_group_id",
     }
-    assert "complete active=true and active=false request pair" in columns[
-        "universe_capture_completed_at_utc"
-    ].description
+    assert (
+        "complete active=true and active=false request pair"
+        in columns["universe_capture_completed_at_utc"].description
+    )
     assert "No value is an asset ID" in columns["identity_link_status"].description
     assert "unresolved groups cannot enter" in columns["selection_status"].description
-    assert "resolved_unique_latest_last_updated" in columns[
-        "selection_status"
-    ].description
+    assert "resolved_unique_latest_last_updated" in columns["selection_status"].description
     assert "active_source_request_id" in columns["source_pair_id"].description
 
 
@@ -337,9 +343,7 @@ def test_s4_contracts_freeze_fail_closed_qa_and_forbid_future_semantics() -> Non
     observation_rules = {
         rule.check_id: rule for rule in contracts["asset_observation_daily"].qa_rules
     }
-    universe_rules = {
-        rule.check_id: rule for rule in contracts["universe_source_daily"].qa_rules
-    }
+    universe_rules = {rule.check_id: rule for rule in contracts["universe_source_daily"].qa_rules}
     for check_id in {
         "active_inactive_overlap_rows",
         "provider_active_mismatch_rows",
@@ -368,9 +372,10 @@ def test_s4_contracts_freeze_fail_closed_qa_and_forbid_future_semantics() -> Non
     for contract in contracts.values():
         assert forbidden.isdisjoint(column.name for column in contract.columns)
 
-    assert "current-only" in observation_rules[
-        "current_type_dictionary_unmatched_values"
-    ].description
-    assert "diagnostic only" in universe_rules[
-        "current_exchange_dictionary_unmatched_values"
-    ].description
+    assert (
+        "current-only" in observation_rules["current_type_dictionary_unmatched_values"].description
+    )
+    assert (
+        "diagnostic only"
+        in universe_rules["current_exchange_dictionary_unmatched_values"].description
+    )

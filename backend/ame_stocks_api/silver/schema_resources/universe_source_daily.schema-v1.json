@@ -1,0 +1,535 @@
+{
+  "columns": [
+    {
+      "arrow_type": "int64",
+      "description": "Four-digit year derived from session_date for physical partitioning.",
+      "name": "session_year",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "XNYS date sent to the provider and effective date of reconstructed active/inactive membership.",
+      "name": "session_date",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact case-sensitive provider ticker preserved without trimming, case conversion, or alias merging.",
+      "name": "ticker",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Selected provider active value for session_date; inactive rows remain in the table and research filters explicitly.",
+      "name": "active_on_date",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional Massive type value preserved byte-for-byte as a case-sensitive code; no current dictionary value is backfilled.",
+      "name": "type_code",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional provider security name preserved verbatim.",
+      "name": "name",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional provider market value preserved verbatim.",
+      "name": "market",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional provider locale value preserved verbatim.",
+      "name": "locale",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional provider primary_exchange value preserved verbatim as a candidate MIC; no S1 value is substituted.",
+      "name": "primary_exchange_mic",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional provider currency_name value preserved verbatim without currency-code normalization.",
+      "name": "currency_name",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional provider CIK preserved as a string without zero padding or issuer merging.",
+      "name": "cik",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional provider Composite FIGI preserved verbatim; it is identity evidence, not a final asset_id.",
+      "name": "composite_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional provider share-class FIGI preserved verbatim; it is identity evidence, not an issuer join by itself.",
+      "name": "share_class_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "Parsed selected provider delisted_utc value; absent does not invalidate inactive membership.",
+      "name": "delisted_at_utc",
+      "nullable": true
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "Parsed selected provider metadata revision time; it is not historical research availability.",
+      "name": "last_updated_at_utc",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact domain based on non-null Composite FIGI, share-class FIGI and CIK count: multi_identifier_evidence_pending_s7, single_identifier_evidence_pending_s7, or insufficient_identity_evidence_pending_s7. No value is an asset ID.",
+      "name": "identity_link_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Chosen asset_observation_daily parent source_record_id.",
+      "name": "selected_source_record_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Version group digest when more than one source observation existed; null for a singleton.",
+      "name": "version_group_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Number of observation candidates for this session/request-active/exact-ticker; at least one.",
+      "name": "source_version_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact universe status domain: singleton, resolved_exact_duplicate, or resolved_unique_latest_last_updated; unresolved groups cannot enter.",
+      "name": "selection_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed s4_asset_source_version_selection_v1 algorithm bound by the asset_observation_version contract; singleton is the only no-version-group path.",
+      "name": "selection_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed provider_historical_date_membership_snapshot_v1 marker: session_date is the date sent to Massive and is only membership-effective evidence.",
+      "name": "reference_time_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed metadata_as_returned_at_source_capture_not_historical_vintage_v1 marker; descriptive fields cannot be treated as archived session-date metadata.",
+      "name": "metadata_time_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Canonical local Bronze request ID for the complete active=true half of the session pair.",
+      "name": "active_source_request_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Canonical local Bronze request ID for the complete active=false half of the session pair.",
+      "name": "inactive_source_request_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "stable_digest of the exact mapping {active_source_request_id, inactive_source_request_id, session_date ISO string}; binds both manifests used for universe completion and availability.",
+      "name": "source_pair_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "Bronze manifest completed_at for the selected source row.",
+      "name": "selected_source_capture_at_utc",
+      "nullable": false
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "Later completed_at of the complete active=true and active=false request pair for session_date.",
+      "name": "universe_capture_completed_at_utc",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session whose open is strictly after universe_capture_completed_at_utc; operational ingestion availability only.",
+      "name": "source_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "XNYS open timestamp for source_available_session, derived from the complete pair rather than only the selected row.",
+      "name": "source_available_at_utc",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed first_xnys_open_after_complete_active_inactive_pair_v1 operational rule.",
+      "name": "source_availability_rule",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed reconstructed_historical_snapshot_without_archived_vintage marker.",
+      "name": "source_availability_quality",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Canonical local Bronze request ID from the authoritative manifest.",
+      "name": "source_request_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Server-assigned request ID from the Massive response envelope.",
+      "name": "source_provider_request_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of the stored gzip Bronze page containing this source row.",
+      "name": "source_artifact_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Zero-based page sequence from the manifest-bound paginated response.",
+      "name": "source_page_sequence",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Zero-based result ordinal within the source page.",
+      "name": "source_row_ordinal",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of canonical JSON for the unmodified provider result object.",
+      "name": "source_row_hash",
+      "nullable": false
+    }
+  ],
+  "contract_id": "9711320ee9227df347224b7cd17a41fe10a352fddf089cd72b758bde7a7f0c58",
+  "contract_schema_version": 1,
+  "description": "One selected source identity observation per XNYS session and exact ticker across active and inactive Massive snapshots, preserving reconstructed membership semantics and selection lineage without creating provisional or final S7 asset or issuer identities.",
+  "domain": "reference",
+  "grain": "One auditable selected source observation for each exact case-sensitive (session_date, ticker) after active/inactive pairing and version resolution.",
+  "partition_by": [
+    "session_year",
+    "session_date"
+  ],
+  "primary_key": [
+    "session_date",
+    "ticker"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "schema_exact",
+      "description": "Every output Parquet field, order, Arrow type, and nullability must equal this contract.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_session_pair_cardinality_invalid",
+      "description": "Every universe session must be backed by exactly one complete active=true and one complete active=false authoritative request.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "observation_parent_missing_rows",
+      "description": "Every selected_source_record_id must match exactly one asset_observation_daily parent on the same session.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "version_parent_missing_rows",
+      "description": "Every multi-version selection must match the one selected row in asset_observation_version; singleton rows must have no version group.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "unresolved_version_groups_entered",
+      "description": "No unresolved version group may produce a universe row.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "active_inactive_overlap_rows",
+      "description": "No exact ticker may occur in both active and inactive source sets for one session.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "universe_row_formula_invalid",
+      "description": "Universe rows must equal observation rows minus sum(version_count minus one), with zero overlap and unresolved groups.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "selection_formula_invalid_rows",
+      "description": "Every singleton or multi-version group must contribute exactly its one auditable selected source row.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "selected_source_record_id_invalid_rows",
+      "description": "Every selected source ID, version count, group ID, and selection status must reproduce the frozen decision.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_duplicate_excess",
+      "description": "The output must contain no duplicate excess for exact session_date and ticker.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "lineage_invalid_rows",
+      "description": "Every universe row must reproduce the selected observation request, page, ordinal, artifact, and raw-row hashes.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_pair_lineage_invalid_rows",
+      "description": "active/inactive source request IDs and source_pair_id must reproduce the exact complete manifest pair for session_date.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "universe_availability_invalid_rows",
+      "description": "Pair completion and operational availability must use max(active completed_at, inactive completed_at) and the first later XNYS open.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "reference_time_scope_invalid_rows",
+      "description": "Every row must carry the exact historical-date membership scope marker.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "metadata_time_scope_invalid_rows",
+      "description": "Every row must carry the exact non-archived metadata scope marker.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_availability_quality_invalid_rows",
+      "description": "Every row must disclose reconstructed snapshot quality without claiming archived vintage metadata.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "session_year_invalid_rows",
+      "description": "session_year must equal the four-digit year of session_date.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "active_snapshot_empty_sessions",
+      "description": "No session may produce zero active_on_date=true rows.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "current_dictionary_backfill_rows",
+      "description": "No S1/S2 current-only value may replace, fill, filter, or classify a historical Assets source field in this source universe.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_link_status_invalid_rows",
+      "description": "Every status must equal multi_identifier_evidence_pending_s7, single_identifier_evidence_pending_s7, or insufficient_identity_evidence_pending_s7 according to the count of non-null Composite FIGI, share-class FIGI and CIK fields.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "same_session_ticker_identity_conflict_rows",
+      "description": "No exact session ticker may resolve from conflicting Composite FIGI, share-class FIGI, or CIK evidence.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "selected_timestamp_parse_invalid_rows",
+      "description": "No selected present timestamp source value may lack its strict UTC parsed representation.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "identity_evidence_missing_rows",
+      "description": "Rows without FIGI or CIK evidence retain an explicit insufficient-evidence status for S7 and are never ticker-merged.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "same_session_composite_figi_multiple_ticker_groups",
+      "description": "Composite FIGIs observed under multiple exact tickers in one session remain separate source-universe rows and require S7 lifecycle evidence.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "same_session_share_class_figi_multiple_ticker_groups",
+      "description": "Share-class FIGIs observed under multiple exact tickers in one session remain separate source-universe rows and require S7 lifecycle evidence.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "casefold_collision_groups",
+      "description": "Distinct exact tickers that collide after casefold remain separate and visible.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "current_type_dictionary_unmatched_values",
+      "description": "Unmatched historical source type codes against the current-only S2 release are diagnostic only and remain unchanged.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "current_exchange_dictionary_unmatched_values",
+      "description": "Unmatched historical source exchange MICs against the current-only S1 release are diagnostic only and remain unchanged.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "metadata_updated_after_session_rows",
+      "description": "Selected metadata revised after session_date is disclosed as non-archived metadata rather than treated as historical vintage.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "inactive_without_delisted_rows",
+      "description": "Inactive membership without a delisted timestamp remains in the universe and is reported without invented dates.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "cross_session_ticker_identity_churn_groups",
+      "description": "Exact tickers with changing identity evidence across sessions remain separate observations for S7 resolution.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    }
+  ],
+  "schema_version": 1,
+  "sort_by": [
+    "session_date",
+    "ticker"
+  ],
+  "source_datasets": [
+    "assets"
+  ],
+  "table": "universe_source_daily"
+}

@@ -49,6 +49,7 @@ ame-silver-ticker-types-preview = "ame_stocks_api.cli.silver_ticker_types_previe
 ame-silver-ticker-types-release = "ame_stocks_api.cli.silver_ticker_types_release:main"
 ame-silver-condition-codes-lifecycle = "ame_stocks_api.cli.silver_condition_codes_lifecycle:main"
 ame-silver-assets-source-profile = "ame_stocks_api.cli.silver_asset_source_profile:main"
+ame-silver-assets-schema-review = "ame_stocks_api.cli.silver_assets_schema_review:main"
 ame-view-parquet = "ame_stocks_api.cli.parquet_view:main"
 
 [tool.pytest.ini_options]
