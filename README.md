@@ -91,6 +91,14 @@ Read-only S0 inspection commands are available after installation:
 .venv/bin/ame-silver inspect-release --data-root /path/to/data --release-id <sha256>
 ```
 
+Inspect any Parquet file without truncating columns. The viewer prints complete rows in five-row
+pages by default:
+
+```bash
+.venv/bin/python -m ame_stocks_api.cli.parquet_view /path/to/file.parquet --page 1 --schema
+.venv/bin/python -m ame_stocks_api.cli.parquet_view /path/to/file.parquet --page 2
+```
+
 There is intentionally no S0 CLI command that downloads Bronze, runs a dataset transform, approves
 a review, selects a “latest” build, or exposes unpublished data.
 
