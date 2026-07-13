@@ -6,6 +6,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 
+from ame_stocks_api import artifacts as artifact_module
 from ame_stocks_api.artifacts import (
     ArtifactError,
     safe_relative_path,
@@ -48,6 +49,58 @@ def test_write_bytes_immutable_is_idempotent_and_rejects_conflicts(tmp_path: Pat
         write_bytes_immutable(root, target, b"conflicting payload")
 
     assert target.read_bytes() == b"fixed payload"
+
+
+def test_write_bytes_immutable_can_stage_outside_final_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "data"
+    root.mkdir()
+    target = root / "staging" / "silver" / "build" / "payload.bin"
+    temporary_directory = root / "tmp" / "immutable-writes"
+    temporary_directory.mkdir(parents=True)
+    orphan = temporary_directory / ".payload.bin.tmp-interrupted"
+    orphan.write_bytes(b"incomplete unrelated write")
+    actual_temporary_paths: list[Path] = []
+    real_write_synced = artifact_module._write_synced
+
+    def capture_write(path: Path, content: bytes) -> None:
+        actual_temporary_paths.append(path)
+        real_write_synced(path, content)
+
+    monkeypatch.setattr(artifact_module, "_write_synced", capture_write)
+
+    stored = write_bytes_immutable(
+        root,
+        target,
+        b"fixed payload",
+        temporary_directory=temporary_directory,
+    )
+
+    assert stored["path"] == "staging/silver/build/payload.bin"
+    assert target.read_bytes() == b"fixed payload"
+    assert len(actual_temporary_paths) == 1
+    assert actual_temporary_paths[0].parent == temporary_directory
+    assert tuple(target.parent.glob("*.tmp-*")) == ()
+    assert tuple(target.parent.glob(".*.tmp-*")) == ()
+    assert tuple(temporary_directory.iterdir()) == (orphan,)
+    assert orphan.read_bytes() == b"incomplete unrelated write"
+
+
+def test_write_bytes_immutable_rejects_unsafe_temporary_directory(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    root.mkdir()
+
+    with pytest.raises(ArtifactError, match="escaped data root"):
+        write_bytes_immutable(
+            root,
+            root / "payload.bin",
+            b"payload",
+            temporary_directory=tmp_path / "outside",
+        )
+
+    assert not (root / "payload.bin").exists()
 
 
 def test_write_parquet_immutable_is_idempotent_and_rejects_conflicts(

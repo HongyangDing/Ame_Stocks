@@ -21,9 +21,11 @@ from ame_stocks_api.silver.fixed_cases import FIXED_CASE_IDS
 
 CONTRACT_SCHEMA_VERSION = 1
 BUILD_MANIFEST_VERSION = 1
+FULL_RUN_PLAN_VERSION = 1
 APPROVAL_SCHEMA_VERSION = 1
 RELEASE_SCHEMA_VERSION = 1
 SOURCE_INVENTORY_VERSION = 1
+SEPARATE_FULL_RUN_PLAN_POLICY = "separate_approved_plan_v1"
 
 _IDENTIFIER = re.compile(r"^[a-z][a-z0-9_]*$")
 _CHECK_ID = re.compile(r"^[a-z][a-z0-9_.-]*$")
@@ -1411,6 +1413,199 @@ class BuildIntent:
         if document["build_id"] != intent.build_id:
             raise SilverContractError("build_id mismatch")
         return intent
+
+
+@dataclass(frozen=True, slots=True)
+class FullRunPlan:
+    """Immutable, separately reviewed authorization scope for a future full build."""
+
+    workflow_id: str
+    domain: str
+    table: str
+    schema_version: int
+    contract_id: str
+    reviewed_preview_build_id: str
+    reviewed_preview_manifest_sha256: str
+    reviewed_preview_event_sha256: str
+    transform_version: str
+    git_commit: str
+    exchange_calendar_version: str
+    inputs: tuple[ArtifactRef, ...]
+    parameters: Mapping[str, object]
+    resource_projection: Mapping[str, object]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "inputs", _as_tuple(self.inputs, "full-run plan inputs"))
+        _validate_sha256(self.workflow_id, "workflow_id")
+        _validate_identifier(self.domain, "full-run plan domain")
+        _validate_identifier(self.table, "full-run plan table")
+        _native_positive_int(self.schema_version, "full-run plan schema_version")
+        for label, value in (
+            ("contract_id", self.contract_id),
+            ("reviewed_preview_build_id", self.reviewed_preview_build_id),
+            (
+                "reviewed_preview_manifest_sha256",
+                self.reviewed_preview_manifest_sha256,
+            ),
+            ("reviewed_preview_event_sha256", self.reviewed_preview_event_sha256),
+        ):
+            _validate_sha256(value, label)
+        _validate_text(self.transform_version, "transform_version", maximum=200)
+        if not _GIT_COMMIT.fullmatch(self.git_commit):
+            raise SilverContractError("git_commit must be a full lowercase Git object ID")
+        _validate_text(
+            self.exchange_calendar_version,
+            "exchange_calendar_version",
+            maximum=200,
+        )
+        if not self.inputs:
+            raise SilverContractError("full-run plan inputs cannot be empty")
+        if any(item.role is not ArtifactRole.SOURCE for item in self.inputs):
+            raise SilverContractError("full-run plan inputs must use the source role")
+        _unique((item.path for item in self.inputs), "full-run plan input path")
+        object.__setattr__(self, "inputs", tuple(sorted(self.inputs, key=lambda item: item.path)))
+        parameters = ensure_json_safe(self.parameters, label="full-run plan parameters")
+        reserved = {
+            "approved_full_run_plan_id",
+            "approved_preview_build_id",
+        }.intersection(parameters)
+        if reserved:
+            raise SilverContractError(
+                f"full-run plan parameters contain reserved keys: {sorted(reserved)}"
+            )
+        object.__setattr__(self, "parameters", parameters)
+        projection = ensure_json_safe(
+            self.resource_projection,
+            label="full-run plan resource projection",
+        )
+        if not projection:
+            raise SilverContractError("full-run plan resource projection cannot be empty")
+        object.__setattr__(self, "resource_projection", projection)
+
+    @property
+    def source_digest(self) -> str:
+        return stable_digest([item.to_dict() for item in self.inputs])
+
+    @property
+    def input_artifact_count(self) -> int:
+        return len(self.inputs)
+
+    @property
+    def input_rows(self) -> int:
+        return sum(int(item.row_count or 0) for item in self.inputs)
+
+    @property
+    def input_bytes(self) -> int:
+        return sum(item.bytes for item in self.inputs)
+
+    @property
+    def plan_id(self) -> str:
+        return stable_digest(self.logical_payload())
+
+    def logical_payload(self) -> dict[str, object]:
+        return {
+            "contract_id": self.contract_id,
+            "domain": self.domain,
+            "exchange_calendar_version": self.exchange_calendar_version,
+            "full_run_plan_version": FULL_RUN_PLAN_VERSION,
+            "git_commit": self.git_commit,
+            "input_artifact_count": self.input_artifact_count,
+            "input_bytes": self.input_bytes,
+            "input_rows": self.input_rows,
+            "inputs": [item.to_dict() for item in self.inputs],
+            "parameters": thaw_json(self.parameters),
+            "resource_projection": thaw_json(self.resource_projection),
+            "reviewed_preview_build_id": self.reviewed_preview_build_id,
+            "reviewed_preview_event_sha256": self.reviewed_preview_event_sha256,
+            "reviewed_preview_manifest_sha256": self.reviewed_preview_manifest_sha256,
+            "schema_version": self.schema_version,
+            "source_digest": self.source_digest,
+            "table": self.table,
+            "transform_version": self.transform_version,
+            "workflow_id": self.workflow_id,
+        }
+
+    def to_dict(self) -> dict[str, object]:
+        return {"plan_id": self.plan_id, **self.logical_payload()}
+
+    @classmethod
+    def from_dict(cls, value: object) -> FullRunPlan:
+        document = _mapping(value, "full-run plan")
+        required = {
+            "contract_id",
+            "domain",
+            "exchange_calendar_version",
+            "full_run_plan_version",
+            "git_commit",
+            "input_artifact_count",
+            "input_bytes",
+            "input_rows",
+            "inputs",
+            "parameters",
+            "plan_id",
+            "resource_projection",
+            "reviewed_preview_build_id",
+            "reviewed_preview_event_sha256",
+            "reviewed_preview_manifest_sha256",
+            "schema_version",
+            "source_digest",
+            "table",
+            "transform_version",
+            "workflow_id",
+        }
+        _expect_keys(document, required, "full-run plan")
+        if document["full_run_plan_version"] != FULL_RUN_PLAN_VERSION:
+            raise SilverContractError("unsupported full-run plan version")
+        plan = cls(
+            workflow_id=_string(document["workflow_id"], "workflow_id"),
+            domain=_string(document["domain"], "full-run plan domain"),
+            table=_string(document["table"], "full-run plan table"),
+            schema_version=_native_positive_int(
+                document["schema_version"],
+                "full-run plan schema_version",
+            ),
+            contract_id=_string(document["contract_id"], "contract_id"),
+            reviewed_preview_build_id=_string(
+                document["reviewed_preview_build_id"],
+                "reviewed_preview_build_id",
+            ),
+            reviewed_preview_manifest_sha256=_string(
+                document["reviewed_preview_manifest_sha256"],
+                "reviewed_preview_manifest_sha256",
+            ),
+            reviewed_preview_event_sha256=_string(
+                document["reviewed_preview_event_sha256"],
+                "reviewed_preview_event_sha256",
+            ),
+            transform_version=_string(document["transform_version"], "transform_version"),
+            git_commit=_string(document["git_commit"], "git_commit"),
+            exchange_calendar_version=_string(
+                document["exchange_calendar_version"],
+                "exchange_calendar_version",
+            ),
+            inputs=tuple(
+                ArtifactRef.from_dict(item)
+                for item in _array(document["inputs"], "full-run plan inputs")
+            ),
+            parameters=_mapping(document["parameters"], "full-run plan parameters"),
+            resource_projection=_mapping(
+                document["resource_projection"],
+                "full-run plan resource projection",
+            ),
+        )
+        if document["source_digest"] != plan.source_digest:
+            raise SilverContractError("full-run plan source digest mismatch")
+        for key, expected in (
+            ("input_artifact_count", plan.input_artifact_count),
+            ("input_rows", plan.input_rows),
+            ("input_bytes", plan.input_bytes),
+        ):
+            actual = _native_nonnegative_int(document[key], f"full-run plan {key}")
+            if actual != expected:
+                raise SilverContractError(f"full-run plan {key} mismatch")
+        if document["plan_id"] != plan.plan_id:
+            raise SilverContractError("full-run plan digest mismatch")
+        return plan
 
 
 @dataclass(frozen=True, slots=True)

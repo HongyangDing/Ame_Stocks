@@ -33,6 +33,7 @@ S0 的测试只能使用临时目录里的小型、合成 fixture，以证明合
     ├── contracts/<domain>/<table>/schema-vN/contract-<contract_id>.json
     ├── source-inventories/<source_dataset>/inventory-<inventory_id>.json
     ├── workflows/<workflow_id>/events/<sequence>-<event_sha256>.json
+    ├── full-run-plans/<table>/plan_id=<plan_id>/manifest.json
     ├── approvals/<approval_id>.json
     ├── builds/<table>/build_id=<build_id>/manifest.json
     └── releases/release_id=<release_id>.json
@@ -106,10 +107,23 @@ commit、交易日历版本、输入文件和安全的逻辑参数。`source_dig
 - preview 专属的固定案例 IDs、样例行数、资源实测和 full-run 外推。
 
 preview 还必须保存可阅读的 input/output sample artifact，以及 `case_id → QA result IDs`；只登记
-case 名称而没有样例和断言证据会失败。更重要的是 preview manifest 内嵌**完整 full-run source
-inventory preimage**，不是只有一个未来可随意解释的 digest。full build 必须与已批准 preview 的
-Git commit、transform/calendar version、逻辑参数和完整 source inventory 一致，并显式写入
-`approved_preview_build_id`。
+case 名称而没有样例和断言证据会失败。S0 支持两种互不混用的 full-run scope 绑定方式：
+
+- **legacy inline binding**：适用于 S1–S3 这类 preview 已经覆盖完整小字典的 workflow。preview
+  manifest 内嵌完整 full-run source inventory preimage；full build 必须与已批准 preview 的 Git
+  commit、transform/calendar version、逻辑参数和完整 source inventory 一致，并写入
+  `approved_preview_build_id`。现有九事件链及其 bytes/digest 保持不变。
+- **separate plan binding**：适用于 S4 以后“先跑有界 preview、以后再决定十年全量 scope”的
+  workflow。preview 的 `full_run_inputs` 在这个模式下只表示本次有界样本实际检查的 inputs，
+  `full_run_scope_policy` 与 projection 的 `scope_binding_mode` 必须同时为
+  `separate_approved_plan_v1`；它们绝不授权 full build。preview review 后必须另建不可变
+  `FullRunPlan`，冻结完整 inputs、后续 Git commit、transform/calendar、逻辑参数和资源外推，
+  再对打印出的 plan ID/SHA 单独审批。full build 同时写入 `approved_preview_build_id` 与
+  `approved_full_run_plan_id`，并逐项匹配已批准 plan。
+
+`FullRunPlan` 还固定被 review 的 preview build/manifest/event 三元组、源文件数量/行数/字节数和
+source digest。参数中的两个 approval ID 是保留字段，不能由 plan 自己预填；这样 plan ID 不会
+形成自引用，而 full build 仍必须明确绑定两个已批准对象。
 
 row funnel 必须满足：
 
@@ -155,7 +169,8 @@ Medium/Low 保留为可见证据。S0 只冻结机制并用合成 fixture 验证
 三次批准绑定的对象不同：
 
 - schema approval 绑定精确 contract 文件；
-- full-run approval 绑定精确 preview build manifest；
+- legacy full-run approval 绑定精确 preview build manifest；separate-plan 路径则绑定已经展示并
+  冻结的精确 `FullRunPlan` 文件，同时经 plan 传递绑定 preview build/manifest/event；
 - publish approval 绑定精确 full build manifest，并在发布时再次核对 QA 和输出文件。
 
 因此批准旧 preview 不能授权一个参数或代码已经变化的新 full run，批准旧 full build 也不能
@@ -170,7 +185,7 @@ UTC 发布时间和完整输出引用。`release_id` 是上述逻辑内容的 di
 
 ## 4. 状态机与强制审批门
 
-唯一合法的成功路径是：
+legacy 成功路径保持不变：
 
 ```text
 planned
@@ -184,6 +199,25 @@ planned
   → published
 ```
 
+有界 preview 与未来全量 scope 解耦时，唯一合法路径是：
+
+```text
+planned
+  → schema_review
+  → code_ready
+  → preview_ready
+  → awaiting_review
+  → full_run_plan_review
+  → approved_full_run
+  → full_ready
+  → awaiting_publish
+  → published
+```
+
+`awaiting_review → full_run_plan_review` 只是把未来 full scope 冻结成可展示的 plan，并不表示
+批准；必须等用户明确批准 exact plan ID/SHA 后才能进入 `approved_full_run`。因此单日 preview
+审批不会暗中授权十年 source inventory 或一个尚未存在的 Git commit。
+
 各状态含义如下：
 
 | 状态 | 已存在的证据 | 仍禁止的动作 |
@@ -193,7 +227,8 @@ planned
 | `code_ready` | schema approval 已绑定合同 | 直接跑 full |
 | `preview_ready` | preview build 已登记并核验 | 跑 full、发布 |
 | `awaiting_review` | preview 已提交人工 review | 未审批直接跑 full |
-| `approved_full_run` | full-run approval 已绑定 preview | 发布、处理其他未批 family |
+| `full_run_plan_review` | 完整 full scope、代码版本和资源预测已冻结 | 未单独批准 plan 直接跑 full |
+| `approved_full_run` | full-run approval 已绑定 preview，或绑定 exact plan 并经 plan 绑定 preview | 发布、处理其他未批 family |
 | `full_ready` | full build 已登记并核验 | 供公开消费者读取 |
 | `awaiting_publish` | full build 已提交最终 review | 未审批直接发布 |
 | `published` | publish approval 和 release 已冻结 | 改写该 release 或其输出 |
@@ -204,7 +239,7 @@ planned
 
 workflow event 采用单调 sequence 和 `previous_event_sha256` 哈希链。读取时核对序号连续、文件
 名 hash 与内容一致、上一事件 hash 一致、UTC 时间单调和每一步状态合法。每种状态还有严格的
-evidence key schema；读取会重新打开 schema approval、full-run approval、build、publish
+evidence key schema；读取会重新打开 schema approval、可选的 full-run plan、full-run approval、build、publish
 approval 和 release，逐个核对对象 ID、SHA、actor、note、时间及上一 event SHA。删掉或损坏
 中间 receipt 后，即使最终 release 文件仍在，公开 reader 也会 fail closed。
 

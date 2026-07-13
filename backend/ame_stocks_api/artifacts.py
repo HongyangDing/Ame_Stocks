@@ -72,10 +72,31 @@ def write_json_atomic(path: Path, document: dict[str, Any]) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def write_bytes_immutable(root: Path, path: Path, content: bytes) -> dict[str, object]:
+def write_bytes_immutable(
+    root: Path,
+    path: Path,
+    content: bytes,
+    *,
+    temporary_directory: Path | None = None,
+) -> dict[str, object]:
     root = root.expanduser().resolve()
     path = _safe_output_path(root, path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    if temporary_directory is None:
+        temporary_parent = path.parent
+    else:
+        temporary_parent = _safe_output_path(root, temporary_directory)
+        if temporary_parent == path or path in temporary_parent.parents:
+            raise ArtifactError(
+                "immutable temporary directory cannot be the target or its descendant"
+            )
+        if temporary_parent.exists() and not temporary_parent.is_dir():
+            raise ArtifactError("immutable temporary path is not a directory")
+        temporary_parent.mkdir(parents=True, exist_ok=True)
+        if temporary_parent.stat().st_dev != path.parent.stat().st_dev:
+            raise ArtifactError(
+                "immutable temporary directory must share the target filesystem"
+            )
     checksum = hashlib.sha256(content).hexdigest()
     if path.exists():
         if path.is_symlink():
@@ -83,7 +104,7 @@ def write_bytes_immutable(root: Path, path: Path, content: bytes) -> dict[str, o
         if sha256_file(path) != checksum:
             raise ArtifactError(f"refusing to overwrite immutable artifact: {path}")
     else:
-        temporary = _temporary_path(path)
+        temporary = _temporary_path(temporary_parent / path.name)
         try:
             _write_synced(temporary, content)
             _publish_immutable(temporary, path, checksum=checksum)

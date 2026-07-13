@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -12,6 +13,10 @@ from ame_stocks_api.artifacts import sha256_file
 from ame_stocks_api.silver.contracts import (
     QA_RESULT_ARROW_SCHEMA,
     QUARANTINE_ARROW_SCHEMA,
+    SEPARATE_FULL_RUN_PLAN_POLICY,
+    ApprovalDecision,
+    ApprovalReceipt,
+    ApprovalStage,
     ArrowType,
     ArtifactRef,
     ArtifactRole,
@@ -19,6 +24,7 @@ from ame_stocks_api.silver.contracts import (
     BuildKind,
     BuildManifest,
     ColumnSpec,
+    FullRunPlan,
     PreviewMetadata,
     QACheckResult,
     QAMetric,
@@ -29,6 +35,7 @@ from ame_stocks_api.silver.contracts import (
     QuarantineRecord,
     QuarantineReviewStatus,
     RowFunnel,
+    SilverContractError,
     SourceInventory,
     SourceInventoryItem,
     SourceLayer,
@@ -179,12 +186,22 @@ def _build(
     quarantine_severities: tuple[QASeverity, ...] = (),
     attempt: int = 1,
     retry_of_build_id: str | None = None,
+    git_commit: str = "a" * 40,
+    transform_version: str = "s0-fixture-v1",
+    exchange_calendar_version: str = "fixture-calendar-v1",
+    fixture_window: str = "2026-07-10",
+    full_run_scope_policy: str | None = None,
+    approved_full_run_plan_id: str | None = None,
 ) -> BuildManifest:
     if len(quarantine_severities) > 1:
         raise ValueError("the S0 fixture supports at most one quarantined source row")
-    parameters: dict[str, object] = {"fixture_window": "2026-07-10"}
+    parameters: dict[str, object] = {"fixture_window": fixture_window}
+    if full_run_scope_policy is not None:
+        parameters["full_run_scope_policy"] = full_run_scope_policy
     if approved_preview_build_id is not None:
         parameters["approved_preview_build_id"] = approved_preview_build_id
+    if approved_full_run_plan_id is not None:
+        parameters["approved_full_run_plan_id"] = approved_full_run_plan_id
     intent = BuildIntent(
         workflow_id=workflow_id,
         domain=contract.domain,
@@ -194,9 +211,9 @@ def _build(
         kind=kind,
         attempt=attempt,
         retry_of_build_id=retry_of_build_id,
-        transform_version="s0-fixture-v1",
-        git_commit="a" * 40,
-        exchange_calendar_version="fixture-calendar-v1",
+        transform_version=transform_version,
+        git_commit=git_commit,
+        exchange_calendar_version=exchange_calendar_version,
         inputs=(_source(root, source_name),),
         parameters=parameters,
     )
@@ -301,6 +318,12 @@ def _build(
                 )
             )
         outputs.extend(sample_refs)
+        full_run_projection: dict[str, object] = {
+            "estimated_bytes": 2_048,
+            "estimated_seconds": 2,
+        }
+        if full_run_scope_policy is not None:
+            full_run_projection["scope_binding_mode"] = full_run_scope_policy
         preview = PreviewMetadata(
             fixed_case_ids=("normal_session",),
             fixed_case_qa_result_ids={"normal_session": (checks[0].result_id,)},
@@ -311,7 +334,7 @@ def _build(
             examples_truncated=False,
             full_run_inputs=intent.inputs,
             resource_usage={"elapsed_ms": 1, "peak_bytes": 1_024},
-            full_run_projection={"estimated_bytes": 2_048, "estimated_seconds": 2},
+            full_run_projection=full_run_projection,
         )
     return BuildManifest(
         intent=intent,
@@ -366,6 +389,7 @@ def _advance_to_preview_review(
     qa_severity: QASeverity = QASeverity.CRITICAL,
     qa_failure_status: QAStatus = QAStatus.FAILED,
     quarantine_severities: tuple[QASeverity, ...] = (),
+    full_run_scope_policy: str | None = None,
 ) -> tuple[SilverStore, TableContract, BuildManifest, str]:
     store = SilverStore(root)
     contract = _contract(
@@ -380,6 +404,7 @@ def _advance_to_preview_review(
         kind=BuildKind.PREVIEW,
         qa_checks=qa_checks,
         quarantine_severities=quarantine_severities,
+        full_run_scope_policy=full_run_scope_policy,
     )
     snapshot = store.record_preview_build(
         preview,
@@ -394,6 +419,43 @@ def _advance_to_preview_review(
         created_at=T4,
     )
     return store, contract, preview, snapshot.event_sha256
+
+
+def _full_run_plan(
+    root: Path,
+    store: SilverStore,
+    contract: TableContract,
+    preview: BuildManifest,
+    reviewed_preview_event_sha256: str,
+    *,
+    source_name: str = "full-source.json",
+    git_commit: str = "b" * 40,
+    fixture_window: str = "2016-07-11/2026-07-09",
+) -> FullRunPlan:
+    _, preview_stored = store.load_build(contract.table, preview.build_id)
+    return FullRunPlan(
+        workflow_id=preview.intent.workflow_id,
+        domain=contract.domain,
+        table=contract.table,
+        schema_version=contract.schema_version,
+        contract_id=contract.contract_id,
+        reviewed_preview_build_id=preview.build_id,
+        reviewed_preview_manifest_sha256=preview_stored.sha256,
+        reviewed_preview_event_sha256=reviewed_preview_event_sha256,
+        transform_version="s0-fixture-full-v2",
+        git_commit=git_commit,
+        exchange_calendar_version="fixture-calendar-v2",
+        inputs=(_source(root, source_name),),
+        parameters={
+            "fixture_window": fixture_window,
+            "full_run_scope_policy": SEPARATE_FULL_RUN_PLAN_POLICY,
+        },
+        resource_projection={
+            "estimated_bytes": 8_192,
+            "estimated_seconds": 10,
+            "minimum_free_bytes": 4_096,
+        },
+    )
 
 
 def test_full_workflow_publishes_only_release_bound_data(tmp_path: Path) -> None:
@@ -439,6 +501,402 @@ def test_full_workflow_publishes_only_release_bound_data(tmp_path: Path) -> None
     assert published.build == full
     assert published.data_paths == (tmp_path / release.outputs[0].path,)
     assert not (tmp_path / "bronze").exists()
+
+
+def test_full_run_plan_is_deterministic_and_strict(tmp_path: Path) -> None:
+    store, contract, preview, event_sha = _advance_to_preview_review(
+        tmp_path,
+        full_run_scope_policy=SEPARATE_FULL_RUN_PLAN_POLICY,
+    )
+    plan = _full_run_plan(tmp_path, store, contract, preview, event_sha)
+
+    assert FullRunPlan.from_dict(plan.to_dict()) == plan
+    assert plan.input_artifact_count == 1
+    assert plan.input_rows == 2
+    assert plan.input_bytes == plan.inputs[0].bytes
+
+    tampered = plan.to_dict()
+    tampered["input_bytes"] = plan.input_bytes + 1
+    with pytest.raises(SilverContractError, match="input_bytes mismatch"):
+        FullRunPlan.from_dict(tampered)
+    with pytest.raises(SilverContractError, match="reserved keys"):
+        replace(plan, parameters={"approved_preview_build_id": preview.build_id})
+
+
+def test_unknown_preview_scope_policy_fails_before_registration(tmp_path: Path) -> None:
+    store = SilverStore(tmp_path)
+    contract = _contract()
+    workflow_id, event_sha = _advance_to_code_ready(store, contract)
+    preview = _build(
+        tmp_path,
+        contract,
+        workflow_id,
+        kind=BuildKind.PREVIEW,
+        full_run_scope_policy="separate_approved_plan_vl",
+    )
+    with pytest.raises(SilverStoreError, match=r"scope policy.*unsupported"):
+        store.record_preview_build(
+            preview,
+            expected_event_sha256=event_sha,
+            actor="runner",
+            recorded_at=T3,
+        )
+    assert store.status(workflow_id).state is WorkflowState.CODE_READY
+
+
+def test_deferred_preview_rejects_a_forged_legacy_full_run_approval(
+    tmp_path: Path,
+) -> None:
+    store, contract, preview, event_sha = _advance_to_preview_review(
+        tmp_path,
+        full_run_scope_policy=SEPARATE_FULL_RUN_PLAN_POLICY,
+    )
+    workflow_id = preview.intent.workflow_id
+    _, preview_stored = store.load_build(contract.table, preview.build_id)
+    receipt = ApprovalReceipt(
+        workflow_id=workflow_id,
+        stage=ApprovalStage.FULL_RUN,
+        decision=ApprovalDecision.APPROVED,
+        subject_id=preview.build_id,
+        subject_manifest_sha256=preview_stored.sha256,
+        expected_event_sha256=event_sha,
+        approver="legacy-runner",
+        decided_at=T5,
+        note="forged old-format approval",
+    )
+    approval_stored = store._store_approval(receipt)
+    forged = store._append_event(
+        store.status(workflow_id),
+        next_state=WorkflowState.APPROVED_FULL_RUN,
+        actor="legacy-runner",
+        created_at=T5,
+        evidence={
+            "approval_id": receipt.approval_id,
+            "approval_path": approval_stored.path,
+            "approval_sha256": approval_stored.sha256,
+            "approved_preview_build_id": preview.build_id,
+            "approved_preview_manifest_sha256": preview_stored.sha256,
+        },
+        note="forged old-format approval",
+    )
+    with pytest.raises(SilverStoreError, match="deferred preview"):
+        store.status(workflow_id)
+
+    full = _build(
+        tmp_path,
+        contract,
+        workflow_id,
+        kind=BuildKind.FULL,
+        approved_preview_build_id=preview.build_id,
+        full_run_scope_policy=SEPARATE_FULL_RUN_PLAN_POLICY,
+    )
+    with pytest.raises(SilverStoreError, match="deferred preview"):
+        store.record_full_build(
+            full,
+            expected_event_sha256=forged.event_sha256,
+            actor="runner",
+            recorded_at=T6,
+        )
+
+
+def test_separate_full_run_plan_allows_later_scope_and_git_commit(
+    tmp_path: Path,
+) -> None:
+    store, contract, preview, event_sha = _advance_to_preview_review(
+        tmp_path,
+        full_run_scope_policy=SEPARATE_FULL_RUN_PLAN_POLICY,
+    )
+    workflow_id = preview.intent.workflow_id
+    with pytest.raises(SilverStoreError, match="separately reviewed full-run plan"):
+        store.approve_full_run(
+            workflow_id,
+            expected_event_sha256=event_sha,
+            approver="reviewer",
+            decided_at=T5,
+        )
+
+    plan = _full_run_plan(tmp_path, store, contract, preview, event_sha)
+    snapshot = store.record_full_run_plan(
+        plan,
+        expected_event_sha256=event_sha,
+        actor="author",
+        recorded_at=T4,
+    )
+    assert snapshot.state is WorkflowState.FULL_RUN_PLAN_REVIEW
+    assert store.load_full_run_plan(contract.table, plan.plan_id)[0] == plan
+    plan_path = tmp_path / str(snapshot.evidence["full_run_plan_path"])
+    shadow_path = (
+        tmp_path
+        / "manifests/silver/full-run-plans/wrong_table"
+        / f"plan_id={plan.plan_id}/manifest.json"
+    )
+    shadow_path.parent.mkdir(parents=True)
+    shadow_path.write_bytes(plan_path.read_bytes())
+    assert store.load_full_run_plan(contract.table, plan.plan_id)[0] == plan
+    with pytest.raises(SilverStoreError, match="path identity"):
+        store.load_full_run_plan("wrong_table", plan.plan_id)
+    snapshot = store.approve_full_run_plan(
+        workflow_id,
+        expected_event_sha256=snapshot.event_sha256,
+        approver="reviewer",
+        decided_at=T5,
+    )
+
+    full = _build(
+        tmp_path,
+        contract,
+        workflow_id,
+        kind=BuildKind.FULL,
+        approved_preview_build_id=preview.build_id,
+        approved_full_run_plan_id=plan.plan_id,
+        source_name="full-source.json",
+        git_commit=plan.git_commit,
+        transform_version=plan.transform_version,
+        exchange_calendar_version=plan.exchange_calendar_version,
+        fixture_window="2016-07-11/2026-07-09",
+        full_run_scope_policy=SEPARATE_FULL_RUN_PLAN_POLICY,
+    )
+    snapshot = store.record_full_build(
+        full,
+        expected_event_sha256=snapshot.event_sha256,
+        actor="runner",
+        recorded_at=T6,
+    )
+    snapshot = store.request_publish(
+        workflow_id,
+        expected_event_sha256=snapshot.event_sha256,
+        actor="author",
+        created_at=T7,
+    )
+    snapshot, release = store.publish(
+        workflow_id,
+        expected_event_sha256=snapshot.event_sha256,
+        approver="publisher",
+        decided_at=T8,
+    )
+
+    assert snapshot.state is WorkflowState.PUBLISHED
+    assert len(store.workflow_events(workflow_id)) == 10
+    assert full.intent.git_commit != preview.intent.git_commit
+    assert full.intent.source_digest != preview.intent.source_digest
+    assert PublishedSilverReader(tmp_path).inspect(release.release_id).build == full
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "git",
+        "transform",
+        "calendar",
+        "source",
+        "parameters",
+        "missing_plan_id",
+        "wrong_plan_id",
+        "wrong_preview_id",
+    ),
+)
+def test_full_build_must_match_the_separately_approved_plan(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    store, contract, preview, event_sha = _advance_to_preview_review(
+        tmp_path,
+        full_run_scope_policy=SEPARATE_FULL_RUN_PLAN_POLICY,
+    )
+    plan = _full_run_plan(tmp_path, store, contract, preview, event_sha)
+    snapshot = store.record_full_run_plan(
+        plan,
+        expected_event_sha256=event_sha,
+        actor="author",
+        recorded_at=T4,
+    )
+    snapshot = store.approve_full_run_plan(
+        preview.intent.workflow_id,
+        expected_event_sha256=snapshot.event_sha256,
+        approver="reviewer",
+        decided_at=T5,
+    )
+    build_arguments: dict[str, object] = {
+        "approved_preview_build_id": preview.build_id,
+        "approved_full_run_plan_id": plan.plan_id,
+        "source_name": "full-source.json",
+        "git_commit": plan.git_commit,
+        "transform_version": plan.transform_version,
+        "exchange_calendar_version": plan.exchange_calendar_version,
+        "fixture_window": "2016-07-11/2026-07-09",
+        "full_run_scope_policy": SEPARATE_FULL_RUN_PLAN_POLICY,
+    }
+    if mutation == "git":
+        build_arguments["git_commit"] = "c" * 40
+    elif mutation == "transform":
+        build_arguments["transform_version"] = "s0-fixture-full-v3"
+    elif mutation == "calendar":
+        build_arguments["exchange_calendar_version"] = "fixture-calendar-v3"
+    elif mutation == "source":
+        build_arguments["source_name"] = "different-plan-source.json"
+    elif mutation == "parameters":
+        build_arguments["fixture_window"] = "2020-01-01/2026-07-09"
+    elif mutation == "missing_plan_id":
+        build_arguments["approved_full_run_plan_id"] = None
+    elif mutation == "wrong_plan_id":
+        build_arguments["approved_full_run_plan_id"] = "f" * 64
+    elif mutation == "wrong_preview_id":
+        build_arguments["approved_preview_build_id"] = "f" * 64
+    wrong_code = _build(
+        tmp_path,
+        contract,
+        preview.intent.workflow_id,
+        kind=BuildKind.FULL,
+        **build_arguments,
+    )
+    with pytest.raises(SilverStoreError, match=r"approved (?:full-run plan|preview)"):
+        store.record_full_build(
+            wrong_code,
+            expected_event_sha256=snapshot.event_sha256,
+            actor="runner",
+            recorded_at=T6,
+        )
+
+
+def test_full_run_plan_document_is_part_of_the_trust_chain(tmp_path: Path) -> None:
+    store, contract, preview, event_sha = _advance_to_preview_review(
+        tmp_path,
+        full_run_scope_policy=SEPARATE_FULL_RUN_PLAN_POLICY,
+    )
+    plan = _full_run_plan(tmp_path, store, contract, preview, event_sha)
+    snapshot = store.record_full_run_plan(
+        plan,
+        expected_event_sha256=event_sha,
+        actor="author",
+        recorded_at=T4,
+    )
+    plan_path = tmp_path / str(snapshot.evidence["full_run_plan_path"])
+    plan_path.chmod(0o644)
+    plan_path.write_bytes(plan_path.read_bytes() + b"\n")
+
+    with pytest.raises(SilverStoreError, match=r"full-run plan|checksum"):
+        store.status(preview.intent.workflow_id)
+
+
+def test_full_run_plan_approval_reuses_the_exact_preview_qa_gate(tmp_path: Path) -> None:
+    checks = _qa_checks(status=QAStatus.WARNING, severity=QASeverity.MEDIUM)
+    store, contract, preview, event_sha = _advance_to_preview_review(
+        tmp_path,
+        qa_checks=checks,
+        qa_severity=QASeverity.MEDIUM,
+        qa_failure_status=QAStatus.WARNING,
+        full_run_scope_policy=SEPARATE_FULL_RUN_PLAN_POLICY,
+    )
+    plan = _full_run_plan(tmp_path, store, contract, preview, event_sha)
+    snapshot = store.record_full_run_plan(
+        plan,
+        expected_event_sha256=event_sha,
+        actor="author",
+        recorded_at=T4,
+    )
+    with pytest.raises(SilverStoreError, match="must exactly match"):
+        store.approve_full_run_plan(
+            preview.intent.workflow_id,
+            expected_event_sha256=snapshot.event_sha256,
+            approver="reviewer",
+            decided_at=T5,
+        )
+    approved = store.approve_full_run_plan(
+        preview.intent.workflow_id,
+        expected_event_sha256=snapshot.event_sha256,
+        approver="reviewer",
+        decided_at=T5,
+        waived_qa_result_ids=tuple(check.result_id for check in checks),
+    )
+    assert approved.state is WorkflowState.APPROVED_FULL_RUN
+
+
+def test_full_run_plan_preserves_exact_retry_lineage(tmp_path: Path) -> None:
+    store, contract, preview, event_sha = _advance_to_preview_review(
+        tmp_path,
+        full_run_scope_policy=SEPARATE_FULL_RUN_PLAN_POLICY,
+    )
+    plan = _full_run_plan(tmp_path, store, contract, preview, event_sha)
+    snapshot = store.record_full_run_plan(
+        plan,
+        expected_event_sha256=event_sha,
+        actor="author",
+        recorded_at=T4,
+    )
+    snapshot = store.approve_full_run_plan(
+        preview.intent.workflow_id,
+        expected_event_sha256=snapshot.event_sha256,
+        approver="reviewer",
+        decided_at=T5,
+    )
+    common: dict[str, object] = {
+        "approved_preview_build_id": preview.build_id,
+        "approved_full_run_plan_id": plan.plan_id,
+        "source_name": "full-source.json",
+        "git_commit": plan.git_commit,
+        "transform_version": plan.transform_version,
+        "exchange_calendar_version": plan.exchange_calendar_version,
+        "fixture_window": "2016-07-11/2026-07-09",
+        "full_run_scope_policy": SEPARATE_FULL_RUN_PLAN_POLICY,
+    }
+    first = _build(
+        tmp_path,
+        contract,
+        preview.intent.workflow_id,
+        kind=BuildKind.FULL,
+        **common,
+    )
+    store.verify_build(first, contract)
+    store._store_build(first)
+    retry = _build(
+        tmp_path,
+        contract,
+        preview.intent.workflow_id,
+        kind=BuildKind.FULL,
+        attempt=2,
+        retry_of_build_id=first.build_id,
+        **common,
+    )
+    snapshot = store.record_full_build(
+        retry,
+        expected_event_sha256=snapshot.event_sha256,
+        actor="runner",
+        recorded_at=T6,
+    )
+    assert snapshot.state is WorkflowState.FULL_READY
+
+
+def test_full_run_plan_approval_requires_exact_high_quarantine_acceptance(
+    tmp_path: Path,
+) -> None:
+    store, contract, preview, event_sha = _advance_to_preview_review(
+        tmp_path,
+        quarantine_severities=(QASeverity.HIGH,),
+        full_run_scope_policy=SEPARATE_FULL_RUN_PLAN_POLICY,
+    )
+    plan = _full_run_plan(tmp_path, store, contract, preview, event_sha)
+    snapshot = store.record_full_run_plan(
+        plan,
+        expected_event_sha256=event_sha,
+        actor="author",
+        recorded_at=T4,
+    )
+    with pytest.raises(SilverStoreError, match="must exactly match"):
+        store.approve_full_run_plan(
+            preview.intent.workflow_id,
+            expected_event_sha256=snapshot.event_sha256,
+            approver="reviewer",
+            decided_at=T5,
+        )
+    accepted = preview.quarantine_issue_ids_by_severity[QASeverity.HIGH.value]
+    approved = store.approve_full_run_plan(
+        preview.intent.workflow_id,
+        expected_event_sha256=snapshot.event_sha256,
+        approver="reviewer",
+        decided_at=T5,
+        accepted_quarantine_issue_ids=accepted,
+    )
+    assert approved.state is WorkflowState.APPROVED_FULL_RUN
 
 
 def test_published_reader_rechecks_output_integrity(tmp_path: Path) -> None:

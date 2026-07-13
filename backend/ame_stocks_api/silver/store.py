@@ -24,6 +24,7 @@ from ame_stocks_api.artifacts import (
     write_bytes_immutable,
 )
 from ame_stocks_api.silver.contracts import (
+    SEPARATE_FULL_RUN_PLAN_POLICY,
     ApprovalDecision,
     ApprovalReceipt,
     ApprovalStage,
@@ -32,6 +33,7 @@ from ame_stocks_api.silver.contracts import (
     BuildIntent,
     BuildKind,
     BuildManifest,
+    FullRunPlan,
     QASeverity,
     QAStatus,
     QuarantineRecord,
@@ -63,6 +65,7 @@ class WorkflowState(StrEnum):
     CODE_READY = "code_ready"
     PREVIEW_READY = "preview_ready"
     AWAITING_REVIEW = "awaiting_review"
+    FULL_RUN_PLAN_REVIEW = "full_run_plan_review"
     APPROVED_FULL_RUN = "approved_full_run"
     FULL_READY = "full_ready"
     AWAITING_PUBLISH = "awaiting_publish"
@@ -76,7 +79,10 @@ _FORWARD_TRANSITIONS: dict[WorkflowState, frozenset[WorkflowState]] = {
     WorkflowState.SCHEMA_REVIEW: frozenset({WorkflowState.CODE_READY}),
     WorkflowState.CODE_READY: frozenset({WorkflowState.PREVIEW_READY}),
     WorkflowState.PREVIEW_READY: frozenset({WorkflowState.AWAITING_REVIEW}),
-    WorkflowState.AWAITING_REVIEW: frozenset({WorkflowState.APPROVED_FULL_RUN}),
+    WorkflowState.AWAITING_REVIEW: frozenset(
+        {WorkflowState.APPROVED_FULL_RUN, WorkflowState.FULL_RUN_PLAN_REVIEW}
+    ),
+    WorkflowState.FULL_RUN_PLAN_REVIEW: frozenset({WorkflowState.APPROVED_FULL_RUN}),
     WorkflowState.APPROVED_FULL_RUN: frozenset({WorkflowState.FULL_READY}),
     WorkflowState.FULL_READY: frozenset({WorkflowState.AWAITING_PUBLISH}),
     WorkflowState.AWAITING_PUBLISH: frozenset({WorkflowState.PUBLISHED}),
@@ -238,6 +244,17 @@ class SilverStore:
             / f"contract-{contract.contract_id}.json"
         )
 
+    def full_run_plan_path(self, plan: FullRunPlan) -> Path:
+        return (
+            self.root
+            / "manifests"
+            / "silver"
+            / "full-run-plans"
+            / plan.table
+            / f"plan_id={plan.plan_id}"
+            / "manifest.json"
+        )
+
     def create_workflow(
         self,
         contract: TableContract,
@@ -368,6 +385,8 @@ class SilverStore:
 
         preview: BuildManifest | None = None
         preview_stored: StoredDocument | None = None
+        full_run_plan: FullRunPlan | None = None
+        full_run_plan_stored: StoredDocument | None = None
         full: BuildManifest | None = None
         full_stored: StoredDocument | None = None
         for index, record in enumerate(records[1:], start=1):
@@ -410,19 +429,74 @@ class SilverStore:
                     self.verify_build(preview, contract)
             elif event.to_state is WorkflowState.AWAITING_REVIEW:
                 self._require_evidence_keys(event, set())
-            elif event.to_state is WorkflowState.APPROVED_FULL_RUN:
+            elif event.to_state is WorkflowState.FULL_RUN_PLAN_REVIEW:
                 if preview is None or preview_stored is None:
-                    raise SilverStoreError("full-run approval has no preview build evidence")
+                    raise SilverStoreError("full-run plan has no preview build evidence")
                 self._require_evidence_keys(
                     event,
                     {
-                        "approval_id",
-                        "approval_path",
-                        "approval_sha256",
-                        "approved_preview_build_id",
-                        "approved_preview_manifest_sha256",
+                        "full_run_plan_id",
+                        "full_run_plan_path",
+                        "full_run_plan_sha256",
+                        "reviewed_preview_build_id",
+                        "reviewed_preview_event_sha256",
+                        "reviewed_preview_manifest_sha256",
                     },
                 )
+                full_run_plan, full_run_plan_stored = self.load_full_run_plan(
+                    contract.table,
+                    self._evidence_text(event.evidence, "full_run_plan_id"),
+                )
+                if (
+                    self._evidence_text(event.evidence, "full_run_plan_path")
+                    != full_run_plan_stored.path
+                    or self._evidence_text(event.evidence, "full_run_plan_sha256")
+                    != full_run_plan_stored.sha256
+                ):
+                    raise SilverStoreError("full-run plan event does not bind the plan document")
+                self._validate_full_run_plan_context(
+                    full_run_plan,
+                    preview,
+                    preview_stored,
+                    reviewed_preview_event_sha256=previous.event_sha256,
+                    contract=contract,
+                )
+                if (
+                    self._evidence_text(event.evidence, "reviewed_preview_build_id")
+                    != full_run_plan.reviewed_preview_build_id
+                    or self._evidence_text(
+                        event.evidence,
+                        "reviewed_preview_manifest_sha256",
+                    )
+                    != full_run_plan.reviewed_preview_manifest_sha256
+                    or self._evidence_text(
+                        event.evidence,
+                        "reviewed_preview_event_sha256",
+                    )
+                    != full_run_plan.reviewed_preview_event_sha256
+                ):
+                    raise SilverStoreError("full-run plan event does not bind the reviewed preview")
+                if verify_artifacts:
+                    self.verify_source_artifacts(full_run_plan.inputs, contract)
+            elif event.to_state is WorkflowState.APPROVED_FULL_RUN:
+                if preview is None or preview_stored is None:
+                    raise SilverStoreError("full-run approval has no preview build evidence")
+                plan_branch = previous.event.to_state is WorkflowState.FULL_RUN_PLAN_REVIEW
+                expected_evidence = {
+                    "approval_id",
+                    "approval_path",
+                    "approval_sha256",
+                    "approved_preview_build_id",
+                    "approved_preview_manifest_sha256",
+                }
+                if plan_branch:
+                    expected_evidence.update(
+                        {
+                            "approved_full_run_plan_id",
+                            "approved_full_run_plan_sha256",
+                        }
+                    )
+                self._require_evidence_keys(event, expected_evidence)
                 if (
                     self._evidence_text(event.evidence, "approved_preview_build_id")
                     != preview.build_id
@@ -436,14 +510,36 @@ class SilverStore:
                 approval, approval_stored = self.load_approval(
                     self._evidence_text(event.evidence, "approval_id")
                 )
+                if plan_branch:
+                    if full_run_plan is None or full_run_plan_stored is None:
+                        raise SilverStoreError("full-run approval has no plan evidence")
+                    if (
+                        self._evidence_text(event.evidence, "approved_full_run_plan_id")
+                        != full_run_plan.plan_id
+                        or self._evidence_text(
+                            event.evidence,
+                            "approved_full_run_plan_sha256",
+                        )
+                        != full_run_plan_stored.sha256
+                    ):
+                        raise SilverStoreError("full-run approval evidence does not match plan")
+                    expected_subject_id = full_run_plan.plan_id
+                    expected_subject_sha256 = full_run_plan_stored.sha256
+                else:
+                    if self._preview_requires_separate_full_run_plan(preview):
+                        raise SilverStoreError(
+                            "deferred preview cannot use legacy full-run approval"
+                        )
+                    expected_subject_id = preview.build_id
+                    expected_subject_sha256 = preview_stored.sha256
                 self._validate_approval_event(
                     approval,
                     approval_stored,
                     event,
                     previous,
                     expected_stage=ApprovalStage.FULL_RUN,
-                    expected_subject_id=preview.build_id,
-                    expected_subject_sha256=preview_stored.sha256,
+                    expected_subject_id=expected_subject_id,
+                    expected_subject_sha256=expected_subject_sha256,
                 )
                 self._validate_qa_gate(
                     preview,
@@ -465,7 +561,7 @@ class SilverStore:
                 full, full_stored = self._load_event_build(event, contract)
                 if full.intent.kind is not BuildKind.FULL:
                     raise SilverStoreError("full_ready event references a non-full build")
-                self._validate_full_build_binding(full, preview)
+                self._validate_full_build_binding(full, preview, full_run_plan)
                 self._validate_build_event_time(full, event, previous)
                 if verify_artifacts:
                     self.verify_build(full, contract)
@@ -623,11 +719,48 @@ class SilverStore:
         self,
         full: BuildManifest,
         preview: BuildManifest,
+        plan: FullRunPlan | None = None,
     ) -> None:
         if preview.preview is None:
             raise SilverStoreError("approved preview metadata is missing")
         if full.intent.parameters.get("approved_preview_build_id") != preview.build_id:
             raise SilverStoreError("full build does not bind the approved preview_build_id")
+        if plan is not None:
+            if (
+                full.intent.parameters.get("approved_full_run_plan_id")
+                != plan.plan_id
+            ):
+                raise SilverStoreError("full build does not bind the approved full-run plan ID")
+            if (
+                full.intent.workflow_id != plan.workflow_id
+                or full.intent.domain != plan.domain
+                or full.intent.table != plan.table
+                or full.intent.schema_version != plan.schema_version
+                or full.intent.contract_id != plan.contract_id
+            ):
+                raise SilverStoreError(
+                    "full build identity differs from the approved full-run plan"
+                )
+            if full.intent.source_digest != plan.source_digest:
+                raise SilverStoreError(
+                    "full build inputs differ from the approved full-run plan inventory"
+                )
+            if (
+                full.intent.git_commit != plan.git_commit
+                or full.intent.transform_version != plan.transform_version
+                or full.intent.exchange_calendar_version != plan.exchange_calendar_version
+            ):
+                raise SilverStoreError(
+                    "full build code and calendar versions differ from the approved full-run plan"
+                )
+            full_parameters = dict(full.intent.parameters)
+            full_parameters.pop("approved_preview_build_id", None)
+            full_parameters.pop("approved_full_run_plan_id", None)
+            if full_parameters != dict(plan.parameters):
+                raise SilverStoreError(
+                    "full build logic parameters differ from the approved full-run plan"
+                )
+            return
         if full.intent.source_digest != preview.preview.full_run_source_digest:
             raise SilverStoreError(
                 "full build inputs differ from the approved full-run source inventory"
@@ -644,6 +777,65 @@ class SilverStore:
         full_parameters.pop("approved_preview_build_id", None)
         if full_parameters != dict(preview.intent.parameters):
             raise SilverStoreError("full build logic parameters must match the approved preview")
+
+    def _validate_full_run_plan_context(
+        self,
+        plan: FullRunPlan,
+        preview: BuildManifest,
+        preview_stored: StoredDocument,
+        *,
+        reviewed_preview_event_sha256: str,
+        contract: TableContract,
+    ) -> None:
+        if preview.preview is None:
+            raise SilverStoreError("reviewed preview metadata is missing")
+        if (
+            self._preview_scope_policy(preview) != SEPARATE_FULL_RUN_PLAN_POLICY
+            or plan.parameters.get("full_run_scope_policy")
+            != SEPARATE_FULL_RUN_PLAN_POLICY
+        ):
+            raise SilverStoreError("preview does not authorize a separate full-run plan")
+        if (
+            plan.workflow_id != preview.intent.workflow_id
+            or plan.domain != contract.domain
+            or plan.table != contract.table
+            or plan.schema_version != contract.schema_version
+            or plan.contract_id != contract.contract_id
+        ):
+            raise SilverStoreError("full-run plan does not match the workflow contract")
+        if (
+            plan.reviewed_preview_build_id != preview.build_id
+            or plan.reviewed_preview_manifest_sha256 != preview_stored.sha256
+            or plan.reviewed_preview_event_sha256 != reviewed_preview_event_sha256
+        ):
+            raise SilverStoreError("full-run plan does not bind the reviewed preview checkpoint")
+
+    @staticmethod
+    def _preview_requires_separate_full_run_plan(preview: BuildManifest) -> bool:
+        return SilverStore._preview_scope_policy(preview) == SEPARATE_FULL_RUN_PLAN_POLICY
+
+    @staticmethod
+    def _preview_scope_policy(preview: BuildManifest) -> str | None:
+        if preview.intent.kind is not BuildKind.PREVIEW or preview.preview is None:
+            raise SilverStoreError("preview scope policy requires preview metadata")
+        parameter_key = "full_run_scope_policy"
+        projection_key = "scope_binding_mode"
+        has_parameter = parameter_key in preview.intent.parameters
+        has_projection = projection_key in preview.preview.full_run_projection
+        if not has_parameter and not has_projection:
+            return None
+        parameter = preview.intent.parameters.get(parameter_key)
+        projection = preview.preview.full_run_projection.get(projection_key)
+        if (
+            has_parameter
+            and has_projection
+            and parameter == SEPARATE_FULL_RUN_PLAN_POLICY
+            and projection == SEPARATE_FULL_RUN_PLAN_POLICY
+        ):
+            return SEPARATE_FULL_RUN_PLAN_POLICY
+        raise SilverStoreError(
+            "preview full-run scope policy is incomplete, mismatched, or unsupported"
+        )
 
     def _validate_release_event(
         self,
@@ -772,6 +964,54 @@ class SilverStore:
             note=note,
         )
 
+    def record_full_run_plan(
+        self,
+        plan: FullRunPlan,
+        *,
+        expected_event_sha256: str,
+        actor: str,
+        recorded_at: str,
+        note: str = "",
+    ) -> WorkflowSnapshot:
+        """Freeze a future full scope for a separate human approval checkpoint."""
+
+        workflow_id = plan.workflow_id
+        with self._workflow_lock(workflow_id):
+            current = self._require_current(
+                workflow_id,
+                expected_event_sha256,
+                WorkflowState.AWAITING_REVIEW,
+            )
+            preview, preview_stored = self._latest_build(workflow_id, BuildKind.PREVIEW)
+            contract, _ = self.load_workflow_contract(workflow_id)
+            self._validate_full_run_plan_context(
+                plan,
+                preview,
+                preview_stored,
+                reviewed_preview_event_sha256=current.event_sha256,
+                contract=contract,
+            )
+            self.verify_source_artifacts(plan.inputs, contract)
+            plan_document = self._store_full_run_plan(plan)
+            record = self._append_event(
+                current,
+                next_state=WorkflowState.FULL_RUN_PLAN_REVIEW,
+                actor=actor,
+                created_at=recorded_at,
+                evidence={
+                    "full_run_plan_id": plan.plan_id,
+                    "full_run_plan_path": plan_document.path,
+                    "full_run_plan_sha256": plan_document.sha256,
+                    "reviewed_preview_build_id": plan.reviewed_preview_build_id,
+                    "reviewed_preview_event_sha256": plan.reviewed_preview_event_sha256,
+                    "reviewed_preview_manifest_sha256": (
+                        plan.reviewed_preview_manifest_sha256
+                    ),
+                },
+                note=note,
+            )
+        return self._snapshot(record)
+
     def approve_full_run(
         self,
         workflow_id: str,
@@ -790,6 +1030,10 @@ class SilverStore:
                 WorkflowState.AWAITING_REVIEW,
             )
             build, build_document = self._latest_build(workflow_id, BuildKind.PREVIEW)
+            if self._preview_requires_separate_full_run_plan(build):
+                raise SilverStoreError(
+                    "preview requires a separately reviewed full-run plan"
+                )
             self._validate_qa_gate(
                 build,
                 waived_qa_result_ids,
@@ -820,6 +1064,83 @@ class SilverStore:
                     "approval_sha256": approval_document.sha256,
                     "approved_preview_build_id": build.build_id,
                     "approved_preview_manifest_sha256": build_document.sha256,
+                },
+                note=note,
+            )
+        return self._snapshot(record)
+
+    def approve_full_run_plan(
+        self,
+        workflow_id: str,
+        *,
+        expected_event_sha256: str,
+        approver: str,
+        decided_at: str,
+        note: str = "",
+        waived_qa_result_ids: tuple[str, ...] = (),
+        accepted_quarantine_issue_ids: tuple[str, ...] = (),
+    ) -> WorkflowSnapshot:
+        """Approve the exact immutable plan shown at full_run_plan_review."""
+
+        with self._workflow_lock(workflow_id):
+            current = self._require_current(
+                workflow_id,
+                expected_event_sha256,
+                WorkflowState.FULL_RUN_PLAN_REVIEW,
+            )
+            contract, _ = self.load_workflow_contract(workflow_id)
+            plan, plan_document = self.load_full_run_plan(
+                contract.table,
+                self._evidence_text(current.evidence, "full_run_plan_id"),
+            )
+            if (
+                self._evidence_text(current.evidence, "full_run_plan_path")
+                != plan_document.path
+                or self._evidence_text(current.evidence, "full_run_plan_sha256")
+                != plan_document.sha256
+            ):
+                raise SilverStoreError("full-run plan review evidence does not match plan")
+            preview, preview_document = self._latest_build(workflow_id, BuildKind.PREVIEW)
+            self._validate_full_run_plan_context(
+                plan,
+                preview,
+                preview_document,
+                reviewed_preview_event_sha256=plan.reviewed_preview_event_sha256,
+                contract=contract,
+            )
+            self.verify_source_artifacts(plan.inputs, contract)
+            self._validate_qa_gate(
+                preview,
+                waived_qa_result_ids,
+                accepted_quarantine_issue_ids,
+            )
+            receipt = ApprovalReceipt(
+                workflow_id=workflow_id,
+                stage=ApprovalStage.FULL_RUN,
+                decision=ApprovalDecision.APPROVED,
+                subject_id=plan.plan_id,
+                subject_manifest_sha256=plan_document.sha256,
+                expected_event_sha256=current.event_sha256,
+                approver=approver,
+                decided_at=decided_at,
+                note=note,
+                waived_qa_result_ids=waived_qa_result_ids,
+                accepted_quarantine_issue_ids=accepted_quarantine_issue_ids,
+            )
+            approval_document = self._store_approval(receipt)
+            record = self._append_event(
+                current,
+                next_state=WorkflowState.APPROVED_FULL_RUN,
+                actor=approver,
+                created_at=decided_at,
+                evidence={
+                    "approval_id": receipt.approval_id,
+                    "approval_path": approval_document.path,
+                    "approval_sha256": approval_document.sha256,
+                    "approved_full_run_plan_id": plan.plan_id,
+                    "approved_full_run_plan_sha256": plan_document.sha256,
+                    "approved_preview_build_id": preview.build_id,
+                    "approved_preview_manifest_sha256": preview_document.sha256,
                 },
                 note=note,
             )
@@ -1010,6 +1331,32 @@ class SilverStore:
             raise SilverStoreError("build path identity does not match the manifest")
         return build, stored
 
+    def load_full_run_plan(
+        self,
+        table: str,
+        plan_id: str,
+    ) -> tuple[FullRunPlan, StoredDocument]:
+        _clean_code(table)
+        _digest(plan_id, "full-run plan ID")
+        path = (
+            self.root
+            / "manifests"
+            / "silver"
+            / "full-run-plans"
+            / table
+            / f"plan_id={plan_id}"
+            / "manifest.json"
+        )
+        document, stored = self._read_document(path, "full-run plan")
+        plan = FullRunPlan.from_dict(document)
+        if (
+            plan.plan_id != plan_id
+            or plan.table != table
+            or path != self.full_run_plan_path(plan)
+        ):
+            raise SilverStoreError("full-run plan path identity does not match the manifest")
+        return plan, stored
+
     def load_approval(self, approval_id: str) -> tuple[ApprovalReceipt, StoredDocument]:
         _digest(approval_id, "approval_id")
         path = self.root / "manifests" / "silver" / "approvals" / f"{approval_id}.json"
@@ -1126,6 +1473,8 @@ class SilverStore:
             or intent.contract_id != contract.contract_id
         ):
             raise SilverStoreError("build intent does not match the registered table contract")
+        if intent.kind is BuildKind.PREVIEW:
+            self._preview_scope_policy(manifest)
         self._validate_retry_lineage(manifest, contract)
         rules = {rule.check_id: rule for rule in contract.qa_rules}
         observed_checks = {check.check_id for check in manifest.qa_checks}
@@ -1510,8 +1859,33 @@ class SilverStore:
                 raise SilverStoreError("build was recorded before it completed")
             contract, _ = self.load_workflow_contract(workflow_id)
             if kind is BuildKind.FULL:
-                preview, _ = self._latest_build(workflow_id, BuildKind.PREVIEW)
-                self._validate_full_build_binding(manifest, preview)
+                preview, preview_stored = self._latest_build(workflow_id, BuildKind.PREVIEW)
+                plan: FullRunPlan | None = None
+                if "approved_full_run_plan_id" in current.evidence:
+                    plan, plan_stored = self.load_full_run_plan(
+                        contract.table,
+                        self._evidence_text(current.evidence, "approved_full_run_plan_id"),
+                    )
+                    if (
+                        self._evidence_text(
+                            current.evidence,
+                            "approved_full_run_plan_sha256",
+                        )
+                        != plan_stored.sha256
+                    ):
+                        raise SilverStoreError(
+                            "approved full-run event does not bind the plan document"
+                        )
+                    self._validate_full_run_plan_context(
+                        plan,
+                        preview,
+                        preview_stored,
+                        reviewed_preview_event_sha256=(
+                            plan.reviewed_preview_event_sha256
+                        ),
+                        contract=contract,
+                    )
+                self._validate_full_build_binding(manifest, preview, plan)
             self.verify_build(manifest, contract)
             build_document = self._store_build(manifest)
             record = self._append_event(
@@ -1666,6 +2040,9 @@ class SilverStore:
             / "manifest.json"
         )
         return self._write_document(path, manifest.to_dict())
+
+    def _store_full_run_plan(self, plan: FullRunPlan) -> StoredDocument:
+        return self._write_document(self.full_run_plan_path(plan), plan.to_dict())
 
     def _store_approval(self, receipt: ApprovalReceipt) -> StoredDocument:
         path = self.root / "manifests" / "silver" / "approvals" / f"{receipt.approval_id}.json"
