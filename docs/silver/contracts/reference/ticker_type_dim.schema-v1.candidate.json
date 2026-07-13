@@ -1,0 +1,313 @@
+{
+  "columns": [
+    {
+      "arrow_type": "date32",
+      "description": "America/New_York calendar date derived from the immutable Bronze manifest completed_at timestamp, never from the latest-only request date label.",
+      "name": "capture_date",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Provider asset class preserved verbatim; the reviewed U.S. stock request is expected to contain stocks.",
+      "name": "asset_class",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Provider locale preserved verbatim; the reviewed U.S. stock request is expected to contain us.",
+      "name": "locale",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Massive ticker type code copied verbatim from code for exact later assets.type decoding; it is not normalized or mapped to research eligibility.",
+      "name": "type_code",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional provider description preserved verbatim; missing or blank labels do not invalidate an otherwise usable type code.",
+      "name": "description",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed current_reference_snapshot marker that prohibits interpretation as a historical ticker-type classification table.",
+      "name": "snapshot_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "Immutable Bronze manifest completed_at timestamp used as the conservative source observation time.",
+      "name": "source_capture_at_utc",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session whose open is strictly after source_capture_at_utc.",
+      "name": "available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "XNYS open timestamp for available_session; the snapshot cannot be used before this instant.",
+      "name": "available_at_utc",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed first_xnys_open_after_source_capture_v1 point-in-time availability rule.",
+      "name": "availability_rule",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Deterministic SHA-256 over dataset, source request, artifact SHA-256, page sequence, row ordinal, and source row hash.",
+      "name": "source_record_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Canonical local Bronze request ID from the authoritative manifest.",
+      "name": "source_request_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Server-assigned request ID from the Massive response envelope.",
+      "name": "source_provider_request_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of the stored gzip Bronze page containing the source row.",
+      "name": "source_artifact_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Zero-based sequence of the source page in the Bronze manifest.",
+      "name": "source_page_sequence",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Zero-based ordinal of the source result within its page.",
+      "name": "source_row_ordinal",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of the canonical JSON representation of the unmodified provider result object.",
+      "name": "source_row_hash",
+      "nullable": false
+    }
+  ],
+  "contract_id": "b2297d0631ae7560e7c3a9f73a288c62154db36b3188275e62f69c642884e38d",
+  "contract_schema_version": 1,
+  "description": "Current-only Massive U.S. stock ticker-type reference snapshots with conservative point-in-time availability and row-level Bronze lineage; never a historical classification or research-eligibility table.",
+  "domain": "reference",
+  "grain": "One provider ticker-type classification per America/New_York capture date and asset_class, locale, type_code, with at most one accepted source snapshot per capture date.",
+  "partition_by": [
+    "capture_date"
+  ],
+  "primary_key": [
+    "capture_date",
+    "asset_class",
+    "locale",
+    "type_code"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "schema_exact",
+      "description": "Every output Parquet field, order, Arrow type, and nullability must equal this contract.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_integrity_invalid",
+      "description": "No authoritative manifest or manifest-bound artifact may fail status, bytes, checksum, or declared-row validation.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_envelope_invalid",
+      "description": "Every source page must have an OK envelope, an array of results, a provider request ID, and, when present, a count reconciled to artifact rows.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_snapshot_cardinality_invalid",
+      "description": "Each capture date must be backed by exactly one authoritative current-only source request in a build.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "row_funnel_unreconciled",
+      "description": "Input rows must reconcile exactly to accepted rows, exact duplicate excess, and quarantined source rows.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "required_field_invalid_rows",
+      "description": "No row may have a missing, null, non-string, or blank asset_class, locale, or code.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_conflict_rows",
+      "description": "No capture date, asset class, locale, and type code may map to different canonical source rows.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_duplicate_excess",
+      "description": "The output must contain no duplicate excess for the frozen primary key.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "lineage_invalid_rows",
+      "description": "Every output row must reproduce its request, page, ordinal, artifact, row, and record digests.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "availability_invalid_rows",
+      "description": "Capture and availability fields must follow the frozen calendar version and first-open-after-capture rule.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "snapshot_scope_invalid_rows",
+      "description": "Every output row must carry the exact current_reference_snapshot scope marker.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "asset_class_domain_invalid_rows",
+      "description": "Every reviewed row must retain the stocks asset class requested from the provider.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "locale_domain_invalid_rows",
+      "description": "Every reviewed row must retain the us locale requested from the provider.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "description_missing_or_blank_rows",
+      "description": "Missing, null, empty, or whitespace-only descriptions are retained as nullable labels and surfaced for review without discarding the type code.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "type_code_format_unreviewed_rows",
+      "description": "Type codes outside the reviewed uppercase letter, digit, and underscore format are preserved verbatim but require review.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "exact_duplicate_excess_rows",
+      "description": "Canonical duplicate source rows are deterministically deduplicated and must remain visible in the row funnel.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "unexpected_source_field_rows",
+      "description": "Rows containing source fields outside the reviewed four-field mapping are retained for lineage and surfaced for schema review.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "new_type_code_rows_since_prior_capture",
+      "description": "Type-code keys first appearing relative to the immediately prior capture are retained and surfaced; the earliest capture is excluded from comparison.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "disappeared_type_code_rows_since_prior_capture",
+      "description": "Type-code keys disappearing relative to the immediately prior capture are surfaced; the earliest capture is excluded from comparison.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "description_changed_rows_since_prior_capture",
+      "description": "Exact provider descriptions changed for otherwise identical keys relative to the immediately prior capture are retained and surfaced.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    }
+  ],
+  "schema_version": 1,
+  "sort_by": [
+    "capture_date",
+    "asset_class",
+    "locale",
+    "type_code"
+  ],
+  "source_datasets": [
+    "ticker_types"
+  ],
+  "table": "ticker_type_dim"
+}

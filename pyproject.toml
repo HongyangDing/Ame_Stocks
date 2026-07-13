@@ -43,6 +43,7 @@ ame-materialize = "ame_stocks_api.cli.materialize:main"
 ame-silver = "ame_stocks_api.cli.silver:main"
 ame-silver-exchanges-preview = "ame_stocks_api.cli.silver_exchanges_preview:main"
 ame-silver-exchanges-release = "ame_stocks_api.cli.silver_exchanges_release:main"
+ame-silver-ticker-types-schema-review = "ame_stocks_api.cli.silver_ticker_types_schema_review:main"
 ame-view-parquet = "ame_stocks_api.cli.parquet_view:main"
 
 [tool.pytest.ini_options]
