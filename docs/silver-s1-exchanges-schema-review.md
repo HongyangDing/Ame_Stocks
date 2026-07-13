@@ -4,7 +4,7 @@
 
 2026-07-12，S1 从 `planned` 进入 `schema_review`。2026-07-13，用户明确批准 contract
 `1803d28f2b4b6088e32d27d06c7102111e4f141b6645a1059829732442f0e479`，因此 S1 已进入
-**Phase 1 / `code_ready`**。
+**Phase 1 / `code_ready`**。这是 schema review 当时的状态；当前发布状态见第 10 节。
 
 schema review 当时只允许：
 
@@ -14,8 +14,8 @@ schema review 当时只允许：
 - 识别进入 `code_ready` 前必须由用户决定的语义和框架缺口。
 
 schema review 没有编写业务转换，也没有生成 preview/full build、登记 SourceInventory 或写入
-数据盘。schema 获批后的 code-ready 实现仍只使用 synthetic fixture；真实 Bronze preview 继续
-保持未执行。
+数据盘。schema 获批后的最初 code-ready 实现仍只使用 synthetic fixture；真实 Bronze preview
+在这一审查阶段尚未执行，之后的运行与发布结果见第 10 节。
 
 已批准并作为 Python package resource 冻结的合同：
 [`exchange_dim.schema-v1.json`](../backend/ame_stocks_api/silver/schema_resources/exchange_dim.schema-v1.json)
@@ -258,7 +258,8 @@ schema review 时 S0 注册的 14 个 fixed case 都不完整覆盖 current-only
 - 每行都能回溯到精确 request/page/ordinal/raw-row hash。
 
 这一步只扩展固定案例元数据和 synthetic fixture，不改变 S0 控制面的安全边界。注册表现在有
-15 个不可变案例；S1 测试已证明上述 invariant，但尚未声称真实 Bronze preview 已通过。
+15 个不可变案例；在 code-ready 检查点，S1 测试只证明上述 invariant，真实 Bronze preview
+仍待后续步骤证明。最终结果见第 10 节。
 
 ## 9. Code-ready 实现与下一硬停点
 
@@ -271,6 +272,20 @@ schema review 时 S0 注册的 14 个 fixed case 都不完整覆盖 current-only
 - `test_silver_exchanges.py`：只用 synthetic fixture 验证正常、ORF、空 MIC、时间边界、重复、
   schema drift、主键/MIC 冲突、domain、同日双快照和未声明 `.swp` 排除。
 
-当前硬停点仍在真实 Bronze preview 之前。下一步得到明确指示后，才会针对 27 行权威输入登记
-SourceInventory、生成 bounded input/output sample、QA/quarantine Parquet 和 preview manifest；
-不会因此自动获得 full-run 或 publish 权限。
+## 10. S1 发布结果
+
+2026-07-13，用户在检查 27 行 preview 后明确授权 S1 继续到结束。最终 workflow
+`7365c657db9eefd6d6c9eb443818d3ee9da70989de0da96d6e8e258730c8de95` 已到达
+`published`（sequence 9）：
+
+- reviewed preview build：
+  `eb0688fad16f4d0a34681fadbd42c2351931e51e1d9245ac75dc2cc31088d8e3`；
+- review-bound full build：
+  `8ef45f4e4bc67f1ae89323f9f4c61c278d61393062110c8657ff4e376ec1aeb8`；
+- release：`feab0e1f32a5685d1115a6e4e87aab8ff50c18b99c6336a8790ecba44464d838`；
+- Preview 与 Full 均为 27→27、20/20 QA passed、0 quarantine；
+- Full DATA Parquet SHA 与 reviewed preview 完全相同；
+- full-run 与 publish 两次审批均无 QA waiver、无 quarantine acceptance；
+- release-only reader 已重新验证完整 workflow trust chain，并只暴露一个正式 DATA Parquet。
+
+S1 至此结束。下一硬停点在 S2 `ticker_types` schema review 之前。

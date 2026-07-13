@@ -290,11 +290,11 @@ S0 与 S1 schema approval 均已通过；第一类实际 preview 仍从 `exchang
 
 ### S1 — `exchanges`
 
-**状态（2026-07-13）：Phase 1 / `code_ready`。** 用户已批准精确 contract
-`1803d28f2b4b6088e32d27d06c7102111e4f141b6645a1059829732442f0e479`；已完成
-[`exchange_dim` schema 与 code-ready 实现](silver-s1-exchanges-schema-review.md)，包括
-manifest-bound reader、纯转换、20 项 QA、quarantine、row funnel 和第 15 个 fixed case。尚未
-运行真实 Bronze preview、full build 或 publish。
+**状态（2026-07-13）：Phase 1 / `published`。** 用户批准的精确 contract
+`1803d28f2b4b6088e32d27d06c7102111e4f141b6645a1059829732442f0e479` 已完成真实 27 行
+preview、review-bound full build 和 publish。Preview 与 Full 均为 27→27、20/20 QA passed、
+0 quarantine；release ID 为
+`feab0e1f32a5685d1115a6e4e87aab8ff50c18b99c6336a8790ecba44464d838`。S2 尚未开始。
 
 - Bronze：当前快照，一行一个场所；主要字段为 `id, name, acronym, mic, operating_mic,
   participant_id, type, asset_class, locale, url`。
