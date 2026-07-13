@@ -1,0 +1,362 @@
+{
+  "columns": [
+    {
+      "arrow_type": "date32",
+      "description": "America/New_York date derived from the immutable Bronze manifest completed_at timestamp, never from a latest-only request date label.",
+      "name": "capture_date",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Provider asset class preserved verbatim; the reviewed request is expected to contain stocks.",
+      "name": "asset_class",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Provider condition namespace copied verbatim from type; it is part of the identity because numeric IDs overlap across namespaces.",
+      "name": "condition_type",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Positive provider condition identifier copied verbatim from id and interpreted only within condition_type.",
+      "name": "condition_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Provider legacy flag normalized to false only when the field is absent; current and legacy definitions remain distinct rows.",
+      "name": "is_legacy",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "One verbatim provider label expanded from data_types without mapping or eligibility inference.",
+      "name": "data_type",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "True only when the provider source object explicitly contains legacy, preserving absent versus explicit false.",
+      "name": "legacy_source_present",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Zero-based ordinal of data_type in the original provider data_types array.",
+      "name": "source_data_type_ordinal",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed current_reference_snapshot marker prohibiting interpretation as a historical condition-definition table.",
+      "name": "snapshot_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "Immutable Bronze manifest completed_at timestamp used as the conservative source observation time.",
+      "name": "source_capture_at_utc",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session whose open is strictly after source_capture_at_utc.",
+      "name": "available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "XNYS open timestamp for available_session; this snapshot cannot be used before this instant.",
+      "name": "available_at_utc",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed first_xnys_open_after_source_capture_v1 point-in-time availability rule.",
+      "name": "availability_rule",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Deterministic SHA-256 over dataset, source request, artifact digest, page sequence, row ordinal, and source row hash.",
+      "name": "source_record_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Canonical local Bronze request ID from the authoritative manifest.",
+      "name": "source_request_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Server-assigned request ID from the Massive response envelope.",
+      "name": "source_provider_request_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of the stored gzip Bronze page containing the source row.",
+      "name": "source_artifact_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Zero-based sequence of the source page in the Bronze manifest.",
+      "name": "source_page_sequence",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Zero-based ordinal of the source result within its page.",
+      "name": "source_row_ordinal",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of the canonical JSON representation of the unmodified provider result object.",
+      "name": "source_row_hash",
+      "nullable": false
+    }
+  ],
+  "contract_id": "a088a7ab0c562a9fbb90fb0a242be598b7d983d004af27973dd22666d16960dd",
+  "contract_schema_version": 1,
+  "description": "Normalized source-order membership between version-preserved condition definitions and Massive data types, with conservative point-in-time availability and row-level Bronze lineage.",
+  "domain": "reference",
+  "grain": "One provider data-type membership per America/New_York capture date, asset_class, condition_type, condition_id, is_legacy, and data_type.",
+  "partition_by": [
+    "capture_date"
+  ],
+  "primary_key": [
+    "capture_date",
+    "asset_class",
+    "condition_type",
+    "condition_id",
+    "is_legacy",
+    "data_type"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "schema_exact",
+      "description": "Every output Parquet field, order, Arrow type, and nullability must equal this contract.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_integrity_invalid",
+      "description": "No authoritative manifest or manifest-bound artifact may fail status, bytes, checksum, or declared-row validation.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_envelope_invalid",
+      "description": "Every source page must have an OK envelope, results array, provider request ID, and reconciled count.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_snapshot_cardinality_invalid",
+      "description": "Each capture date must be backed by exactly one authoritative current-only source request in a build.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "row_funnel_unreconciled",
+      "description": "Input source rows must reconcile exactly to accepted rows, exact duplicate excess, and quarantined rows.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "required_field_invalid_rows",
+      "description": "Every row must have valid identity fields required by this table without silent string or integer coercion.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "legacy_field_invalid_rows",
+      "description": "When present, legacy must be a native JSON boolean; absence alone is normalized to false and recorded separately.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "data_types_invalid_rows",
+      "description": "data_types must be a nonempty source-order array of unique, nonblank strings.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_conflict_rows",
+      "description": "No frozen natural key may map to differing canonical source rows; legacy is part of the key.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_duplicate_excess",
+      "description": "The output must contain no duplicate excess for the frozen primary key.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "lineage_invalid_rows",
+      "description": "Every output row must reproduce its request, page, ordinal, artifact, row, and record digests.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "availability_invalid_rows",
+      "description": "Capture and availability fields must follow the frozen calendar and first-open-after-capture rule.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "snapshot_scope_invalid_rows",
+      "description": "Every output row must carry the exact current_reference_snapshot scope marker.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "asset_class_domain_invalid_rows",
+      "description": "Every reviewed row must retain the stocks asset class requested from the provider.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "condition_type_unreviewed_rows",
+      "description": "Previously unseen condition namespaces are retained verbatim but require explicit schema review.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "data_type_unreviewed_rows",
+      "description": "Previously unseen data-type labels are retained verbatim but require explicit schema review.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "unexpected_source_field_rows",
+      "description": "Rows with provider fields outside the reviewed mapping are retained with lineage and surfaced for review.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "exact_duplicate_excess_rows",
+      "description": "Canonical duplicate source rows are deterministically deduplicated and remain visible in the row funnel.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "current_legacy_versions_unpreserved_rows",
+      "description": "Every distinct current or legacy natural-key version in accepted source rows must remain represented in the output.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "expansion_unreconciled",
+      "description": "Bridge rows must equal the sum of data_types lengths across accepted source rows.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_data_type_ordinal_invalid_rows",
+      "description": "Every bridge ordinal must point back to the exact source-order data_types value.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "parent_dim_missing_rows",
+      "description": "Every bridge row must resolve to a condition_code_dim parent key produced by the same transform.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "dim_without_bridge_rows",
+      "description": "Every condition_code_dim parent produced by the same transform must have at least one bridge membership.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    }
+  ],
+  "schema_version": 1,
+  "sort_by": [
+    "capture_date",
+    "asset_class",
+    "condition_type",
+    "condition_id",
+    "is_legacy",
+    "data_type"
+  ],
+  "source_datasets": [
+    "condition_codes"
+  ],
+  "table": "condition_code_data_type_bridge"
+}
