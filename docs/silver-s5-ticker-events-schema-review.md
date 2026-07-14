@@ -7,10 +7,11 @@ S5 只把 Massive `ticker_events` Bronze 转成可审计的身份事件证据，
 `backtest_identity_eligible=false`；S4 Assets、S5 Ticker Events 和 S6 Overview 的跨源身份
 解析仍由 S7 单独完成。
 
-本次正式输入只来自
-`manifests/plans/ticker_events/identifiers.txt`。100 个 audit-only pilot identifier 及其 16 个成功
-响应、84 个 404 全部排除，不能混入正式 Silver 计数。S5 不请求 Massive、不修改 Bronze，也不
-启动 S6。
+本次父表的正式请求粒度由
+`manifests/plans/ticker_events/identifiers.txt` 的 15,173 个 Composite FIGI 定义；子表的事件粒度来自
+11,471 个成功 Bronze gzip 中的 13,088 个 raw events。100 个 audit-only pilot identifier 及其
+16 个成功响应、84 个 404 全部排除，不能混入正式 Silver 计数。S5 不请求 Massive、不修改
+Bronze，也不启动 S6。
 
 ## 2. 正式 source profile
 
@@ -33,10 +34,14 @@ Bronze gzip、stored/raw checksum、JSON、manifest row count 和 request-to-res
 identifier 的稳定终态，不是损坏文件，也不能解释为每日股票池缺失。
 
 为避免 Silver store 把 404 `failed` manifest 当作可消费数据，S5 先生成一个不可变、确定性的
-`passed_with_warnings` coverage receipt。它逐条绑定 15,173 个正式请求的 manifest path、SHA、
-identifier 和 terminal outcome，并逐文件绑定 11,471 个成功 gzip artifact；pilot 不在 receipt
-中。后续 SourceInventory 只接受这份 receipt 作为 upstream lineage，并在读取时再次校验原始
-manifest、gzip 和响应身份。
+coverage receipt schema v2。它逐条绑定 15,173 个正式请求的 manifest path、SHA、identifier 和
+terminal outcome，并逐文件绑定 11,471 个成功 gzip artifact；pilot 不在 receipt 中。
+
+转换使用两个不同粒度的 `SourceInventory`：父表的 `control_manifest` inventory 直接以
+`identifiers.txt` 作为 15,173 行权威载体；子表的 Bronze inventory 直接以 11,471 个 gzip 作为
+13,088 个 event occurrence 的载体。两个 inventory 必须绑定同一份 coverage receipt v2 和同一 Git
+commit。因此父表的 response manifest/page 虽不是其直接 row-count carrier，仍通过 receipt v2 被完整、
+闭合地绑定，读取时会再次校验原始 manifest、gzip 和响应身份。
 
 ## 3. 两张输出表
 
@@ -109,15 +114,88 @@ FIGI 在同一天出现多个不同 target ticker，以及 4,298 条事件早于
 
 ## 6. Preview / FullRun 策略
 
-正式源只有约 2.53 MiB、15,173 个 manifest 和 11,471 个小 gzip 页面；因此 bounded preview
-直接覆盖完整正式 inventory，而不是抽样后再扩大范围。页面样例仍限制为最多 100 条，但 data、QA、
-row funnel 和 quarantine 都是 full formal scope。PreviewMetadata 明确记录
-`projection_multiplier=1.0`，所以 Full build 只能在同一 source digest、同一代码 commit 和同一
-参数下重算，不需要额外 FullRunPlan。
+正式父表 inventory 只有一个 197,249-byte identifier receipt；子表 inventory 由 11,471 个小 gzip
+页面组成。因此 bounded preview 直接覆盖完整正式双 inventory，而不是抽样后再扩大范围。页面样例
+仍限制为最多 100 条，但 data、QA、row funnel 和 quarantine 都是 full formal scope。
+PreviewMetadata 对两个 inventory 均明确记录 `projection_multiplier=1.0`，所以 Full build 只能在同一精确
+inventory、coverage receipt、代码 commit 和参数下重算，不需要额外 FullRunPlan。
 
 两张表的 workflow 锁步推进。只有父子计数、主键、外键、QA 和 quarantine 全部匹配已批准画像，才
 允许批准 full run；发布时先发布 request-status 父表，重新读取并验证后，才发布 event 子表。
 
 ## 7. 发布证据
 
-本节在远程 full run 完成后记录 workflow、build、release、文件 SHA、实际资源使用和最终计数。
+### 7.1 冻结运行身份
+
+- 转换代码 commit：`cd1667028cc6709f2836dcde44dbbf06c3f13170`
+- coverage receipt v2：
+  `manifests/silver/source-coverage/ticker_events/coverage-f4c3237e681b7710db23edcb5d639f4092b532affbe8e89ebebd718d1f013f52.json`
+- coverage receipt file SHA-256：
+  `fb116e2fd6a84e4c14a87dc02cb1894e73d91d571df25d6276fe3c5072314cfd`
+- source profile SHA-256：`d78bb6564a883ac7f60dc5b5e5f32836b9df9ec56d8d8c3c7c2f253b45822117`
+- 正式 identifier receipt SHA-256：
+  `c0386e3a19c5fadb5a976052ebc964e72836b3b60644e842a740d8e6dcdfd312`
+- fixed cases：父表 `current_reference_snapshot`；子表 `current_reference_snapshot`、
+  `ticker_change`、`ticker_reuse`；两个 preview 的 `projection_multiplier=1.0`。
+
+本次运行是纯离线转换：未请求 Massive，2026-07-14 12:45 UTC 之后 Bronze 无新文件；S6
+`ticker_overview_safe` 正式 build 目录不存在。
+
+### 7.2 双 source inventory
+
+| 目标表 | source layer | inventory ID | inventory manifest SHA-256 | 直接权威载体 |
+| --- | --- | --- | --- | --- |
+| `ticker_event_request_status` | `control_manifest` | `b5dfe802713c83e4c19e894af3363efd44e259b2b84e0a88dadb24d02f29b654` | `a8d8685949e492a0002d43ddb325d846080aeb02f30a2ce4276ea63b6d1f747f` | `identifiers.txt`：1 个文件，15,173 行 |
+| `ticker_change_event` | `bronze` | `a8648be94aaa4f35811b54f6823f7fd19dba317ea5018cd778a0a9e888a7fe0f` | `43cdc67ca99b9f75b98e11c112da30dadfb910fdd55fd0ef55bbd1549c1f1b55` | 11,471 个 gzip，13,088 个 raw events |
+
+两份 inventory manifest 都位于 `manifests/silver/source-inventories/ticker_events/`，并同时绑定上述
+coverage receipt v2 及 commit。这保留了父表的完整 request/outcome 证据，又不会用只含成功
+event 的 Bronze artifact row count 代替 15,173 个正式请求总数。
+
+### 7.3 Lifecycle 与不可变发布
+
+| 项目 | `ticker_event_request_status` | `ticker_change_event` |
+| --- | --- | --- |
+| workflow ID | `ac52e6bacf5f9cd35a0bb6e3249b32dd3c40dd120122e7dc67e6dcde09c757ed` | `6ef9c67915dd40f488349779fd3eb9a1043659a70b279315ac3d02c6f3411dbd` |
+| final state | `published`, sequence 9 | `published`, sequence 9 |
+| preview build ID | `32574ceaa916be2d9103d1347cea12dad4636a74d7b7c1af0a69396ee765fd8e` | `2f106b2af6cda80e67a496c7ecdd47e44ddeb2de090c3d6cf6348f536dc086cd` |
+| preview manifest SHA-256 | `cf854c63852b13fe857a84b96c82d545d426b82d232833893e1d3ba7103f7c9a` | `7cafb71096a8a6be046137e1d325d7ba5d7288cd3ca9799fe02c03d269c86825` |
+| full build ID | `7ff845634148274b61c2f515cb66cb9e94f8bb8a5e1abe47316343eaa9f22ca1` | `7753688e3d4f19658ca5657b2dc5ccb9bf4c4b229b3c58dc68b255d5999735d2` |
+| full manifest SHA-256 | `e759aaaee11f3c99cf2a3576699291bf7f0e944c7017697ce3fbffe23013be5d` | `392a2bab8bf7112050476059d16fe95930a55175bba4eaf051e0e919895462ae` |
+| publish approval ID | `6fb6849d9487a3e3b9d379a1fd753202342c5de76f38ecfa578b140ff1692bcc` | `bc146eeab79b1ec44a7ada7c6cb50af9c3977d9097105f55e74ba0112b5eeddd` |
+| release ID | `afc63db6850fb50295daa8e6e499c52fe1c16b8290b7932b08aea67531ff98eb` | `18a7eb3dd6805b94151f5b6ce0167c19dbeb328f45bec7c2f806dac42b8a6350` |
+| release manifest SHA-256 | `29a8c5dbe1de1fbdc819a8e8a08f998967cde2ea19c3bb56e94b34bdea9fdb11` | `34cff4cdacbdace305f5ee541c101112a5a7f7fb4e572a3c2405509cf178ba50` |
+| published event SHA-256 | `f03921d461e5154a0d2099ae32c264d80c35c0f91d9a9cb8fbb9778242c8dfbd` | `4ae8ac11ce1303bbbe04a5ea85150f9d522693d19d694d2e81fe5c696439c2dc` |
+| DATA SHA-256 | `fcadbe3b04d54a1c9d6c6e97649a024283b35abce0355ae9dda5f8dfad439614` | `105086359fbe28d1f69681ab875f4c508b5e2aa9a11a9209bf6fc9927b9692ea` |
+
+发布 DATA 路径分别为：
+
+- `silver/schema=v1/identity/ticker_event_request_status/build_id=7ff845634148274b61c2f515cb66cb9e94f8bb8a5e1abe47316343eaa9f22ca1/data/source_observed_date=2026-07-11/part-00000.parquet`
+- `silver/schema=v1/identity/ticker_change_event/build_id=7753688e3d4f19658ca5657b2dc5ccb9bf4c4b229b3c58dc68b255d5999735d2/data/source_capture_date=2026-07-11/part-00000.parquet`
+
+### 7.4 Row funnel、QA 与 quarantine
+
+| 表 | row funnel | QA | quarantine | 分区 |
+| --- | --- | --- | --- | --- |
+| `ticker_event_request_status` | 15,173 输入 → 15,173 接受/OUT；11,471 complete + 3,702 404 | 24 passed + 3 approved Medium warnings | 0 | `source_observed_date=2026-07-11` |
+| `ticker_change_event` | 13,088 输入 → 12,895 接受/OUT + 193 quarantine | 25 passed + 11 approved Medium warnings | 193 个精确 High issue IDs，均为空 target | `source_capture_date=2026-07-11` |
+
+父表的 3 个 waiver 精确对应：3,702 个 `not_found_404`、2,527 个 complete response CIK 缺失、
+100 个 pilot manifest 排除。子表的 11 个 waiver 精确对应：193 个空 target、2,527 个 response
+CIK 缺失、766 个 `1969-12-31`、1,334 个 `2003-09-10`、480 个 `2023-11-18` cluster、481 个周末
+event、2 个同 FIGI/同日多 ticker group、430 个 ticker 重用多 FIGI group、1,244 个 FIGI 多 ticker group、
+4,298 个 S4 覆盖窗口前事件和 1 个 request end label 后事件。
+
+发布后从 Parquet 重读验证：父表 `source_request_id` 15,173/15,173 唯一，子表
+`source_record_id` 12,895/12,895 唯一，父子外键缺失为 0，子表空 `effective_ticker` 为 0，两表
+`backtest_identity_eligible=true` 均为 0 行。发布文件的行数与 SHA 与 release manifest 完全一致。
+
+### 7.5 资源与最终硬停
+
+从首个 preview build 开始到子表发布的 manifest 时间窗口为约 5 分 40 秒。运行期间实时观测到的
+RSS 为 489,228 KiB（约 478 MiB），低于 2 GiB 上限；这是观测值，不写成未采集的精确峰值。
+发布后数据盘仍为 78G used / 109G available / 42%（`df -h` 取整精度）。
+
+`PublishedSilverReader` 已通过两个 release ID 重放 workflow trust chain，并重验 approval、full build
+manifest、release manifest 和 DATA artifact。**S5 至此完成；S6 未启动。下一个必须单独批准的检查点是
+S6 source profile + schema contract。**

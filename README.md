@@ -7,7 +7,7 @@ can be inspected and reproduced.
 ## Current milestone
 
 The project has passed the **Bronze data checkpoint** for the catalog frozen on 2026-07-12 and is
-now at **Silver Phase 2 / S4 Assets `awaiting_review`; S1–S3 remain published**:
+now at **Silver Phase 2 with S1–S5 published; execution is stopped before S6**:
 
 - ten years of full-market minute/day aggregate Flat Files and 29 required REST research
   datasets (31 dataset families in total) are stored immutably on the remote data volume;
@@ -18,42 +18,20 @@ now at **Silver Phase 2 / S4 Assets `awaiting_review`; S1–S3 remain published*
 - every saved file is manifest-bound, checksummed, resumable, and covered by the full Bronze audit;
 - the Silver S0 control plane is implemented: frozen schemas/QA rules, source inventories, immutable
   review workflows, approval-bound releases, and a release-only reader are covered by synthetic tests;
-- the exact S1 `reference/exchange_dim` schema is approved; its 27-row preview and review-bound
-  full build both passed all 20 QA checks with zero quarantine rows;
-- S1 release `feab0e1f32a5685d1115a6e4e87aab8ff50c18b99c6336a8790ecba44464d838`
-  is published through the immutable release-only reader;
-- the exact 17-field S2 `reference/ticker_type_dim` contract
-  `b2297d0631ae7560e7c3a9f73a288c62154db36b3188275e62f69c642884e38d` is approved and packaged;
-- its bounded manifest-bound preview and review-bound full build both accepted all 24 source rows
-  into 24 output rows, with 17 columns, zero duplicate excess, zero quarantine, and all 20 QA checks
-  passed; the three first-capture temporal checks are the expected 0/0;
-- S2 workflow `40cde0fb24a52dbce894b52700f25c21074ad8d97ae5011a0a83cc773cee4b97` is
-  `published` at sequence 9. Full build
-  `f02a6ad085e5f78ac15f3d1e26caf75079275204e7b55b58b4bb679bdfab2780` has seven immutable
-  outputs, and release `11a62f9c06ea5c609c159a7d619ba94cabbe39d3b07518fec279fa4758c882f6`
-  exposes only its one verified DATA Parquet through the release-only reader;
-- S3 publishes the version-preserved 29-field `condition_code_dim` and normalized 20-field
-  `condition_code_data_type_bridge`: 94 source definitions became 94 Dim rows and 123 Bridge rows,
-  with 27/27 and 23/23 QA passed, zero quarantine, and zero approval exceptions;
-- S3 releases `9c0eb2eec54428bfa58754fc0b6f58a33b5fd804fe5917253f2a411574ab35b2`
-  and `bdb5286b592dae80477cc45025f822c53aab140202f74cf41d2fc39075b86d66`
-  are published and release-only verified; exact replay preserved all file SHA/metadata and both
-  event chains at sequence 9. S1/S2 and Bronze remain unchanged;
-- S4 has completed a read-only full profile of all 5,026 active/inactive Assets manifests,
-  72,038 pages, and 69,381,182 rows. It confirmed zero active-flag mismatch and zero same-day
-  active/inactive exact-ticker overlap, and refined the 4,853 duplicate groups into 2 exact,
-  2,115 last-updated-only, and 2,736 delisted-plus-last-updated groups;
-- the three exact S4 contracts are approved and packaged. A manifest-bound 2026-05-11 preview used
-  all 37 active/inactive pages and 35,647 source rows, with S1/S2 release manifests registered as
-  upstream lineage;
-- the manifest-bound Assets reader and session-bounded pure transform now implement lossless daily
-  observations, multi-version evidence, fail-closed selection, and the one-row-per-session/ticker
-  source universe. The three preview outputs contain 35,647 observations, 82 version rows, and
-  35,606 universe rows; all have zero quarantine and zero blocking QA;
-- the three S4 workflows are stopped at `awaiting_review` sequence 5. Exact idempotent replay kept
-  the same build and event IDs. No full build, full-run approval, published Silver directory, or
-  S4 release exists; any later ten-year build requires a separately reviewed immutable
-  `FullRunPlan`.
+- S1 exchanges, S2 ticker types, and the paired S3 condition-code tables are published through the
+  immutable release-only reader with exact schema, QA, and zero-quarantine evidence;
+- S4 processed all 5,026 active/inactive Assets manifests, 72,038 pages, and 69,381,182 rows. Its
+  three full-scope tables were published as one atomic release set with scope
+  `identity_evidence_pending_s7`; they remain `backtest_identity_eligible=false`;
+- S5 binds a 15,173-identifier request inventory and 11,471 successful Bronze responses through one
+  coverage receipt v2. It publishes 15,173 request-status rows and 12,895 valid ticker-change rows;
+  the other 193 raw events are empty-target High quarantine records, not silently dropped rows;
+- S5 releases `afc63db6850fb50295daa8e6e499c52fe1c16b8290b7932b08aea67531ff98eb`
+  and `18a7eb3dd6805b94151f5b6ce0167c19dbeb328f45bec7c2f806dac42b8a6350`
+  passed release-only trust-chain and artifact verification. They are evidence only and also remain
+  `backtest_identity_eligible=false`;
+- permanent identity, ticker validity intervals, and a backtestable universe still require the
+  separately reviewed S6 Overview evidence and S7 reconciliation. S6 has not started.
 
 The final strict full audit is
 `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/bronze/full-2026-07-12-v9.json`
@@ -87,7 +65,7 @@ Formal Silver control-plane code lives in `backend/ame_stocks_api/silver/`. Its 
 documented in [docs/silver-s0-contracts.md](docs/silver-s0-contracts.md), while the dataset-by-dataset
 sequence and hard approval stops remain in
 [docs/silver-processing-plan.md](docs/silver-processing-plan.md). S0 does not read Bronze or run a
-transformation. S1 `exchanges`, S2 `ticker_types`, and S3 `condition_codes` are fully published.
+transformation. S1 `exchanges` through S5 `ticker_events` are fully published.
 S2's approved contract, bounded 24-row preview, review-bound full build, and immutable release
 evidence are documented in
 [docs/silver-s2-ticker-types-schema-review.md](docs/silver-s2-ticker-types-schema-review.md). The
@@ -104,9 +82,13 @@ reviewed result. S3's paired contracts, source profile, runtime IDs, QA results,
 are documented in
 [docs/silver-s3-condition-codes-schema-review.md](docs/silver-s3-condition-codes-schema-review.md).
 S3 is finished. S4's full source profile, reconstructed-membership caveat, duplicate selection rule,
-approved contracts, runtime workflow IDs, and bounded-preview evidence are documented in
-[docs/silver-s4-assets-schema-review.md](docs/silver-s4-assets-schema-review.md). The current hard
-stop is human review of the three immutable preview builds; no full run or publish is authorized.
+approved contracts, full-scope release-set IDs, and evidence-only boundary are documented in
+[docs/silver-s4-assets-schema-review.md](docs/silver-s4-assets-schema-review.md). S5's dual source
+inventories, exact date-quality decisions, QA/quarantine results, and two published releases are
+documented in
+[docs/silver-s5-ticker-events-schema-review.md](docs/silver-s5-ticker-events-schema-review.md). The
+current hard stop is before S6 `ticker_overview` source profiling and schema-contract review; no S6
+build or release is authorized.
 The approved schemas are loaded by
 [asset_contract.py](backend/ame_stocks_api/silver/asset_contract.py); the manifest-bound reader and
 session-bounded pure transform live in
