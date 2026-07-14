@@ -77,6 +77,8 @@ from ame_stocks_api.silver.ticker_events import (
 
 S5_COMPLETION_AUTHORIZATION = "我建议如果中间没发生预期外的事情，直接把S5推进到结束吧"  # noqa: RUF001
 S5_DATE_QUALITY_AUTHORIZATION = "批准 S5 日期质量方案，本来我们也不关心这么远的日期"  # noqa: RUF001
+S5_DATE_QUALITY_DECISION_ID = "approved_s5_date_quality_v1"
+S5_DATE_QUALITY_DECISION_SHA256 = stable_digest({"decision": S5_DATE_QUALITY_AUTHORIZATION})
 S5_SCHEMA_CREATED_AT = "2026-07-14T08:41:00+00:00"
 S5_SCHEMA_DECIDED_AT = "2026-07-14T08:41:01+00:00"
 S5_WORKFLOW_ACTOR = "s5-ticker-events-lifecycle"
@@ -958,7 +960,8 @@ def _write_outputs(
         [
             {
                 "completion_delegation": S5_COMPLETION_AUTHORIZATION,
-                "date_quality_authorization": S5_DATE_QUALITY_AUTHORIZATION,
+                "date_quality_decision_id": S5_DATE_QUALITY_DECISION_ID,
+                "date_quality_decision_sha256": S5_DATE_QUALITY_DECISION_SHA256,
                 "expected_blank_targets": authorization.expected_blank_targets,
                 "expected_complete_requests": authorization.expected_complete_requests,
                 "expected_event_rows": authorization.expected_event_rows,
@@ -1049,7 +1052,8 @@ def _parameters(
         "completion_delegation": S5_COMPLETION_AUTHORIZATION,
         "coverage_receipt_path": coverage_receipt_path,
         "coverage_receipt_sha256": coverage_receipt_sha256,
-        "date_quality_authorization": S5_DATE_QUALITY_AUTHORIZATION,
+        "date_quality_decision_id": S5_DATE_QUALITY_DECISION_ID,
+        "date_quality_decision_sha256": S5_DATE_QUALITY_DECISION_SHA256,
         "expected_blank_targets": authorization.expected_blank_targets,
         "expected_complete_requests": authorization.expected_complete_requests,
         "expected_event_rows": authorization.expected_event_rows,
@@ -1415,6 +1419,8 @@ __all__ = [
     "CURRENT_TICKER_EVENT_AUTHORIZATION",
     "S5_COMPLETION_AUTHORIZATION",
     "S5_DATE_QUALITY_AUTHORIZATION",
+    "S5_DATE_QUALITY_DECISION_ID",
+    "S5_DATE_QUALITY_DECISION_SHA256",
     "TickerEventAuthorization",
     "TickerEventLifecycleRun",
     "TickerEventTableRun",

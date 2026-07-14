@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -17,6 +18,7 @@ from ame_stocks_api.silver.contracts import (
     QASeverity,
     QAStatus,
     TableContract,
+    ensure_json_safe,
 )
 from ame_stocks_api.silver.store import SilverStoreError
 from ame_stocks_api.silver.ticker_event_contract import (
@@ -53,12 +55,30 @@ def test_production_authorization_and_cli_surface_are_fixed() -> None:
     assert lifecycle.S5_DATE_QUALITY_AUTHORIZATION == (
         "批准 S5 日期质量方案，本来我们也不关心这么远的日期"  # noqa: RUF001
     )
+    assert lifecycle.S5_DATE_QUALITY_DECISION_ID == "approved_s5_date_quality_v1"
+    assert len(lifecycle.S5_DATE_QUALITY_DECISION_SHA256) == 64
     assert {action.dest for action in build_parser()._actions} == {
         "help",
         "data_root",
         "repo_root",
         "git_commit",
     }
+
+
+def test_build_parameters_use_a_credential_safe_date_decision_receipt() -> None:
+    parameters = lifecycle._parameters(
+        TICKER_EVENT_REQUEST_STATUS_CONTRACT,
+        batch=SimpleNamespace(request_start=date(2003, 9, 10), request_end=date(2026, 7, 9)),
+        inventory=SimpleNamespace(inventory_id="a" * 64),
+        profile_sha256="b" * 64,
+        coverage_receipt_path="manifests/silver/source-coverage/ticker_events/fixture.json",
+        coverage_receipt_sha256="c" * 64,
+        authorization=lifecycle.CURRENT_TICKER_EVENT_AUTHORIZATION,
+    )
+
+    frozen = ensure_json_safe(parameters, label="build parameters")
+    assert frozen["date_quality_decision_id"] == lifecycle.S5_DATE_QUALITY_DECISION_ID
+    assert frozen["date_quality_decision_sha256"] == (lifecycle.S5_DATE_QUALITY_DECISION_SHA256)
 
 
 @pytest.mark.parametrize(
