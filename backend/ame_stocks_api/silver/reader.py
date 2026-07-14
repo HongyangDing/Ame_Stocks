@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ame_stocks_api.artifacts import stable_digest
 from ame_stocks_api.silver.contracts import (
@@ -18,11 +19,15 @@ from ame_stocks_api.silver.contracts import (
     TableContract,
 )
 from ame_stocks_api.silver.store import (
+    S4_IDENTITY_ELIGIBILITY_PENDING,
     SilverStore,
     SilverStoreError,
     StoredDocument,
     WorkflowState,
 )
+
+if TYPE_CHECKING:
+    from ame_stocks_api.silver.asset_release_set import AssetReleaseSet
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +38,18 @@ class PublishedRelease:
     data_paths: tuple[Path, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class PublishedAssetEvidence:
+    """Verified S4 data that remains evidence-only until S7 resolves identity."""
+
+    release: ReleaseManifest
+    contract: TableContract
+    build: BuildManifest
+    data_paths: tuple[Path, ...]
+    publication_scope: str
+    backtest_identity_eligible: bool
+
+
 class PublishedSilverReader:
     """Resolve data only through a release backed by the published event chain."""
 
@@ -40,7 +57,35 @@ class PublishedSilverReader:
         self.store = SilverStore(data_root)
 
     def inspect(self, release_id: str) -> PublishedRelease:
+        published, release_set = self._inspect_with_scope(release_id)
+        if release_set is not None:
+            raise SilverStoreError(
+                f"{S4_IDENTITY_ELIGIBILITY_PENDING}; use "
+                "PublishedAssetEvidenceReader for evidence-only access"
+            )
+        return published
+
+    def _inspect_with_scope(
+        self,
+        release_id: str,
+    ) -> tuple[PublishedRelease, AssetReleaseSet | None]:
         release, release_document = self.store.load_release(release_id)
+        # S4 publishes three mutually dependent tables.  Keep this import local:
+        # the release-set verifier uses SilverStore to authenticate its marker.
+        from ame_stocks_api.silver.asset_release_set import (
+            asset_release_requires_set,
+            require_asset_release_set_membership,
+        )
+
+        release_set = None
+        if asset_release_requires_set(release.table):
+            # Every path, including the explicit evidence-only reader, authenticates
+            # the complete marker here.  There is no boolean/capability bypass for a
+            # member that reached seq10 before the all-or-nothing set was committed.
+            release_set = require_asset_release_set_membership(
+                self.store.root,
+                release.release_id,
+            )
         snapshot = self.store.verify_workflow_trust_chain(release.workflow_id)
         events = self.store.workflow_events(release.workflow_id)
         published = events[-1]
@@ -115,11 +160,14 @@ class PublishedSilverReader:
         data_paths = tuple(
             self.store.verify_artifact(output, contract=contract) for output in release.outputs
         )
-        return PublishedRelease(
-            release=release,
-            contract=contract,
-            build=build,
-            data_paths=data_paths,
+        return (
+            PublishedRelease(
+                release=release,
+                contract=contract,
+                build=build,
+                data_paths=data_paths,
+            ),
+            release_set,
         )
 
     def data_files(self, release_id: str) -> tuple[Path, ...]:
@@ -142,3 +190,34 @@ class PublishedSilverReader:
     @staticmethod
     def _artifact_set(artifacts: tuple[ArtifactRef, ...]) -> set[str]:
         return {stable_digest(item.to_dict()) for item in artifacts}
+
+
+class PublishedAssetEvidenceReader:
+    """Read protected S4 releases without granting backtest identity eligibility."""
+
+    def __init__(self, data_root: Path) -> None:
+        self._reader = PublishedSilverReader(data_root)
+
+    def inspect(self, release_id: str) -> PublishedAssetEvidence:
+        from ame_stocks_api.silver.asset_release_set import ASSET_PUBLICATION_SCOPE
+
+        published, release_set = self._reader._inspect_with_scope(release_id)
+        if release_set is None:
+            raise SilverStoreError(
+                "PublishedAssetEvidenceReader accepts only protected S4 asset releases"
+            )
+        if (
+            release_set.publication_scope != ASSET_PUBLICATION_SCOPE
+            or release_set.backtest_identity_eligible is not False
+        ):
+            raise SilverStoreError(
+                "S4 release-set marker does not preserve the evidence-only identity boundary"
+            )
+        return PublishedAssetEvidence(
+            release=published.release,
+            contract=published.contract,
+            build=published.build,
+            data_paths=published.data_paths,
+            publication_scope=release_set.publication_scope,
+            backtest_identity_eligible=False,
+        )

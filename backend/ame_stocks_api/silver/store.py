@@ -50,6 +50,9 @@ from ame_stocks_api.silver.contracts import (
 )
 
 WORKFLOW_EVENT_VERSION = 1
+S4_IDENTITY_ELIGIBILITY_PENDING = (
+    "S7 identity eligibility is pending; S4 asset identity data is evidence-only"
+)
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _EVENT_FILE = re.compile(r"^(?P<sequence>[0-9]{6})-(?P<sha>[0-9a-f]{64})\.json$")
@@ -1736,6 +1739,20 @@ class SilverStore:
             release, stored = self.load_release(release_id)
             if stored.sha256 != upstream.sha256:
                 continue
+            # Import locally because release-set validation reads immutable
+            # Silver documents through this store.  S4 member releases must not
+            # become lineage inputs until the complete set is visible.
+            from ame_stocks_api.silver.asset_release_set import (
+                asset_release_requires_set,
+                require_asset_release_set_membership,
+            )
+
+            if asset_release_requires_set(release.table):
+                require_asset_release_set_membership(self.root, release.release_id)
+                raise SilverStoreError(
+                    f"{S4_IDENTITY_ELIGIBILITY_PENDING}; protected S4 releases cannot "
+                    "be used as generic PUBLISHED_SILVER lineage"
+                )
             self.verify_workflow_trust_chain(release.workflow_id)
             for output in release.outputs:
                 published.add(
