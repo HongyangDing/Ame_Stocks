@@ -133,6 +133,52 @@ _EXPECTED_QUARANTINE_ROWS = {
     TICKER_EVENT_REQUEST_STATUS_CONTRACT.table: 0,
     TICKER_CHANGE_EVENT_CONTRACT.table: EXPECTED_BLANK_TARGETS,
 }
+_FIXED_CASE_QA_CHECK_IDS = {
+    TICKER_EVENT_REQUEST_STATUS_CONTRACT.table: {
+        "current_reference_snapshot": (
+            "source_plan_invalid",
+            "source_integrity_invalid",
+            "source_request_contract_invalid_rows",
+            "status_count_formula_invalid",
+            "event_count_reconciliation_invalid_rows",
+            "lineage_invalid_rows",
+            "availability_invalid_rows",
+            "event_child_coverage_invalid_rows",
+            "request_outcome_changed_since_prior_capture",
+            "backtest_identity_eligible_rows",
+        ),
+    },
+    TICKER_CHANGE_EVENT_CONTRACT.table: {
+        "current_reference_snapshot": (
+            "source_plan_invalid",
+            "source_integrity_invalid",
+            "source_envelope_invalid",
+            "lineage_invalid_rows",
+            "availability_invalid_rows",
+            "date_quality_invalid_rows",
+            "event_after_source_capture_rows",
+            "backtest_identity_eligible_rows",
+        ),
+        "ticker_change": (
+            "event_structure_invalid_rows",
+            "event_date_parse_invalid_rows",
+            "blank_target_entered_data_rows",
+            "valid_sibling_event_loss_rows",
+            "target_ticker_format_invalid_rows",
+            "same_figi_date_multiple_ticker_groups",
+            "non_descending_multi_event_responses",
+        ),
+        "ticker_reuse": (
+            "response_identity_mismatch_rows",
+            "primary_key_duplicate_excess",
+            "semantic_event_key_duplicate_excess",
+            "ticker_reuse_multiple_figi_groups",
+            "figi_multiple_ticker_groups",
+            "request_status_parent_missing_rows",
+            "backtest_identity_eligible_rows",
+        ),
+    },
+}
 _LOGIC_CLOSURE = (
     "backend/ame_stocks_api/cli/silver_ticker_events_lifecycle.py",
     "backend/ame_stocks_api/silver/contracts.py",
@@ -852,11 +898,10 @@ def _load_or_materialize(
     if preview:
         input_sample = next(item for item in outputs if item.path.endswith("input-sample.json"))
         output_sample = next(item for item in outputs if item.path.endswith("output-sample.json"))
+        fixed_case_ids, fixed_case_results = _fixed_case_evidence(contract, qa_checks)
         metadata = PreviewMetadata(
-            fixed_case_ids=("reviewed_formal_s5_profile",),
-            fixed_case_qa_result_ids={
-                "reviewed_formal_s5_profile": tuple(item.result_id for item in qa_checks)
-            },
+            fixed_case_ids=fixed_case_ids,
+            fixed_case_qa_result_ids=fixed_case_results,
             input_sample_path=input_sample.path,
             input_sample_rows=int(input_sample.row_count or 0),
             output_sample_path=output_sample.path,
@@ -896,6 +941,28 @@ def _load_or_materialize(
         completed_at=_now_utc(),
         preview=metadata,
     )
+
+
+def _fixed_case_evidence(
+    contract: TableContract,
+    qa_checks: tuple[QACheckResult, ...],
+) -> tuple[tuple[str, ...], dict[str, tuple[str, ...]]]:
+    try:
+        case_checks = _FIXED_CASE_QA_CHECK_IDS[contract.table]
+    except KeyError as exc:
+        raise SilverStoreError(f"S5 has no fixed-case map for {contract.table}") from exc
+    by_id = {item.check_id: item for item in qa_checks}
+    if len(by_id) != len(qa_checks):
+        raise SilverStoreError(f"S5 {contract.table} fixed-case QA contains duplicate IDs")
+    evidence: dict[str, tuple[str, ...]] = {}
+    for case_id, check_ids in case_checks.items():
+        missing = sorted(set(check_ids).difference(by_id))
+        if missing:
+            raise SilverStoreError(
+                f"S5 {contract.table} fixed-case {case_id} lacks QA checks: {missing}"
+            )
+        evidence[case_id] = tuple(by_id[check_id].result_id for check_id in check_ids)
+    return tuple(case_checks), evidence
 
 
 def _write_outputs(

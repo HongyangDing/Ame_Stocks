@@ -13,10 +13,13 @@ from ame_stocks_api.cli.silver_ticker_events_lifecycle import build_parser
 from ame_stocks_api.silver import ticker_event_lifecycle as lifecycle
 from ame_stocks_api.silver.contracts import (
     QUARANTINE_ARROW_SCHEMA,
+    ArtifactRef,
     ArtifactRole,
+    PreviewMetadata,
     QACheckResult,
     QASeverity,
     QAStatus,
+    SourceLayer,
     TableContract,
     ensure_json_safe,
 )
@@ -211,6 +214,43 @@ def _expected_qa(contract: TableContract) -> tuple[QACheckResult, ...]:
         )
         for rule in contract.qa_rules
     )
+
+
+@pytest.mark.parametrize(
+    "contract",
+    [TICKER_EVENT_REQUEST_STATUS_CONTRACT, TICKER_CHANGE_EVENT_CONTRACT],
+    ids=lambda item: item.table,
+)
+def test_preview_metadata_uses_registered_identity_fixed_cases(contract: TableContract) -> None:
+    fixed_case_ids, evidence = lifecycle._fixed_case_evidence(contract, _expected_qa(contract))
+    source = ArtifactRef(
+        path="bronze/massive/ticker_events/fixture.json.gz",
+        sha256="a" * 64,
+        bytes=1,
+        row_count=1,
+        media_type="application/gzip+json",
+        role=ArtifactRole.SOURCE,
+        source_dataset="ticker_events",
+        source_layer=SourceLayer.BRONZE,
+        lineage_manifest_path="manifests/silver/source-inventories/fixture.json",
+        lineage_manifest_sha256="b" * 64,
+    )
+
+    preview = PreviewMetadata(
+        fixed_case_ids=fixed_case_ids,
+        fixed_case_qa_result_ids=evidence,
+        input_sample_path="silver/preview/input-sample.json",
+        input_sample_rows=1,
+        output_sample_path="silver/preview/output-sample.json",
+        output_sample_rows=1,
+        examples_truncated=True,
+        full_run_inputs=(source,),
+        resource_usage={"serialized_bytes": 1},
+        full_run_projection={"projection_multiplier": 1.0},
+    )
+
+    assert preview.fixed_case_ids == fixed_case_ids
+    assert set(fixed_case_ids) <= {"current_reference_snapshot", "ticker_change", "ticker_reuse"}
 
 
 @pytest.mark.parametrize(
