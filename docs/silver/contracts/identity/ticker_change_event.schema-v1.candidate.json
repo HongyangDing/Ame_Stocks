@@ -1,0 +1,539 @@
+{
+  "columns": [
+    {
+      "arrow_type": "date32",
+      "description": "America/New_York calendar date derived from the authoritative complete Bronze manifest completed_at; it partitions this current-timeline capture and is not the event effective date.",
+      "name": "source_capture_date",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact unmodified provider events[].date string retained before strict parsing.",
+      "name": "event_date_raw",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Strict ISO-date parse of event_date_raw; this is a provider event-effective date candidate, never an announcement or research-availability timestamp.",
+      "name": "event_date",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Deterministic domain: ordinary_calendar_date, provider_sentinel_candidate_1969_12_31, source_boundary_candidate_2003_09_10, or provider_cluster_candidate_2023_11_18.",
+      "name": "event_date_quality",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "True exactly when event_date is Saturday or Sunday; S5 preserves the calendar date and never shifts it to a trading session.",
+      "name": "event_date_is_weekend",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "True exactly for the reviewed concentrated dates 1969-12-31, 2003-09-10, or 2023-11-18; the flag is diagnostic and cannot set an identity interval.",
+      "name": "event_date_is_known_cluster",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "True when the same response Composite FIGI has more than one distinct nonblank provider ticker on event_date; S5 preserves every occurrence and chooses no ordering.",
+      "name": "same_figi_date_multiple_tickers",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider events[].type; the formal approved source plan requires ticker_change.",
+      "name": "event_type",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact case-sensitive provider ticker_change.ticker retained without trim, case conversion, suffix parsing, or alias merging; it does not imply an observed prior ticker.",
+      "name": "effective_ticker",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed composite_figi for the formal authoritative receipt; ticker and CUSIP pilot requests are not admitted.",
+      "name": "requested_identifier_type",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact case-sensitive Composite FIGI sent in the authoritative request.",
+      "name": "requested_identifier",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Provider results.name preserved verbatim from the complete response.",
+      "name": "response_name",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional provider results.cik preserved verbatim; missing CIK is never filled from current metadata or used alone to merge share classes.",
+      "name": "response_cik",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Provider results.composite_figi preserved verbatim and required to equal requested_identifier.",
+      "name": "response_composite_figi",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed evidence_only_pending_s7 marker: this row is identity evidence only and cannot itself create asset_id, issuer_id, or a ticker interval.",
+      "name": "identity_evidence_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false in S5; only a separately approved S7 identity release may grant backtest identity eligibility.",
+      "name": "backtest_identity_eligible",
+      "nullable": false
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "Authoritative complete Bronze manifest completed_at timestamp for the response containing this event.",
+      "name": "source_capture_at_utc",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session whose open is strictly after source_capture_at_utc.",
+      "name": "source_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "XNYS open timestamp for source_available_session; event_date never substitutes for this operational availability.",
+      "name": "source_available_at_utc",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed first_xnys_open_after_source_capture_v1 rule.",
+      "name": "source_availability_rule",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed current_complete_timeline_without_historical_vintage_v1 marker; historical events were observed in one current capture, not archived vintages.",
+      "name": "source_availability_quality",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Deterministic SHA-256 over ticker_events, source request, manifest/artifact identity, page sequence, original event ordinal, event hash, and enclosing result hash.",
+      "name": "source_record_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Canonical local Bronze request ID from the formal authoritative manifest.",
+      "name": "source_request_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Server-assigned request ID from the successful Massive response envelope.",
+      "name": "source_provider_request_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of the exact authoritative Bronze manifest used by this row.",
+      "name": "source_manifest_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of the stored gzip Bronze page containing this event.",
+      "name": "source_artifact_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Zero-based page sequence from the manifest-bound provider response.",
+      "name": "source_page_sequence",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Zero-based ordinal in the unmodified results.events array; it preserves source order even when the array is reverse chronological.",
+      "name": "source_event_ordinal",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of canonical JSON for the unmodified provider event object.",
+      "name": "source_event_hash",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of canonical JSON for the enclosing unmodified provider results object.",
+      "name": "source_result_hash",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Auditable relative Bronze artifact path plus page and events-array ordinal for this occurrence.",
+      "name": "source_pointer",
+      "nullable": false
+    }
+  ],
+  "contract_id": "48a46dfd810b95137125b336917c23343da2aace5a6a71d99129b4d10f2e59b1",
+  "contract_schema_version": 1,
+  "description": "Formal Massive ticker-change event occurrences retained as current-capture, evidence-only identity inputs with explicit event-date quality, conservative operational availability, high-quarantine blank targets, and complete Bronze lineage; no row creates an asset ID, prior ticker, effective trading-session interval, or backtest eligibility.",
+  "domain": "identity",
+  "grain": "One structurally valid manifest-bound occurrence in results.events from one formal successful Composite-FIGI ticker_events request; source duplicates and array ordinals remain distinct, while an invalid blank target occurrence is represented only by a high-severity quarantine record.",
+  "partition_by": [
+    "source_capture_date"
+  ],
+  "primary_key": [
+    "source_record_id"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "schema_exact",
+      "description": "Every output Parquet field, order, Arrow type, and nullability must equal this contract.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_plan_invalid",
+      "description": "The immutable 15,173-row formal Composite-FIGI receipt and exact request definitions must reconcile with no missing, extra, duplicate, or pilot request.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_integrity_invalid",
+      "description": "No admitted complete manifest or manifest-bound artifact may fail status, path, bytes, checksum, gzip, JSON, page sequence, or declared event-count validation.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_envelope_invalid",
+      "description": "Every admitted successful page must have an OK envelope, object results, nonblank provider request ID, and the reviewed results.name/composite_figi/events shape.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_request_contract_invalid_rows",
+      "description": "Every event must descend from a formal request for one Composite FIGI with types=ticker_change and the exact frozen local request labels.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "response_identity_mismatch_rows",
+      "description": "No successful response Composite FIGI may be missing, blank, or differ byte-for-byte from its requested formal Composite FIGI.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "event_structure_invalid_rows",
+      "description": "No accepted DATA row may have a non-object event, non-ISO date, type other than ticker_change, non-object ticker_change payload, or non-string target.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "event_date_parse_invalid_rows",
+      "description": "Every accepted event_date_raw must parse strictly and round-trip exactly to event_date.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "row_funnel_unreconciled",
+      "description": "Formal event occurrences must reconcile exactly to accepted DATA occurrences, exact duplicate excess, and quarantined occurrences; valid siblings of invalid placeholders remain accepted.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_duplicate_excess",
+      "description": "The output must contain no duplicate source_record_id.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "lineage_invalid_rows",
+      "description": "Every row must reproduce its request, manifest, artifact, page, original event ordinal, event/result hashes, source pointer, and source_record_id.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "availability_invalid_rows",
+      "description": "Capture date/time and operational availability must follow the frozen calendar and first-XNYS-open-strictly-after-capture rule.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "date_quality_invalid_rows",
+      "description": "Every event_date_quality must be reproduced exactly from event_date using the four-value reviewed domain.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "diagnostic_flag_invalid_rows",
+      "description": "Weekend, known-cluster, and same-FIGI/date-multiple-ticker flags must be deterministic and must not change source values.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_evidence_scope_invalid_rows",
+      "description": "Every row must retain the exact evidence_only_pending_s7 scope marker.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "backtest_identity_eligible_rows",
+      "description": "No S5 event row may be marked backtest identity eligible.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "request_status_parent_missing_rows",
+      "description": "Every event source_request_id must have exactly one formal complete parent in ticker_event_request_status.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "pilot_output_rows",
+      "description": "No isolated pilot request or pilot event may enter DATA, QA denominators for formal coverage, or quarantine.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "valid_sibling_event_loss_rows",
+      "description": "A response containing a blank placeholder must retain every other structurally valid event occurrence with its original ordinal.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "blank_target_entered_data_rows",
+      "description": "No missing, empty, or whitespace-only ticker_change.ticker may enter DATA; each such occurrence must produce one high-severity quarantine record.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "target_ticker_format_invalid_rows",
+      "description": "No accepted target ticker may contain leading or trailing whitespace; exact internal case and punctuation remain unmodified.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "blank_target_placeholder_rows",
+      "description": "Known blank target occurrences are counted before high-severity quarantine so the 193-row provider placeholder population remains explicit.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "response_cik_missing_requests",
+      "description": "Successful formal responses without results.cik remain valid FIGI evidence and are counted without CIK backfill.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "sentinel_1969_12_31_rows",
+      "description": "Events dated 1969-12-31 remain visible as provider-sentinel candidates and cannot independently begin an identity interval.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "request_boundary_2003_09_10_rows",
+      "description": "Events exactly on the local request start label remain visible as source-boundary candidates; the label was not a server date filter.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "provider_cluster_2023_11_18_rows",
+      "description": "All events dated 2023-11-18 remain visible as a reviewed provider date cluster, including valid targets and quarantined blanks.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "weekend_event_rows",
+      "description": "Weekend event dates are preserved without shifting and require S7 membership corroboration before defining a trading-session boundary.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "same_figi_date_multiple_ticker_groups",
+      "description": "Composite-FIGI/date groups containing multiple distinct target tickers remain unresolved evidence with no source-order winner.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "ticker_reuse_multiple_figi_groups",
+      "description": "Exact tickers observed under multiple Composite FIGIs remain separate identity evidence and must never be ticker-merged.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "figi_multiple_ticker_groups",
+      "description": "Composite FIGIs observed with multiple target tickers remain visible for S7 lifecycle construction.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "event_before_s4_window_rows",
+      "description": "Events before the S4 membership window remain uncorroborated by S4 and cannot be described as PIT-validated aliases.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "event_after_request_end_rows",
+      "description": "Events after the local request end label are preserved because ticker-events start/end labels were not server-side filters.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "event_after_source_capture_rows",
+      "description": "Future-effective events relative to source capture, if present, remain scheduled evidence and cannot be applied before event_date.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "semantic_event_key_duplicate_excess",
+      "description": "Repeated Composite-FIGI/date/type/effective-ticker semantic keys are preserved as source occurrences and surfaced rather than silently deduplicated.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "non_descending_multi_event_responses",
+      "description": "Multi-event responses not in the predominant reverse-chronological source order remain visible; transformations preserve ordinal and never infer semantics from array order.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "unexpected_source_field_rows",
+      "description": "Events or response objects containing fields outside the reviewed mapping remain source-visible and require schema review before publication.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    }
+  ],
+  "schema_version": 1,
+  "sort_by": [
+    "source_capture_date",
+    "event_date",
+    "response_composite_figi",
+    "effective_ticker",
+    "source_record_id"
+  ],
+  "source_datasets": [
+    "ticker_events"
+  ],
+  "table": "ticker_change_event"
+}

@@ -1,0 +1,450 @@
+{
+  "columns": [
+    {
+      "arrow_type": "date32",
+      "description": "America/New_York date derived from source_status_observed_at_utc; complete and not-found outcomes are partitioned by when they were actually observed.",
+      "name": "source_observed_date",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed composite_figi for every formal authoritative request.",
+      "name": "requested_identifier_type",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact case-sensitive Composite FIGI from the immutable formal receipt.",
+      "name": "requested_identifier",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed ticker_change copied from the formal request parameters.",
+      "name": "requested_event_type",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Local request identity start label; it was not sent as a server-side ticker-events date filter.",
+      "name": "request_start_label",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Local request identity end label; events outside this label remain valid source evidence.",
+      "name": "request_end_label",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed local_request_identity_not_server_date_filter_v1 marker.",
+      "name": "request_window_semantics",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact Bronze manifest status: complete for returned timelines or failed for terminal HTTP-404 observations.",
+      "name": "source_manifest_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Deterministic domain complete_timeline or not_found_404; not_found is endpoint coverage status, never asset absence.",
+      "name": "request_outcome",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Provider HTTP status preserved when the failed manifest recorded it; exactly 404 for not_found_404 and null for complete timelines because successful HTTP status was not stored.",
+      "name": "provider_status_code",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Provider results.name for complete timelines; null for not_found_404.",
+      "name": "response_name",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional provider results.cik for complete timelines; null is allowed and never backfilled.",
+      "name": "response_cik",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Provider results.composite_figi for complete timelines and null for not_found_404; complete values must equal requested_identifier.",
+      "name": "response_composite_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Number of manifest-bound raw results.events occurrences; zero for not_found_404.",
+      "name": "raw_event_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Number of this request's event occurrences entering ticker_change_event DATA.",
+      "name": "accepted_event_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Number of this request's event occurrences represented by quarantine records, including blank target placeholders.",
+      "name": "quarantined_event_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "Bronze manifest created_at timestamp for the exact request.",
+      "name": "source_manifest_created_at_utc",
+      "nullable": false
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "Manifest completed_at for complete timelines or final failed-manifest updated_at for the observed HTTP-404 outcome.",
+      "name": "source_status_observed_at_utc",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session whose open is strictly after source_status_observed_at_utc.",
+      "name": "source_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "XNYS open timestamp for source_available_session.",
+      "name": "source_available_at_utc",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed first_xnys_open_after_source_observation_v1 rule.",
+      "name": "source_availability_rule",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed current_endpoint_observation_without_historical_vintage_v1 marker; a 404 is not timeless and a complete timeline is not an archived vintage.",
+      "name": "source_availability_quality",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Deterministic domain timeline_returned or endpoint_identifier_not_found; neither value changes daily Assets universe membership.",
+      "name": "coverage_interpretation",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed evidence_only_pending_s7 marker.",
+      "name": "identity_evidence_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false in S5 regardless of request outcome.",
+      "name": "backtest_identity_eligible",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Canonical SHA-256 local request ID; the frozen primary key and exact link to event rows.",
+      "name": "source_request_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Server-assigned request ID for complete response envelopes; null for not_found_404 because no successful payload was stored.",
+      "name": "source_provider_request_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of the exact formal Bronze manifest observed by this row.",
+      "name": "source_manifest_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of the one reviewed complete response artifact; null for not_found_404.",
+      "name": "source_artifact_sha256",
+      "nullable": true
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Reviewed manifest artifact count: one for current complete timelines and zero for not_found_404.",
+      "name": "source_page_count",
+      "nullable": false
+    }
+  ],
+  "contract_id": "5890117915e8ffc585c2faa1b9f4a9909a75f068bdad50a5e6bd64f78cf1df02",
+  "contract_schema_version": 1,
+  "description": "One formal Massive ticker-events request outcome per authoritative Composite FIGI, preserving complete timelines and stable HTTP-404 endpoint coverage as normal status data with conservative observation availability and no daily-universe or backtest implication.",
+  "domain": "identity",
+  "grain": "One exact formal authoritative ticker_events request/manifest identified by source_request_id, including both complete_timeline and not_found_404 outcomes; pilot manifests never enter.",
+  "partition_by": [
+    "source_observed_date"
+  ],
+  "primary_key": [
+    "source_request_id"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "schema_exact",
+      "description": "Every output Parquet field, order, Arrow type, and nullability must equal this contract.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_plan_invalid",
+      "description": "The immutable 15,173-row formal Composite-FIGI receipt and exact request definitions must reconcile with no missing, extra, duplicate, or pilot request.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_integrity_invalid",
+      "description": "Every formal manifest must pass strict JSON, identity, timestamp, status, artifact, and checksum validation appropriate to its complete or HTTP-404 outcome.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_request_contract_invalid_rows",
+      "description": "Every status row must reproduce one exact formal Composite-FIGI request with types=ticker_change and the frozen local start/end labels.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "formal_request_cardinality_invalid",
+      "description": "The frozen formal scope must contain exactly 15,173 unique source_request_id rows.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "status_count_formula_invalid",
+      "description": "Formal status rows must reconcile exactly to complete_timeline plus not_found_404 outcomes with no third status.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "request_outcome_invalid_rows",
+      "description": "Every row must use the exact complete_timeline or not_found_404 outcome and matching source manifest status.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "complete_response_contract_invalid_rows",
+      "description": "Every complete_timeline row must have one valid artifact, response identity/envelope evidence, and event counts that reconcile.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "not_found_404_contract_invalid_rows",
+      "description": "Every not_found_404 row must be a failed formal manifest with provider_status_code=404, no artifacts, and zero event counts; no other failure is admitted.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "response_identity_mismatch_rows",
+      "description": "Every complete response Composite FIGI must equal its requested formal Composite FIGI; not-found rows must not invent response identity.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "outcome_field_consistency_invalid_rows",
+      "description": "Response, provider status, artifact, provider-request-ID, page-count, and count nullability must match request_outcome exactly.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "event_count_reconciliation_invalid_rows",
+      "description": "For every request, raw_event_count must equal accepted_event_count plus quarantined_event_count, and the totals must reconcile to ticker_change_event and quarantine outputs.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_duplicate_excess",
+      "description": "The output must contain no duplicate source_request_id.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "lineage_invalid_rows",
+      "description": "Every status row must reproduce the formal request ID, exact manifest hash, observed timestamps, and outcome-dependent artifact identity.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "availability_invalid_rows",
+      "description": "Observed-date/time and operational availability must follow the frozen calendar and first-XNYS-open-strictly-after-observation rule.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "request_window_semantics_invalid_rows",
+      "description": "Every row must retain the exact local_request_identity_not_server_date_filter_v1 marker.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "coverage_interpretation_invalid_rows",
+      "description": "Coverage interpretation must match request outcome and must never classify a 404 as asset, event, or daily-universe absence.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_evidence_scope_invalid_rows",
+      "description": "Every row must retain the exact evidence_only_pending_s7 marker.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "backtest_identity_eligible_rows",
+      "description": "No S5 request-status row may be marked backtest identity eligible.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "row_funnel_unreconciled",
+      "description": "Every formal request must contribute exactly one status DATA row; no 404 is dropped or quarantined.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "event_child_coverage_invalid_rows",
+      "description": "Every accepted or quarantined formal event occurrence must link to exactly one complete_timeline status parent.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "pilot_output_rows",
+      "description": "No isolated pilot manifest may enter the formal request-status table or its coverage denominator.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identifier_not_found_404_requests",
+      "description": "Formal Composite FIGIs returning stable HTTP 404 remain explicit endpoint-coverage statuses and do not reduce the daily Assets universe.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "response_cik_missing_complete_requests",
+      "description": "Complete responses without CIK remain explicit and are not filled from another source.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "excluded_pilot_manifests",
+      "description": "Pilot manifests observed beside formal data are counted as excluded source evidence and must contribute zero production rows.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "request_outcome_changed_since_prior_capture",
+      "description": "Any formal identifier whose outcome changes relative to a prior approved capture is retained as a new version and surfaced for review.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "unexpected_source_field_rows",
+      "description": "Formal manifests or complete response objects containing fields outside the reviewed mapping require schema review before publication.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    }
+  ],
+  "schema_version": 1,
+  "sort_by": [
+    "source_observed_date",
+    "requested_identifier",
+    "source_request_id"
+  ],
+  "source_datasets": [
+    "ticker_events"
+  ],
+  "table": "ticker_event_request_status"
+}
