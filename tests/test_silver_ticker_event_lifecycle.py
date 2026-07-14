@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -9,6 +10,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from ame_stocks_api.cli import silver_ticker_events_lifecycle as lifecycle_cli
 from ame_stocks_api.cli.silver_ticker_events_lifecycle import build_parser
 from ame_stocks_api.silver import ticker_event_lifecycle as lifecycle
 from ame_stocks_api.silver.contracts import (
@@ -19,8 +21,11 @@ from ame_stocks_api.silver.contracts import (
     QACheckResult,
     QASeverity,
     QAStatus,
+    SourceInventory,
+    SourceInventoryItem,
     SourceLayer,
     TableContract,
+    UpstreamManifestRef,
     ensure_json_safe,
 )
 from ame_stocks_api.silver.store import SilverStoreError
@@ -82,6 +87,166 @@ def test_build_parameters_use_a_credential_safe_date_decision_receipt() -> None:
     frozen = ensure_json_safe(parameters, label="build parameters")
     assert frozen["date_quality_decision_id"] == lifecycle.S5_DATE_QUALITY_DECISION_ID
     assert frozen["date_quality_decision_sha256"] == (lifecycle.S5_DATE_QUALITY_DECISION_SHA256)
+
+
+def test_request_and_event_inventories_share_coverage_but_keep_distinct_grains() -> None:
+    commit = "d" * 40
+    upstream = (
+        UpstreamManifestRef(
+            path=("manifests/silver/source-coverage/ticker_events/coverage-" + "e" * 64 + ".json"),
+            sha256="f" * 64,
+        ),
+    )
+    authorization = SimpleNamespace(
+        formal_receipt_path="manifests/plans/ticker_events/identifiers.txt",
+        formal_receipt_sha256="a" * 64,
+        expected_formal_requests=3,
+        expected_complete_requests=1,
+        expected_raw_events=2,
+    )
+    request_inventory = SourceInventory(
+        source_dataset="ticker_events",
+        source_layer=SourceLayer.CONTROL_MANIFEST,
+        git_commit=commit,
+        upstream_manifests=upstream,
+        artifacts=(
+            SourceInventoryItem(
+                path=authorization.formal_receipt_path,
+                sha256=authorization.formal_receipt_sha256,
+                bytes=36,
+                row_count=authorization.expected_formal_requests,
+                media_type="text/plain",
+            ),
+        ),
+    )
+    event_inventory = SourceInventory(
+        source_dataset="ticker_events",
+        source_layer=SourceLayer.BRONZE,
+        git_commit=commit,
+        upstream_manifests=upstream,
+        artifacts=(
+            SourceInventoryItem(
+                path=(
+                    "bronze/massive/ticker_events/request_id=" + "1" * 64 + "/page-00000.json.gz"
+                ),
+                sha256="b" * 64,
+                bytes=20,
+                row_count=authorization.expected_raw_events,
+                media_type="application/gzip+json",
+            ),
+        ),
+    )
+
+    lifecycle._require_source_inventory_pair(
+        request_inventory,
+        event_inventory,
+        authorization=authorization,
+        git_commit=commit,
+    )
+
+    mismatched = replace(
+        request_inventory,
+        upstream_manifests=(
+            UpstreamManifestRef(
+                path=(
+                    "manifests/silver/source-coverage/ticker_events/coverage-" + "0" * 64 + ".json"
+                ),
+                sha256="0" * 64,
+            ),
+        ),
+    )
+    with pytest.raises(SilverStoreError, match="share exact source lineage"):
+        lifecycle._require_source_inventory_pair(
+            mismatched,
+            event_inventory,
+            authorization=authorization,
+            git_commit=commit,
+        )
+
+
+def test_cli_reports_both_source_inventories(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def table_run(table: str) -> SimpleNamespace:
+        data_path = tmp_path / "silver" / table / "part-00000.parquet"
+        return SimpleNamespace(
+            contract=SimpleNamespace(table=table, contract_id="a" * 64),
+            published=SimpleNamespace(data_paths=(data_path,)),
+            full=SimpleNamespace(
+                build_id="b" * 64,
+                qa_checks=(),
+                quarantine_issue_rows=0,
+                row_funnel=SimpleNamespace(to_dict=lambda: {"input_rows": 1}),
+            ),
+            full_document=SimpleNamespace(sha256="c" * 64),
+            preview=SimpleNamespace(build_id="d" * 64),
+            preview_document=SimpleNamespace(sha256="e" * 64),
+            release=SimpleNamespace(release_id="f" * 64),
+            release_document=SimpleNamespace(sha256="1" * 64),
+            workflow=SimpleNamespace(
+                sequence=9,
+                state=SimpleNamespace(value="published"),
+                event_sha256="2" * 64,
+                workflow_id="3" * 64,
+            ),
+        )
+
+    run = SimpleNamespace(
+        coverage_receipt_path="manifests/silver/source-coverage/ticker_events/fixture.json",
+        coverage_receipt_sha256="4" * 64,
+        event_inventory=SimpleNamespace(inventory_id="5" * 64, source_layer=SourceLayer.BRONZE),
+        event_inventory_document=SimpleNamespace(
+            path="manifests/silver/source-inventories/ticker_events/event.json",
+            sha256="6" * 64,
+        ),
+        request_inventory=SimpleNamespace(
+            inventory_id="7" * 64,
+            source_layer=SourceLayer.CONTROL_MANIFEST,
+        ),
+        request_inventory_document=SimpleNamespace(
+            path="manifests/silver/source-inventories/ticker_events/request.json",
+            sha256="8" * 64,
+        ),
+        profile_sha256="9" * 64,
+        request_status=table_run(TICKER_EVENT_REQUEST_STATUS_CONTRACT.table),
+        ticker_change=table_run(TICKER_CHANGE_EVENT_CONTRACT.table),
+    )
+    monkeypatch.setattr(
+        lifecycle_cli,
+        "complete_ticker_event_lifecycle",
+        lambda *_args, **_kwargs: run,
+    )
+
+    assert (
+        lifecycle_cli.main(
+            [
+                "--data-root",
+                str(tmp_path),
+                "--repo-root",
+                str(tmp_path),
+                "--git-commit",
+                "0" * 40,
+            ]
+        )
+        == 0
+    )
+    output = json.loads(capsys.readouterr().out)
+    assert output["inventories"] == {
+        "ticker_change_event": {
+            "inventory_id": "5" * 64,
+            "manifest_path": "manifests/silver/source-inventories/ticker_events/event.json",
+            "manifest_sha256": "6" * 64,
+            "source_layer": "bronze",
+        },
+        "ticker_event_request_status": {
+            "inventory_id": "7" * 64,
+            "manifest_path": "manifests/silver/source-inventories/ticker_events/request.json",
+            "manifest_sha256": "8" * 64,
+            "source_layer": "control_manifest",
+        },
+    }
 
 
 @pytest.mark.parametrize(

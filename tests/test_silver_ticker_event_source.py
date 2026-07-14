@@ -13,6 +13,7 @@ from ame_stocks_api.silver.contracts import SourceLayer
 from ame_stocks_api.silver.store import SilverStore
 from ame_stocks_api.silver.ticker_event_source import (
     TickerEventSourceError,
+    build_ticker_event_request_source_inventory,
     build_ticker_event_source_inventory,
     load_ticker_event_coverage_receipt,
     read_ticker_event_source_inventory,
@@ -33,7 +34,7 @@ START = date(2003, 9, 10)
 END = date(2026, 7, 9)
 FORMAL = ("BBG000000001", "BBG000000002")
 PILOT = ("TEST",)
-FORMAL_RECEIPT = "manifests/plans/ticker_events/formal-source-fixture.txt"
+FORMAL_RECEIPT = "manifests/plans/ticker_events/identifiers.txt"
 PILOT_RECEIPT = "manifests/plans/ticker_events/pilot-source-fixture.txt"
 EXPECTED = TickerEventCoverageExpectation(
     formal_identifiers=2,
@@ -198,6 +199,24 @@ def test_coverage_receipt_is_only_upstream_and_reader_reverifies_all(tmp_path: P
         coverage_receipt_sha256=receipt_sha,
     )
     assert (receipt.request_count, receipt.complete_count, receipt.not_found_count) == (2, 1, 1)
+    assert receipt.formal_identifier_receipt_bytes == (tmp_path / FORMAL_RECEIPT).stat().st_size
+    assert receipt.formal_identifier_receipt_row_count == 2
+
+    request_inventory = build_ticker_event_request_source_inventory(
+        tmp_path,
+        coverage_receipt_path=receipt_path,
+        coverage_receipt_sha256=receipt_sha,
+        git_commit="a" * 40,
+    )
+    assert request_inventory.source_dataset == "ticker_events"
+    assert request_inventory.source_layer is SourceLayer.CONTROL_MANIFEST
+    request_bindings = [
+        (item.path, item.media_type, item.row_count) for item in request_inventory.artifacts
+    ]
+    assert request_bindings == [(FORMAL_RECEIPT, "text/plain", 2)]
+    assert len(request_inventory.upstream_manifests) == 1
+    assert request_inventory.upstream_manifests[0].path == receipt_path
+    SilverStore(tmp_path).register_source_inventory(request_inventory)
 
     inventory = build_ticker_event_source_inventory(
         tmp_path,
@@ -236,6 +255,19 @@ def test_coverage_receipt_is_only_upstream_and_reader_reverifies_all(tmp_path: P
     assert all(item["result_composite_figi"] == FORMAL[0] for item in occurrence_inputs)
     assert all(len(str(item["source_event_hash"])) == 64 for item in occurrence_inputs)
     assert all(len(str(item["source_result_hash"])) == 64 for item in occurrence_inputs)
+
+
+def test_request_inventory_detects_formal_identifier_receipt_mutation(tmp_path: Path) -> None:
+    receipt_path, receipt_sha, _, _ = _fixture(tmp_path)
+    formal_path = tmp_path / FORMAL_RECEIPT
+    formal_path.write_text(formal_path.read_text(encoding="utf-8") + "BBG000000003\n")
+    with pytest.raises(TickerEventSourceError, match="byte count mismatch"):
+        build_ticker_event_request_source_inventory(
+            tmp_path,
+            coverage_receipt_path=receipt_path,
+            coverage_receipt_sha256=receipt_sha,
+            git_commit="a" * 40,
+        )
 
 
 @pytest.mark.parametrize("target", ["manifest", "page", "receipt"])

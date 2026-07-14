@@ -20,7 +20,7 @@ from ame_stocks_core import ProviderDataset
 
 START = date(2003, 9, 10)
 END = date(2026, 7, 9)
-FORMAL_RECEIPT = "manifests/plans/ticker_events/formal-fixture.txt"
+FORMAL_RECEIPT = "manifests/plans/ticker_events/identifiers.txt"
 PILOT_RECEIPT = "manifests/plans/ticker_events/pilot-fixture.txt"
 FORMAL_COMPLETE = "BBG000000001"
 FORMAL_MISSING = "BBG000000002"
@@ -211,6 +211,15 @@ def test_profile_is_read_only_reconciled_and_excludes_pilot(tmp_path: Path) -> N
     }
     assert len(receipt["formal_manifest_refs"]) == 2
     assert len(receipt["artifacts"]) == 1
+    formal_path = tmp_path / FORMAL_RECEIPT
+    assert receipt["formal_identifier_receipt"] == {
+        "bytes": formal_path.stat().st_size,
+        "identifier_count": 2,
+        "path": FORMAL_RECEIPT,
+        "row_count": 2,
+        "sha256": hashlib.sha256(formal_path.read_bytes()).hexdigest(),
+    }
+    assert formal_path.stat().st_size > 0
     assert receipt["pilot_exclusion"]["identifier_count"] == 1
     assert receipt["pilot_exclusion"]["included_in_inventory"] is False
     assert receipt["diagnostics"]["date_quality"] == {
@@ -225,6 +234,29 @@ def test_profile_is_read_only_reconciled_and_excludes_pilot(tmp_path: Path) -> N
         if path.is_file()
     }
     assert after == before
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["missing_row_count", "count_mismatch", "wrong_namespace", "legacy_version"],
+)
+def test_coverage_receipt_rejects_invalid_formal_identifier_binding(
+    tmp_path: Path, mutation: str
+) -> None:
+    build_ticker_event_fixture(tmp_path)
+    receipt = accepted_coverage_receipt(profile_fixture(tmp_path))
+    formal = receipt["formal_identifier_receipt"]
+    assert isinstance(formal, dict)
+    if mutation == "missing_row_count":
+        formal.pop("row_count")
+    elif mutation == "count_mismatch":
+        formal["row_count"] = 1
+    elif mutation == "wrong_namespace":
+        formal["path"] = "manifests/plans/not_ticker_events/identifiers.txt"
+    else:
+        receipt["coverage_receipt_schema_version"] = 1
+    with pytest.raises(TickerEventSourceProfileError):
+        validate_ticker_event_coverage_receipt(receipt)
 
 
 @pytest.mark.parametrize("mutation", ["schema", "non_404", "checksum", "figi"])

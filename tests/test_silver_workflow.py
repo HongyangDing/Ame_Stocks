@@ -152,6 +152,92 @@ def _source(root: Path, name: str = "source.json") -> ArtifactRef:
     )
 
 
+def _control_inventory(root: Path, relative_path: str) -> SourceInventory:
+    path = root / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("BBG000000001\n", encoding="utf-8")
+    upstream_path = root / "manifests" / "silver" / "source-coverage" / "fixture.json"
+    upstream_path.parent.mkdir(parents=True, exist_ok=True)
+    upstream_path.write_text(
+        json.dumps(
+            {
+                "formal_identifier_receipt": {
+                    "bytes": path.stat().st_size,
+                    "path": relative_path,
+                    "row_count": 1,
+                    "sha256": sha256_file(path),
+                },
+                "status": "passed_with_warnings",
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    return SourceInventory(
+        source_dataset="ticker_events",
+        source_layer=SourceLayer.CONTROL_MANIFEST,
+        git_commit="a" * 40,
+        upstream_manifests=(
+            UpstreamManifestRef(
+                path=str(upstream_path.relative_to(root)),
+                sha256=sha256_file(upstream_path),
+            ),
+        ),
+        artifacts=(
+            SourceInventoryItem(
+                path=relative_path,
+                sha256=sha256_file(path),
+                bytes=path.stat().st_size,
+                row_count=1,
+                media_type="text/plain",
+            ),
+        ),
+    )
+
+
+def test_control_manifest_inventory_is_limited_to_its_dataset_plan_namespace(
+    tmp_path: Path,
+) -> None:
+    valid = _control_inventory(
+        tmp_path,
+        "manifests/plans/ticker_events/identifiers.txt",
+    )
+    stored = SilverStore(tmp_path).register_source_inventory(valid)
+    assert stored.path.startswith("manifests/silver/source-inventories/ticker_events/")
+
+    cross_dataset = _control_inventory(
+        tmp_path,
+        "manifests/plans/other_dataset/identifiers.txt",
+    )
+    with pytest.raises(SilverStoreError, match="outside the declared control_manifest layer"):
+        SilverStore(tmp_path).register_source_inventory(cross_dataset)
+
+
+@pytest.mark.parametrize("media_types", [("application/json",), ("text/plain", "text/plain")])
+def test_control_manifest_inventory_requires_one_plain_text_item(
+    media_types: tuple[str, ...],
+) -> None:
+    with pytest.raises(SilverContractError, match="exactly one text/plain"):
+        SourceInventory(
+            source_dataset="ticker_events",
+            source_layer=SourceLayer.CONTROL_MANIFEST,
+            git_commit="a" * 40,
+            upstream_manifests=(
+                UpstreamManifestRef(path="manifests/fixture.json", sha256="b" * 64),
+            ),
+            artifacts=tuple(
+                SourceInventoryItem(
+                    path=f"manifests/plans/ticker_events/identifiers-{index}.txt",
+                    sha256=f"{index + 1:064x}",
+                    bytes=13,
+                    row_count=1,
+                    media_type=media_type,
+                )
+                for index, media_type in enumerate(media_types)
+            ),
+        )
+
+
 def _qa_checks(
     *,
     status: QAStatus = QAStatus.PASSED,

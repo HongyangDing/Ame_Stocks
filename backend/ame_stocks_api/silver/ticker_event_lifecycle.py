@@ -56,6 +56,7 @@ from ame_stocks_api.silver.ticker_event_contract import (
 )
 from ame_stocks_api.silver.ticker_event_source import (
     TickerEventSourceBatch,
+    build_ticker_event_request_source_inventory,
     build_ticker_event_source_inventory,
     read_ticker_event_source_inventory,
     ticker_event_coverage_receipt_path,
@@ -253,8 +254,10 @@ class TickerEventTableRun:
 class TickerEventLifecycleRun:
     request_status: TickerEventTableRun
     ticker_change: TickerEventTableRun
-    inventory: SourceInventory
-    inventory_document: StoredDocument
+    request_inventory: SourceInventory
+    request_inventory_document: StoredDocument
+    event_inventory: SourceInventory
+    event_inventory_document: StoredDocument
     coverage_receipt_path: str
     coverage_receipt_sha256: str
     profile_sha256: str
@@ -263,6 +266,34 @@ class TickerEventLifecycleRun:
         for item in (self.request_status, self.ticker_change):
             if item.contract.table == table:
                 return item
+        raise KeyError(table)
+
+
+@dataclass(frozen=True, slots=True)
+class _TickerEventPreparedSource:
+    batch: TickerEventSourceBatch
+    request_inventory: SourceInventory
+    request_inventory_document: StoredDocument
+    request_artifacts: tuple[ArtifactRef, ...]
+    event_inventory: SourceInventory
+    event_inventory_document: StoredDocument
+    event_artifacts: tuple[ArtifactRef, ...]
+    coverage_receipt_path: str
+    coverage_receipt_sha256: str
+    profile_sha256: str
+
+    def inventory_for(self, table: str) -> SourceInventory:
+        if table == TICKER_EVENT_REQUEST_STATUS_CONTRACT.table:
+            return self.request_inventory
+        if table == TICKER_CHANGE_EVENT_CONTRACT.table:
+            return self.event_inventory
+        raise KeyError(table)
+
+    def artifacts_for(self, table: str) -> tuple[ArtifactRef, ...]:
+        if table == TICKER_EVENT_REQUEST_STATUS_CONTRACT.table:
+            return self.request_artifacts
+        if table == TICKER_CHANGE_EVENT_CONTRACT.table:
+            return self.event_artifacts
         raise KeyError(table)
 
 
@@ -278,20 +309,13 @@ def complete_ticker_event_lifecycle(
     root = data_root.expanduser().resolve()
     store = SilverStore(root)
     authorization = CURRENT_TICKER_EVENT_AUTHORIZATION
-    (
-        batch,
-        inventory,
-        inventory_document,
-        inputs,
-        coverage_path,
-        coverage_sha,
-        profile_sha,
-    ) = _prepare_authorized_source(
+    prepared = _prepare_authorized_source(
         root,
         store=store,
         git_commit=git_commit,
         authorization=authorization,
     )
+    batch = prepared.batch
     request_inputs, occurrence_inputs = ticker_event_transform_inputs(batch)
 
     workflows = {
@@ -307,12 +331,12 @@ def complete_ticker_event_lifecycle(
             batch=batch,
             request_inputs=request_inputs,
             occurrence_inputs=occurrence_inputs,
-            inputs=inputs,
-            inventory=inventory,
+            inputs=prepared.artifacts_for(contract.table),
+            inventory=prepared.inventory_for(contract.table),
             git_commit=git_commit,
-            profile_sha256=profile_sha,
-            coverage_receipt_path=coverage_path,
-            coverage_receipt_sha256=coverage_sha,
+            profile_sha256=prepared.profile_sha256,
+            coverage_receipt_path=prepared.coverage_receipt_path,
+            coverage_receipt_sha256=prepared.coverage_receipt_sha256,
             authorization=authorization,
         )
 
@@ -339,7 +363,7 @@ def complete_ticker_event_lifecycle(
             batch=batch,
             request_inputs=request_inputs,
             occurrence_inputs=occurrence_inputs,
-            inventory=inventory,
+            inventory=prepared.inventory_for(contract.table),
             authorization=authorization,
         )
     for contract in _CONTRACTS:
@@ -391,11 +415,13 @@ def complete_ticker_event_lifecycle(
     return TickerEventLifecycleRun(
         request_status=runs[status_contract.table],
         ticker_change=runs[event_contract.table],
-        inventory=inventory,
-        inventory_document=inventory_document,
-        coverage_receipt_path=coverage_path,
-        coverage_receipt_sha256=coverage_sha,
-        profile_sha256=profile_sha,
+        request_inventory=prepared.request_inventory,
+        request_inventory_document=prepared.request_inventory_document,
+        event_inventory=prepared.event_inventory,
+        event_inventory_document=prepared.event_inventory_document,
+        coverage_receipt_path=prepared.coverage_receipt_path,
+        coverage_receipt_sha256=prepared.coverage_receipt_sha256,
+        profile_sha256=prepared.profile_sha256,
     )
 
 
@@ -405,15 +431,7 @@ def _prepare_authorized_source(
     store: SilverStore,
     git_commit: str,
     authorization: TickerEventAuthorization,
-) -> tuple[
-    TickerEventSourceBatch,
-    SourceInventory,
-    StoredDocument,
-    tuple[ArtifactRef, ...],
-    str,
-    str,
-    str,
-]:
+) -> _TickerEventPreparedSource:
     profile = profile_ticker_event_source(root)
     _require_authorized_profile(profile, authorization)
     receipt = accepted_coverage_receipt(profile)
@@ -421,13 +439,25 @@ def _prepare_authorized_source(
     relative = ticker_event_coverage_receipt_path(receipt)
     stored = write_bytes_immutable(root, root / relative, content)
     coverage_sha = str(stored["sha256"])
-    inventory = build_ticker_event_source_inventory(
+    request_inventory = build_ticker_event_request_source_inventory(
         root,
         coverage_receipt_path=relative,
         coverage_receipt_sha256=coverage_sha,
         git_commit=git_commit,
     )
-    batch = read_ticker_event_source_inventory(root, inventory)
+    event_inventory = build_ticker_event_source_inventory(
+        root,
+        coverage_receipt_path=relative,
+        coverage_receipt_sha256=coverage_sha,
+        git_commit=git_commit,
+    )
+    _require_source_inventory_pair(
+        request_inventory,
+        event_inventory,
+        authorization=authorization,
+        git_commit=git_commit,
+    )
+    batch = read_ticker_event_source_inventory(root, event_inventory)
     if (
         batch.request_count != authorization.expected_formal_requests
         or batch.page_count != authorization.expected_complete_requests
@@ -435,8 +465,41 @@ def _prepare_authorized_source(
         or batch.row_count != authorization.expected_raw_events
     ):
         raise SilverStoreError("S5 verified batch cardinality differs from authorization")
-    inventory_document = store.register_source_inventory(inventory)
-    inputs = tuple(
+    request_document = store.register_source_inventory(request_inventory)
+    event_document = store.register_source_inventory(event_inventory)
+    request_artifacts = _source_artifact_refs(request_inventory, request_document)
+    event_artifacts = _source_artifact_refs(event_inventory, event_document)
+    store.verify_source_artifacts(request_artifacts, TICKER_EVENT_REQUEST_STATUS_CONTRACT)
+    store.verify_source_artifacts(event_artifacts, TICKER_CHANGE_EVENT_CONTRACT)
+    if sum(int(item.row_count or 0) for item in request_artifacts) != (
+        authorization.expected_formal_requests
+    ):
+        raise SilverStoreError("S5 request-status source grain differs from authorization")
+    if sum(int(item.row_count or 0) for item in event_artifacts) != (
+        authorization.expected_raw_events
+    ):
+        raise SilverStoreError("S5 event-occurrence source grain differs from authorization")
+    profile_sha = profile.get("profile_sha256")
+    if not isinstance(profile_sha, str) or len(profile_sha) != 64:
+        raise SilverStoreError("S5 source profile has no valid profile SHA-256")
+    return _TickerEventPreparedSource(
+        batch=batch,
+        request_inventory=request_inventory,
+        request_inventory_document=request_document,
+        request_artifacts=request_artifacts,
+        event_inventory=event_inventory,
+        event_inventory_document=event_document,
+        event_artifacts=event_artifacts,
+        coverage_receipt_path=relative,
+        coverage_receipt_sha256=coverage_sha,
+        profile_sha256=profile_sha,
+    )
+
+
+def _source_artifact_refs(
+    inventory: SourceInventory, document: StoredDocument
+) -> tuple[ArtifactRef, ...]:
+    return tuple(
         ArtifactRef(
             path=item.path,
             sha256=item.sha256,
@@ -445,26 +508,49 @@ def _prepare_authorized_source(
             media_type=item.media_type,
             role=ArtifactRole.SOURCE,
             source_dataset=inventory.source_dataset,
-            source_layer=SourceLayer.BRONZE,
-            lineage_manifest_path=inventory_document.path,
-            lineage_manifest_sha256=inventory_document.sha256,
+            source_layer=inventory.source_layer,
+            lineage_manifest_path=document.path,
+            lineage_manifest_sha256=document.sha256,
         )
         for item in inventory.artifacts
     )
-    for contract in _CONTRACTS:
-        store.verify_source_artifacts(inputs, contract)
-    profile_sha = profile.get("profile_sha256")
-    if not isinstance(profile_sha, str) or len(profile_sha) != 64:
-        raise SilverStoreError("S5 source profile has no valid profile SHA-256")
-    return (
-        batch,
-        inventory,
-        inventory_document,
-        inputs,
-        relative,
-        coverage_sha,
-        profile_sha,
-    )
+
+
+def _require_source_inventory_pair(
+    request_inventory: SourceInventory,
+    event_inventory: SourceInventory,
+    *,
+    authorization: TickerEventAuthorization,
+    git_commit: str,
+) -> None:
+    if (
+        request_inventory.source_dataset != "ticker_events"
+        or event_inventory.source_dataset != "ticker_events"
+        or request_inventory.source_layer is not SourceLayer.CONTROL_MANIFEST
+        or event_inventory.source_layer is not SourceLayer.BRONZE
+        or request_inventory.git_commit != git_commit
+        or event_inventory.git_commit != git_commit
+        or len(request_inventory.upstream_manifests) != 1
+        or request_inventory.upstream_manifests != event_inventory.upstream_manifests
+    ):
+        raise SilverStoreError("S5 request/event inventories do not share exact source lineage")
+    if len(request_inventory.artifacts) != 1:
+        raise SilverStoreError("S5 request inventory must contain one formal receipt")
+    request_item = request_inventory.artifacts[0]
+    if (
+        request_item.path != authorization.formal_receipt_path
+        or request_item.sha256 != authorization.formal_receipt_sha256
+        or request_item.row_count != authorization.expected_formal_requests
+        or request_item.media_type != "text/plain"
+    ):
+        raise SilverStoreError("S5 request inventory grain differs from formal receipt")
+    if (
+        len(event_inventory.artifacts) != authorization.expected_complete_requests
+        or sum(item.row_count for item in event_inventory.artifacts)
+        != authorization.expected_raw_events
+        or any(item.media_type != "application/gzip+json" for item in event_inventory.artifacts)
+    ):
+        raise SilverStoreError("S5 event inventory grain differs from formal responses")
 
 
 def _require_authorized_profile(
@@ -496,11 +582,22 @@ def _require_authorized_profile(
         "not_found_404": authorization.expected_not_found_requests,
     }:
         raise SilverStoreError("S5 formal coverage counts differ from authorization")
-    if formal_receipt != {
-        "identifier_count": authorization.expected_formal_requests,
-        "path": authorization.formal_receipt_path,
-        "sha256": authorization.formal_receipt_sha256,
-    }:
+    if (
+        {
+            "identifier_count": formal_receipt.get("identifier_count"),
+            "path": formal_receipt.get("path"),
+            "row_count": formal_receipt.get("row_count"),
+            "sha256": formal_receipt.get("sha256"),
+        }
+        != {
+            "identifier_count": authorization.expected_formal_requests,
+            "path": authorization.formal_receipt_path,
+            "row_count": authorization.expected_formal_requests,
+            "sha256": authorization.formal_receipt_sha256,
+        }
+        or type(formal_receipt.get("bytes")) is not int
+        or int(formal_receipt["bytes"]) <= 0
+    ):
         raise SilverStoreError("S5 formal identifier receipt differs from authorization")
     if (
         pilot.get("identifier_count") != authorization.expected_pilot_requests

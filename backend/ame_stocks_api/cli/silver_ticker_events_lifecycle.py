@@ -46,9 +46,20 @@ def main(argv: list[str] | None = None) -> int:
             "backtest_identity_eligible": False,
             "coverage_receipt_path": run.coverage_receipt_path,
             "coverage_receipt_sha256": run.coverage_receipt_sha256,
-            "inventory_id": run.inventory.inventory_id,
-            "inventory_manifest_path": run.inventory_document.path,
-            "inventory_manifest_sha256": run.inventory_document.sha256,
+            "inventories": {
+                "ticker_change_event": {
+                    "inventory_id": run.event_inventory.inventory_id,
+                    "manifest_path": run.event_inventory_document.path,
+                    "manifest_sha256": run.event_inventory_document.sha256,
+                    "source_layer": run.event_inventory.source_layer.value,
+                },
+                "ticker_event_request_status": {
+                    "inventory_id": run.request_inventory.inventory_id,
+                    "manifest_path": run.request_inventory_document.path,
+                    "manifest_sha256": run.request_inventory_document.sha256,
+                    "source_layer": run.request_inventory.source_layer.value,
+                },
+            },
             "parent_child_coverage": "exact",
             "profile_sha256": run.profile_sha256,
             "state": "published",

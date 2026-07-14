@@ -31,6 +31,7 @@ from ame_stocks_api.silver.ticker_event_source_profile import (
 from ame_stocks_core import ProviderDataset
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_FIGI = re.compile(r"^BBG[0-9A-Z]{9}$")
 
 
 class TickerEventSourceError(SilverContractError):
@@ -46,6 +47,8 @@ class TickerEventCoverageReceipt:
     coverage_receipt_id: str
     formal_identifier_receipt_path: str
     formal_identifier_receipt_sha256: str
+    formal_identifier_receipt_bytes: int
+    formal_identifier_receipt_row_count: int
     pilot_identifier_receipt_path: str
     pilot_identifier_receipt_sha256: str
     request_start: date
@@ -63,6 +66,16 @@ class TickerEventCoverageReceipt:
             self.formal_identifier_receipt_sha256,
             "formal identifier receipt SHA-256",
         )
+        _native_nonnegative_int(
+            self.formal_identifier_receipt_bytes,
+            "formal identifier receipt bytes",
+        )
+        _native_nonnegative_int(
+            self.formal_identifier_receipt_row_count,
+            "formal identifier receipt row count",
+        )
+        if self.formal_identifier_receipt_bytes == 0:
+            raise TickerEventSourceError("formal identifier receipt cannot be empty")
         _relative_path(self.pilot_identifier_receipt_path, "pilot identifier receipt path")
         _sha256_text(
             self.pilot_identifier_receipt_sha256,
@@ -79,6 +92,10 @@ class TickerEventCoverageReceipt:
         diagnostics = _detached_mapping(self.diagnostics, "coverage diagnostics")
         if not manifests or not artifacts:
             raise TickerEventSourceError("ticker-event receipt cannot have empty formal coverage")
+        if self.formal_identifier_receipt_row_count != len(manifests):
+            raise TickerEventSourceError(
+                "formal identifier receipt row count differs from formal coverage"
+            )
         object.__setattr__(self, "manifest_refs", manifests)
         object.__setattr__(self, "artifacts", artifacts)
         object.__setattr__(self, "diagnostics", diagnostics)
@@ -371,6 +388,8 @@ def load_ticker_event_coverage_receipt(
         coverage_receipt_id=str(validated["coverage_receipt_id"]),
         formal_identifier_receipt_path=str(formal["path"]),
         formal_identifier_receipt_sha256=str(formal["sha256"]),
+        formal_identifier_receipt_bytes=int(formal["bytes"]),
+        formal_identifier_receipt_row_count=int(formal["row_count"]),
         pilot_identifier_receipt_path=str(pilot["path"]),
         pilot_identifier_receipt_sha256=str(pilot["sha256"]),
         request_start=start,
@@ -413,6 +432,47 @@ def build_ticker_event_source_inventory(
         if hashlib.sha256(content).hexdigest() != item.sha256:
             raise TickerEventSourceError("ticker-event Bronze stored checksum mismatch")
     return inventory
+
+
+def build_ticker_event_request_source_inventory(
+    data_root: Path,
+    *,
+    coverage_receipt_path: str,
+    coverage_receipt_sha256: str,
+    git_commit: str,
+) -> SourceInventory:
+    """Build the request-status inventory from the exact formal identifier receipt.
+
+    The coverage receipt remains the sole upstream manifest.  Its formal ``identifiers.txt``
+    binding is represented as one ``CONTROL_MANIFEST`` source artifact, so successful and
+    stable-404 requests share the same complete 15,173-row lineage boundary.  Event payloads
+    remain in the separate Bronze inventory built by :func:`build_ticker_event_source_inventory`.
+    """
+
+    receipt = load_ticker_event_coverage_receipt(
+        data_root,
+        coverage_receipt_path=coverage_receipt_path,
+        coverage_receipt_sha256=coverage_receipt_sha256,
+    )
+    root = data_root.expanduser().resolve()
+    _verify_formal_identifier_receipt(root, receipt)
+    return SourceInventory(
+        source_dataset="ticker_events",
+        source_layer=SourceLayer.CONTROL_MANIFEST,
+        git_commit=git_commit,
+        upstream_manifests=(
+            UpstreamManifestRef(path=receipt.source_path, sha256=receipt.source_sha256),
+        ),
+        artifacts=(
+            SourceInventoryItem(
+                path=receipt.formal_identifier_receipt_path,
+                sha256=receipt.formal_identifier_receipt_sha256,
+                bytes=receipt.formal_identifier_receipt_bytes,
+                row_count=receipt.formal_identifier_receipt_row_count,
+                media_type="text/plain",
+            ),
+        ),
+    )
 
 
 def read_ticker_event_source_inventory(
@@ -726,6 +786,40 @@ def _match_verified_ref(verified: Mapping[str, object], ref: Mapping[str, object
         )
 
 
+def _verify_formal_identifier_receipt(
+    root: Path,
+    receipt: TickerEventCoverageReceipt,
+) -> None:
+    try:
+        content = safe_relative_path(root, receipt.formal_identifier_receipt_path).read_bytes()
+    except OSError as exc:
+        raise TickerEventSourceError("cannot read formal ticker-event identifier receipt") from exc
+    if len(content) != receipt.formal_identifier_receipt_bytes:
+        raise TickerEventSourceError("formal identifier receipt byte count mismatch")
+    if hashlib.sha256(content).hexdigest() != receipt.formal_identifier_receipt_sha256:
+        raise TickerEventSourceError("formal identifier receipt checksum mismatch")
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise TickerEventSourceError("formal identifier receipt is not UTF-8 text") from exc
+    identifiers = tuple(
+        line.partition("#")[0].strip()
+        for line in text.splitlines()
+        if line.partition("#")[0].strip()
+    )
+    if (
+        len(identifiers) != receipt.formal_identifier_receipt_row_count
+        or len(identifiers) != len(set(identifiers))
+        or any(not _FIGI.fullmatch(item) for item in identifiers)
+    ):
+        raise TickerEventSourceError("formal identifier receipt rows are invalid")
+    covered_identifiers = tuple(str(item["identifier"]) for item in receipt.manifest_refs)
+    if set(identifiers) != set(covered_identifiers):
+        raise TickerEventSourceError(
+            "formal identifier receipt rows differ from accepted request coverage"
+        )
+
+
 def _mapping(value: object, label: str) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise TickerEventSourceError(f"ticker-event {label} must be an object")
@@ -791,6 +885,7 @@ __all__ = [
     "TickerEventSourcePage",
     "TickerEventSourceRecord",
     "TickerEventSourceSnapshot",
+    "build_ticker_event_request_source_inventory",
     "build_ticker_event_source_inventory",
     "load_ticker_event_coverage_receipt",
     "read_ticker_event_source_inventory",

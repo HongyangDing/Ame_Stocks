@@ -1710,6 +1710,8 @@ class SilverStore:
     ) -> None:
         if layer is SourceLayer.BRONZE:
             valid = _is_relative_to(path, "bronze")
+        elif layer is SourceLayer.CONTROL_MANIFEST:
+            valid = _is_relative_to(path, f"manifests/plans/{source_dataset}")
         elif layer is SourceLayer.PUBLISHED_SILVER:
             valid = _is_relative_to(path, "silver")
         elif layer is SourceLayer.SYNTHETIC_FIXTURE:

@@ -192,6 +192,34 @@ def test_fixed_case_registry_is_complete_unique_and_immutable() -> None:
         get_fixed_case("unknown")
 
 
+def test_plain_text_media_is_source_only() -> None:
+    source = ArtifactRef(
+        path="manifests/plans/ticker_events/identifiers.txt",
+        sha256="a" * 64,
+        bytes=13,
+        row_count=1,
+        media_type="text/plain",
+        role=ArtifactRole.SOURCE,
+        source_dataset="ticker_events",
+        source_layer=SourceLayer.CONTROL_MANIFEST,
+        lineage_manifest_path=(
+            f"manifests/silver/source-inventories/ticker_events/inventory-{'b' * 64}.json"
+        ),
+        lineage_manifest_sha256="c" * 64,
+    )
+    assert source.media_type == "text/plain"
+    assert source.source_layer is SourceLayer.CONTROL_MANIFEST
+    with pytest.raises(SilverContractError, match="source-only"):
+        ArtifactRef(
+            path="samples/identifiers.txt",
+            sha256="a" * 64,
+            bytes=13,
+            row_count=1,
+            media_type="text/plain",
+            role=ArtifactRole.SAMPLE,
+        )
+
+
 def test_trust_anchor_sequences_and_nested_parameters_are_deeply_frozen() -> None:
     base = _contract()
     columns = list(base.columns)

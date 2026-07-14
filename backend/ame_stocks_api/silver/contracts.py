@@ -46,6 +46,7 @@ _SOURCE_MEDIA_TYPES = {
     "application/gzip+json",
     "application/json",
     "application/vnd.apache.parquet",
+    "text/plain",
     "text/csv+gzip",
 }
 
@@ -71,6 +72,7 @@ class BuildKind(StrEnum):
 
 class SourceLayer(StrEnum):
     BRONZE = "bronze"
+    CONTROL_MANIFEST = "control_manifest"
     PUBLISHED_SILVER = "published_silver"
     SYNTHETIC_FIXTURE = "synthetic_fixture"
 
@@ -570,6 +572,12 @@ class SourceInventory:
             raise SilverContractError("source inventory requires artifacts")
         _unique((item.path for item in self.upstream_manifests), "upstream manifest path")
         _unique((item.path for item in self.artifacts), "source inventory artifact path")
+        if self.source_layer is SourceLayer.CONTROL_MANIFEST and (
+            len(self.artifacts) != 1 or self.artifacts[0].media_type != "text/plain"
+        ):
+            raise SilverContractError(
+                "control-manifest inventories require exactly one text/plain artifact"
+            )
 
     @property
     def inventory_id(self) -> str:
@@ -653,10 +661,16 @@ class ArtifactRef:
             _native_nonnegative_int(self.row_count, "artifact row_count")
         if self.media_type not in _SOURCE_MEDIA_TYPES:
             raise SilverContractError("artifact media_type is unsupported")
-        if self.media_type in {"application/gzip+json", "text/csv+gzip"} and self.role is not (
-            ArtifactRole.SOURCE
+        if (
+            self.media_type
+            in {
+                "application/gzip+json",
+                "text/csv+gzip",
+                "text/plain",
+            }
+            and self.role is not ArtifactRole.SOURCE
         ):
-            raise SilverContractError("compressed raw media types are source-only")
+            raise SilverContractError("raw source media types are source-only")
         if not isinstance(self.role, ArtifactRole):
             raise SilverContractError("artifact role must be an ArtifactRole")
         if self.role is ArtifactRole.DATA and self.media_type != "application/vnd.apache.parquet":

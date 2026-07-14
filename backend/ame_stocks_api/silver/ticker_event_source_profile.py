@@ -25,7 +25,7 @@ from ame_stocks_api.downloads.plan import build_download_plan
 from ame_stocks_core import ProviderDataset
 
 PROFILE_SCHEMA_VERSION = 1
-COVERAGE_RECEIPT_SCHEMA_VERSION = 1
+COVERAGE_RECEIPT_SCHEMA_VERSION = 2
 
 PRODUCTION_FORMAL_IDENTIFIER_RECEIPT_PATH = "manifests/plans/ticker_events/identifiers.txt"
 PRODUCTION_FORMAL_IDENTIFIER_RECEIPT_SHA256 = (
@@ -557,8 +557,43 @@ def validate_ticker_event_coverage_receipt(value: object) -> dict[str, object]:
         raise TickerEventSourceProfileError("formal terminal status counts do not reconcile")
     if counts.get("artifacts") != len(artifacts) or len(artifacts) != complete:
         raise TickerEventSourceProfileError("formal artifact count does not reconcile")
-    if formal.get("identifier_count") != len(manifests):
+    _exact_keys(
+        formal,
+        {"bytes", "identifier_count", "path", "row_count", "sha256"},
+        "formal identifier receipt",
+    )
+    _validate_binding(formal, artifact=False)
+    formal_path = str(formal["path"])
+    if formal_path != PRODUCTION_FORMAL_IDENTIFIER_RECEIPT_PATH:
+        raise TickerEventSourceProfileError("formal identifier receipt path is not canonical")
+    formal_candidate = Path(formal_path)
+    if (
+        formal_candidate.is_absolute()
+        or formal_candidate.as_posix() != formal_path
+        or any(part in {"", ".", ".."} for part in formal_candidate.parts)
+    ):
+        raise TickerEventSourceProfileError("formal identifier receipt path is not normalized")
+    try:
+        formal_candidate.relative_to("manifests/plans/ticker_events")
+    except ValueError as exc:
+        raise TickerEventSourceProfileError(
+            "formal identifier receipt is outside the ticker_events plan namespace"
+        ) from exc
+    formal_bytes = _native_nonnegative_int(formal.get("bytes"), "formal identifier receipt bytes")
+    formal_row_count = _native_nonnegative_int(
+        formal.get("row_count"), "formal identifier receipt row_count"
+    )
+    formal_identifier_count = _native_nonnegative_int(
+        formal.get("identifier_count"), "formal identifier receipt identifier_count"
+    )
+    if formal_bytes == 0:
+        raise TickerEventSourceProfileError("formal identifier receipt cannot be empty")
+    if formal_identifier_count != len(manifests):
         raise TickerEventSourceProfileError("formal identifier receipt count changed")
+    if formal_row_count != formal_identifier_count:
+        raise TickerEventSourceProfileError(
+            "formal identifier receipt row count differs from identifier count"
+        )
     seen_manifests: set[str] = set()
     seen_artifacts: set[str] = set()
     artifact_by_path: dict[str, Mapping[str, object]] = {}
@@ -838,8 +873,10 @@ def _coverage_receipt(
             "not_found_404": scope_counts["formal"]["not_found_404"],
         },
         "formal_identifier_receipt": {
+            "bytes": formal_receipt["bytes"],
             "identifier_count": formal_receipt["identifier_count"],
             "path": formal_receipt["path"],
+            "row_count": formal_receipt["row_count"],
             "sha256": formal_receipt["sha256"],
         },
         "formal_manifest_refs": sorted(
@@ -885,11 +922,13 @@ def _load_identifier_receipt(root: Path, relative_path: str, *, formal: bool) ->
     if formal and any(not _FIGI.fullmatch(item) for item in identifiers):
         raise TickerEventSourceProfileError("formal ticker-event receipt must contain only FIGIs")
     return {
+        "bytes": len(content),
         "casefold_duplicate_excess": len(identifiers)
         - len({item.casefold() for item in identifiers}),
         "identifier_count": len(identifiers),
         "identifiers": identifiers,
         "path": path.relative_to(root).as_posix(),
+        "row_count": len(identifiers),
         "sha256": hashlib.sha256(content).hexdigest(),
     }
 
