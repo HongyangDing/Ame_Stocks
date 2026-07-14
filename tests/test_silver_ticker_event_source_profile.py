@@ -217,6 +217,7 @@ def test_profile_is_read_only_reconciled_and_excludes_pilot(tmp_path: Path) -> N
         "blank_target_placeholder": 1,
         "provider_sentinel_unknown_date": 1,
     }
+    assert receipt["diagnostics"]["cik_coverage"] == {"missing": 1}
     assert validate_ticker_event_coverage_receipt(receipt) == receipt
     after = {
         path: (path.stat().st_mtime_ns, hashlib.sha256(path.read_bytes()).hexdigest())

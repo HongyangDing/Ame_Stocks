@@ -351,10 +351,14 @@ def profile_ticker_event_source(
                     if event_date == "2023-11-18":
                         scope_counts[scope]["date_2023_11_18_events"] += 1
                         scope_counts[scope]["date_2023_11_18_blank_targets"] += target == ""
-                if verified["returned_cik"] is None:
-                    formal_cik["missing"] += 1
-                else:
-                    formal_cik["present"] += 1
+                # CIK coverage is a property of returned issuer identities. A stable
+                # 404 has no response identity, so counting it as a missing CIK would
+                # conflate endpoint coverage with field completeness.
+                if isinstance(artifact, dict):
+                    if verified["returned_cik"] is None:
+                        formal_cik["missing"] += 1
+                    else:
+                        formal_cik["present"] += 1
 
     actual_artifacts = {
         path.relative_to(root).as_posix()
