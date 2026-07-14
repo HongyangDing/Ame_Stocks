@@ -1,0 +1,522 @@
+{
+  "columns": [
+    {
+      "arrow_type": "int64",
+      "description": "Four-digit year derived from session_date for physical partitioning.",
+      "name": "session_year",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "XNYS reconstructed historical membership date inherited from S4.",
+      "name": "session_date",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact case-sensitive provider ticker inherited from S4 without normalization.",
+      "name": "ticker",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always true; every S4 active row is retained exactly once, including unresolved identities.",
+      "name": "active_on_date",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Composite-FIGI asset_master sibling-output foreign key; null for candidate, unresolved, or conflicted-unresolved identity evidence. A resolved relationship conflict may retain the exact Composite-FIGI asset_id but remains ineligible.",
+      "name": "asset_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Share-class parent identity when exact share-class evidence is available; it can parent multiple asset IDs.",
+      "name": "share_class_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Normalized-CIK issuer_master foreign key when available; never used to generate asset_id.",
+      "name": "issuer_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "ticker_alias interval covering this exact session/ticker when strong identity resolution exists.",
+      "name": "ticker_alias_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S4 provider type code; no current S2 dictionary value is backfilled into historical rows.",
+      "name": "type_code",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S4 primary_exchange candidate MIC as returned at source capture; not historical vintage.",
+      "name": "primary_exchange_mic",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Validated ten-digit normalization of the S4 CIK for issuer linking; raw value remains in S4.",
+      "name": "cik_normalized",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S4 Composite FIGI and the strongest direct v1 tradable-asset evidence.",
+      "name": "composite_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S4 share-class FIGI when present; it defines the parent share-class layer, not asset_id by itself.",
+      "name": "share_class_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact domain resolved_strong, resolved_conflicted, candidate, unresolved, or conflicted_unresolved. Every value remains in membership DATA; none means generic source quarantine.",
+      "name": "identity_resolution_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S7 method: source_composite_figi_exact, source_composite_figi_exact_with_relationship_conflict, share_class_date_unique_composite_candidate, share_class_only, cik_issuer_only, ticker_only, or conflict.",
+      "name": "identity_resolution_method",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "True only for structurally resolved strong mappings with complete asset and alias sibling-output foreign keys and no unresolved security-level conflict. It permits a retrospective identity join only; it does not assert that identity or metadata was historically available as a signal.",
+      "name": "backtest_identity_eligible",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false in S7; type, exchange, issuer, and other current-reference metadata captured after the historical session may not be used as point-in-time factor values.",
+      "name": "current_reference_factor_eligible",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed source_type_code_as_returned_not_historical_dictionary_v1 marker; factor-universe type eligibility is a later policy.",
+      "name": "security_type_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S4 universe_source_daily selected parent record ID.",
+      "name": "selected_source_record_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "S4 source candidate count for the session/ticker selection.",
+      "name": "source_version_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S4 selection status retained without re-selection in S7.",
+      "name": "source_selection_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed reconstructed_historical_active_membership_v1 marker: the table reduces current-universe survivorship bias but is a retrospective historical-date snapshot, not an archived as-known vintage.",
+      "name": "membership_time_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Exact S4 universe_source_daily source_available_session copied for this membership row; it is operational ingestion availability of the reconstructed snapshot, distinct from session_date and identity evidence availability.",
+      "name": "membership_source_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S4 source_availability_quality copied without reinterpretation; fixed reconstructed_historical_snapshot_without_archived_vintage.",
+      "name": "membership_source_availability_quality",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed metadata_as_returned_at_source_capture_not_historical_vintage_v1 marker.",
+      "name": "metadata_time_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed retrospective_identity_reference_not_signal_v1 marker.",
+      "name": "identity_mapping_time_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Maximum source_available_session over the transitive accepted-source evidence closure used for this row's IDs, method, status, hierarchy, eligibility, counts, alias coverage, or conflict disposition; S5 request-status-only coverage is excluded.",
+      "name": "identity_evidence_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed s7_universe_resolution_v1 evidence precedence, temporal join, candidate, and conflict-disposition rule version.",
+      "name": "resolution_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact protected S4 release-set ID.",
+      "name": "source_s4_release_set_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S5 ticker-event request-status release ID used only for coverage and 404 semantics.",
+      "name": "source_s5_status_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S5 ticker-change-event release ID.",
+      "name": "source_s5_event_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S6 ticker-overview-safe release ID.",
+      "name": "source_s6_overview_release_id",
+      "nullable": false
+    }
+  ],
+  "contract_id": "915a389ccfa9d8442cd2b7b2a14f782adf68f2bb5c8635ddf90224102750e319",
+  "contract_schema_version": 1,
+  "description": "One row for every S4 active session/ticker membership, preserving unresolved rows rather than silently dropping them. Historical inactive observations remain in universe_source_daily; this downstream table is active-only and therefore avoids carrying 43.7 million inactive rows while remaining survivorship-bias safe.",
+  "domain": "reference",
+  "grain": "One active S4 membership observation per exact case-sensitive (session_date, ticker), enriched with S7 identity status and lineage.",
+  "partition_by": [
+    "session_year",
+    "session_date"
+  ],
+  "primary_key": [
+    "session_date",
+    "ticker"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "schema_exact",
+      "description": "Every output field, order, Arrow type, and nullability must equal this contract.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "published_source_trust_chain_invalid",
+      "description": "Every fixed S4 release-set member and fixed S5/S6 release must pass release-manifest, build-manifest, schema, checksum, row-count, and workflow trust-chain verification before use.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_release_binding_invalid",
+      "description": "Every row and each coordinated member build must bind the exact approved S4 three-release set, S5 request-status release, S5 event release, and S6 overview release; all four builds must share one exact six-dataset source digest and latest-by-time discovery is forbidden.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "active_left_funnel_unreconciled",
+      "description": "Every active S4 universe_source_daily row must appear exactly once in DATA; no inactive row may enter and no candidate, unresolved, resolved-conflicted, or conflicted-unresolved active row may be dropped into generic quarantine.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "state_domain_invalid_rows",
+      "description": "identity_resolution_status must be resolved_strong, resolved_conflicted, candidate, unresolved, or conflicted_unresolved; method must be source_composite_figi_exact, source_composite_figi_exact_with_relationship_conflict, share_class_date_unique_composite_candidate, share_class_only, cik_issuer_only, ticker_only, or conflict; source_selection_status must be singleton, resolved_exact_duplicate, or resolved_unique_latest_last_updated; scope/quality/rule fields must equal their named reconstructed/source-capture/retrospective v1 literals and s7_universe_resolution_v1.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "state_matrix_invalid_rows",
+      "description": "resolved_strong/source_composite_figi_exact requires asset_id and ticker_alias_id, optional independently valid share_class_id/issuer_id, and eligible=true. resolved_conflicted/source_composite_figi_exact_with_relationship_conflict requires asset_id, null alias, independently non-conflicting hierarchy IDs only, and eligible=false. candidate/share_class_date_unique_composite_candidate requires share_class_id, null asset/alias, optional issuer, and eligible=false. unresolved/share_class_only requires share_class_id; unresolved/cik_issuer_only requires issuer_id and null asset/share/alias; unresolved/ticker_only has all four IDs null. conflicted_unresolved/conflict has null asset/alias and may retain only independently exact non-conflicting hierarchy IDs. current_reference_factor_eligible is always false.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "negative_source_count_rows",
+      "description": "source_version_count must be a positive native int64 value.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_null_or_duplicate_rows",
+      "description": "The active session_date and exact ticker key must be non-null and unique.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "inactive_rows",
+      "description": "active_on_date must be true for every row.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "selected_source_parent_missing_rows",
+      "description": "Every selected_source_record_id must resolve to the fixed S4 asset_observation_daily release and match its S4 universe parent.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_selection_lineage_mismatch_rows",
+      "description": "S4 source_version_count, selection status, membership source availability session, and availability quality must be copied exactly without S7 re-selection or temporal reinterpretation.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_evidence_availability_recomputation_mismatch_rows",
+      "description": "identity_evidence_available_session must equal max(source_available_session) over the transitive accepted-source evidence closure used for IDs, method, status, hierarchy, referenced asset/share/issuer/alias state, eligibility, counts, or conflict disposition. The closure starts with this S4 membership row and expands to every participating S4 selected row across sessions/entities, accepted S6 Overview rows, and only accepted S5 ticker_change_event rows admitted by the relevant exact S4/S6 identity attachment rule and, for alias corroboration, the exact unique interval association rule. Unattached/ambiguous S5 events, S5 request status, and sibling output rows are excluded. ticker_only with no derived identity evidence falls back exactly to membership_source_available_session, and conflicts include all competing accepted evidence considered.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "foreign_asset_missing_rows",
+      "description": "In the coordinated group build, every non-null asset_id must resolve to a current asset_master sibling row.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "foreign_asset_eligibility_mismatch_rows",
+      "description": "A resolved_strong daily row must reference asset_master.backtest_identity_eligible=true; a resolved_conflicted daily row must reference asset_master.backtest_identity_eligible=false; no other status may carry asset_id.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "foreign_issuer_missing_rows",
+      "description": "In the coordinated group build, every non-null issuer_id must resolve to an issuer_master sibling row.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "foreign_alias_missing_or_uncovered_rows",
+      "description": "In the coordinated group build, every non-null ticker_alias_id must resolve to exactly one backtest_identity_eligible=true ticker_alias sibling interval covering this exact session/ticker/asset.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "resolved_row_incomplete_rows",
+      "description": "resolved_strong rows must have non-null asset_id and ticker_alias_id, consistent Composite-FIGI evidence, and backtest_identity_eligible=true; this rule does not apply to resolved_conflicted.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "nonresolved_row_eligible_rows",
+      "description": "Candidate, unresolved, resolved-conflicted, and conflicted-unresolved rows must remain backtest_identity_eligible=false; only resolved-conflicted may retain asset_id, none may expose an alias, and exact non-conflicting share_class_id/issuer_id may remain according to the frozen method matrix.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "noncomposite_only_asset_rows",
+      "description": "Share-class-only, CIK-only, and ticker-only methods may not populate asset_id or ticker_alias_id.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "composite_asset_mismatch_rows",
+      "description": "A source Composite FIGI must reproduce the same asset_id under the frozen asset rule.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "share_class_hierarchy_mismatch_rows",
+      "description": "Non-null share_class_id and share_class_figi must reproduce each other but may legitimately map to multiple asset IDs.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "alias_universe_bidirectional_mismatch_rows",
+      "description": "Every eligible daily row must be covered by exactly one matching alias, and every expanded alias session must map back to exactly one active daily/S4 row with the same exact ticker, asset, and Composite FIGI; no extra alias sessions are allowed.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "type_code_backfill_or_mutation_rows",
+      "description": "type_code must equal the S4 source value exactly; S2 is current-only diagnostic and cannot backfill history.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "current_reference_factor_enabled_rows",
+      "description": "current_reference_factor_eligible must remain false; current-capture type, exchange, issuer reference, name, SIC, and identity metadata cannot become historical factor values.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "s5_status_identity_effect_invalid_rows",
+      "description": "S5 request-status rows, including HTTP 404, may measure endpoint coverage only and may never create, delete, truncate, or extend a membership or identity link.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "s5_event_created_resolution_rows",
+      "description": "No universe row may gain or change asset/share/issuer/alias IDs, identity_resolution_method, identity_resolution_status, interval coverage, or eligibility solely from an S5 ticker_change_event. S5 events contribute only after the relevant identity is independently anchored by accepted S4/S6 evidence and, for alias corroboration, uniquely associated to an already observed interval.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "coordinated_group_build_invalid",
+      "description": "The four sibling outputs must share one ephemeral resolution graph, identical six-release inputs/source digest/binding ID, and passing cross-table QA; sibling staging or unpublished outputs may not be source artifacts.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "temporal_scope_invalid_rows",
+      "description": "Membership, metadata, identity scope, and availability must retain their distinct frozen semantics.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "unresolved_active_rows",
+      "description": "Active memberships without a strong security-level identity remain visible and excluded from backtests.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "weak_noncomposite_candidate_rows",
+      "description": "Unique Share-class- or ticker-date candidates remain non-eligible until a separately approved promotion rule exists.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "active_common_stock_without_eligible_identity_rows",
+      "description": "Active CS rows lacking a strong eligible identity require an explicit coverage review before factor-universe use.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "security_level_conflict_rows",
+      "description": "Composite-to-share-class temporal ambiguity or overlapping incompatible share classes remain visible as resolved_conflicted or conflicted_unresolved DATA rows and must never become eligible.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "s6_pending_quarantine_unresolved_rows",
+      "description": "The 169 S6 pending evidence-quarantine issues and 193 S5 event-quarantine issues are release-authenticated and reconciled at build level; they cannot be silently promoted or automatically mapped onto membership rows.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    }
+  ],
+  "schema_version": 1,
+  "sort_by": [
+    "session_date",
+    "ticker"
+  ],
+  "source_datasets": [
+    "asset_observation_daily",
+    "asset_observation_version",
+    "universe_source_daily",
+    "ticker_event_request_status",
+    "ticker_change_event",
+    "ticker_overview_safe"
+  ],
+  "table": "universe_daily"
+}

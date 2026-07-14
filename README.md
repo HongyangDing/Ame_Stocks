@@ -7,7 +7,7 @@ can be inspected and reproduced.
 ## Current milestone
 
 The project has passed the **Bronze data checkpoint** for the catalog frozen on 2026-07-12 and is
-now at **Silver Phase 2 with S1–S5 published; execution is stopped before S6**:
+now at **Silver Phase 2 with S1–S6 published; S7 is stopped at schema review**:
 
 - ten years of full-market minute/day aggregate Flat Files and 29 required REST research
   datasets (31 dataset families in total) are stored immutably on the remote data volume;
@@ -30,8 +30,10 @@ now at **Silver Phase 2 with S1–S5 published; execution is stopped before S6**
   and `18a7eb3dd6805b94151f5b6ce0167c19dbeb328f45bec7c2f806dac42b8a6350`
   passed release-only trust-chain and artifact verification. They are evidence only and also remain
   `backtest_identity_eligible=false`;
-- permanent identity, ticker validity intervals, and a backtestable universe still require the
-  separately reviewed S6 Overview evidence and S7 reconciliation. S6 has not started.
+- S6 published 30,570 retrospective Overview evidence rows plus 169 pending High quarantine rows;
+  permanent identity, ticker validity intervals, and a backtestable universe still require S7;
+- S7 has completed its read-only combined-source profile and proposed four schema candidates. It is
+  stopped before transform code, fixture, preview, or release pending explicit schema approval.
 
 The final strict full audit is
 `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/bronze/full-2026-07-12-v9.json`
@@ -65,7 +67,7 @@ Formal Silver control-plane code lives in `backend/ame_stocks_api/silver/`. Its 
 documented in [docs/silver-s0-contracts.md](docs/silver-s0-contracts.md), while the dataset-by-dataset
 sequence and hard approval stops remain in
 [docs/silver-processing-plan.md](docs/silver-processing-plan.md). S0 does not read Bronze or run a
-transformation. S1 `exchanges` through S5 `ticker_events` are fully published.
+transformation. S1 `exchanges` through S6 `ticker_overview_safe` are fully published.
 S2's approved contract, bounded 24-row preview, review-bound full build, and immutable release
 evidence are documented in
 [docs/silver-s2-ticker-types-schema-review.md](docs/silver-s2-ticker-types-schema-review.md). The
@@ -87,9 +89,13 @@ approved contracts, full-scope release-set IDs, and evidence-only boundary are d
 inventories, exact date-quality decisions, QA/quarantine results, and two published releases are
 documented in
 [docs/silver-s5-ticker-events-schema-review.md](docs/silver-s5-ticker-events-schema-review.md). The
-current hard stop is before S6 `ticker_overview` source profiling and schema-contract review; no S6
-build or release is authorized.
-The approved schemas are loaded by
+published S6 evidence contract, lifecycle coverage, QA/quarantine results, and release are documented
+in [docs/silver-s6-ticker-overview-schema-review.md](docs/silver-s6-ticker-overview-schema-review.md).
+The current hard stop is S7 schema approval: the read-only joint profile and four revised candidates
+exist, but no S7 transform, fixture, preview, full build, or release is authorized. The exact input
+binding, profile findings, ID rules, contract digests, and approval wording are in
+[docs/silver-s7-identity-resolution-schema-review.md](docs/silver-s7-identity-resolution-schema-review.md).
+For S4, the approved schemas are loaded by
 [asset_contract.py](backend/ame_stocks_api/silver/asset_contract.py); the manifest-bound reader and
 session-bounded pure transform live in
 [asset_source.py](backend/ame_stocks_api/silver/asset_source.py) and

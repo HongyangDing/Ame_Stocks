@@ -10,8 +10,9 @@ Bronze 已具备进入 Silver 的条件。最终 Bronze v9 已证明冻结范围
 编号 S1–S34 中，S7、S14、S15 是跨数据集派生审批点；其余 31 项与 31 个 Bronze family
 一一对应。
 
-截至 2026-07-14，S1–S6 已分别发布，S7 为 `planned / not started`；不能描述成“全部 Silver
-数据已处理”：
+截至 2026-07-14，S1–S6 已分别发布；S7 的只读 combined-source profile 与四份 schema candidate
+已完成，当前为 `schema review / awaiting explicit approval`，尚无 transform、fixture、preview 或
+release。不能描述成“全部 Silver 数据已处理”：
 
 - S1 exchanges、S2 ticker types 和 S3 condition codes 已正式发布；
 - S4 Assets 的十年 full scope 已按三个精确 `FullRunPlan` 完成并作为一个原子 release set 发布；
@@ -510,11 +511,14 @@ quarantine issue 只在 full/publish 审批中按 ID 接受。169 条仍是 `pen
 - QA：30,570/30,739 identity match；169 行隔离/人工复核；`list_date <= query_date`；SIC/list
   date coverage；不得把 safe SIC 描述成完整 PIT industry。
 
-### S7 — 派生 `asset_master` / `ticker_alias` / `issuer_master`
+### S7 — 派生 `asset_master` / `ticker_alias` / `issuer_master` / `universe_daily`
 
-**状态：`planned / not started`。** 这不是新的 Bronze 数据集；S6 发布不授权 S7。S7 必须恢复
-逐步审批：先只读 combined-source profile 与 schema proposal 并停下，获得显式批准后才写代码和
-fixture，再执行 bounded preview、review，以及分别批准的 full/publish。
+**状态（2026-07-14）：`schema review / awaiting explicit approval`。** 只读 combined-source
+profile 和四份 candidate contract 已完成，详见
+[`silver-s7-identity-resolution-schema-review.md`](silver-s7-identity-resolution-schema-review.md)。
+当前没有 S7 transform、fixture、preview、FullRunPlan 或 release。只有用户逐字批准四个 Contract ID、
+candidate SHA 和 active-only `universe_daily` 选择后，才可进入 code-ready；后续 bounded preview、
+Full 和 publish 仍分别审批。
 
 S7 必须在 S4–S6 分别验收后单独审批：
 
@@ -840,14 +844,14 @@ quarantine 并等待人工 review；Medium/Low 保留标志，不能从分母中
 
 ## 15. 推荐的下一步
 
-S0–S6 已分别通过独立审批并完成；当前不直接处理行情，也不自动启动 S7。下一步只建议：
+S0–S6 已分别通过独立审批并完成；S7 combined-source profile 与四份 schema proposal 也已完成。
+当前下一步只建议：
 
-1. 只有用户显式要求开始 S7 后，才对 S4 Assets、S5 Ticker Events、S6 Overview 做只读
-   combined-source profile 和 schema proposal；
-2. 展示永久 `asset_id`、`issuer_id`、ticker alias interval、share-class 边界、169 条 unresolved
-   evidence 和 daily universe join 规则，然后停下等待批准；
-3. 后续严格按 code/fixture → bounded preview → review → 单独批准 full/publish 推进，不沿用 S6 的
-   连续完成授权。
+1. 用户逐字批准四份 S7 Contract ID、candidate file SHA-256，并确认 active-only
+   `universe_daily`；
+2. 获批后只实现 source readers、resolution engine、正式 contract resources 与固定小样本 fixture，
+   然后停在 code-ready；
+3. 后续严格按 bounded preview → review → 单独批准 full/publish 推进，不沿用 S6 的连续完成授权。
 
 当 S4–S15（身份、公司行动、三套行情、复权和收益）完成并发布后，price-derived Barra 和
 普通日频因子即可开始；S16–S34 可以继续逐项扩充，不应阻塞第一批价格型因子。

@@ -1,0 +1,501 @@
+{
+  "columns": [
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 from stable_digest of the exact-key payload {asset_id, issuer_id, namespace: ame_stocks.identity.ticker_alias, rule_version: ame_stocks_ticker_alias_id_from_observed_interval_v1, share_class_id, ticker, valid_from_session}; nullable hierarchy keys are explicit JSON null, dates are YYYY-MM-DD strings, and no key may be omitted or added.",
+      "name": "ticker_alias_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed ame_stocks_ticker_alias_id_from_observed_interval_v1 rule using json.dumps with allow_nan=false, ensure_ascii=true, separators comma/colon, sort_keys=true; UTF-8, no newline, and SHA-256 lowercase hex.",
+      "name": "ticker_alias_id_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Foreign key to identity/asset_master; never derived from ticker or CIK alone.",
+      "name": "asset_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact case-sensitive provider ticker preserved without trimming, casefolding, root parsing, or punctuation normalization.",
+      "name": "ticker",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session in the observed active interval, inclusive.",
+      "name": "valid_from_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Last XNYS session in the observed active interval, inclusive.",
+      "name": "valid_through_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Next ordered distinct XNYS source session in the fixed S4 release after valid_through_session; null only when right-censored at the fixed S4 coverage end. It is calendar/session-spine derived even when the ticker is absent on that next session.",
+      "name": "valid_to_session_exclusive",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact domain membership_absent_or_identity_changed_next_source_session or right_censored_at_source_end.",
+      "name": "interval_end_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of XNYS membership sessions in this maximal interval.",
+      "name": "interval_session_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact Composite FIGI constant within the interval and reproducing asset_id.",
+      "name": "composite_figi",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Deterministic share-class parent identity when an exact share-class FIGI is available for the interval.",
+      "name": "share_class_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact share-class FIGI corresponding to share_class_id; multiple Composite-FIGI assets may share it.",
+      "name": "share_class_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "CIK-derived issuer reference constant within the interval; it is not an asset merge key.",
+      "name": "issuer_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S7 method, led by source_composite_figi_exact; Share-class FIGI and CIK remain corroborating hierarchy evidence, while uniquely associated S5 events only corroborate an occurrence inside an already observed interval and never a boundary.",
+      "name": "alias_resolution_method",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact domain resolved_strong or resolved_temporal; weak ticker-date candidates are excluded from this table.",
+      "name": "alias_resolution_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Whether at least one accepted S5 event occurrence is uniquely associated to this interval by exact Composite FIGI, exact case-sensitive ticker, ordinary_calendar_date quality, and calendar-date containment within the observed inclusive interval; false does not invalidate observed S4 membership.",
+      "name": "ticker_event_corroborated",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of distinct accepted S5 ticker_change_event source_record_id values whose response_composite_figi and effective_ticker exactly equal this interval, whose event_date_quality is ordinary_calendar_date, and whose event_date lies between valid_from_session and valid_through_session inclusive. The event must match exactly one emitted interval; all other events count only in build-level association review and never define a prior ticker or interval boundary.",
+      "name": "ticker_event_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Number of S4 active universe rows collapsed into the interval.",
+      "name": "source_row_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "S4 selected_source_record_id for valid_from_session.",
+      "name": "first_source_record_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "S4 selected_source_record_id for valid_through_session.",
+      "name": "last_source_record_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "True only when every session in the interval has a strong, non-conflicted asset resolution.",
+      "name": "backtest_identity_eligible",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed reconstructed_historical_active_membership_v1 marker inherited from S4 session evidence.",
+      "name": "membership_time_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed metadata_as_returned_at_source_capture_not_historical_vintage_v1 marker.",
+      "name": "metadata_time_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Maximum source_available_session over the transitive accepted-source evidence closure used for the interval, its asset/share/issuer hierarchy, eligibility, counts, corroboration, and conflict disposition; S5 request-status-only coverage is excluded.",
+      "name": "identity_evidence_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed s7_ticker_interval_resolution_v1 interval segmentation, evidence precedence, and event-corroboration rule version.",
+      "name": "resolution_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact protected S4 release-set ID.",
+      "name": "source_s4_release_set_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S5 ticker-event request-status release ID used only for coverage and 404 semantics.",
+      "name": "source_s5_status_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S5 ticker-change-event release ID.",
+      "name": "source_s5_event_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S6 ticker-overview-safe release ID.",
+      "name": "source_s6_overview_release_id",
+      "nullable": false
+    }
+  ],
+  "contract_id": "e645573e813c18a82fcea80f3bfef07c547c738fc00cc01419a1f1824a27a47b",
+  "contract_schema_version": 1,
+  "description": "XNYS-session ticker intervals derived from observed S4 active membership after Composite-FIGI asset resolution. S5 event dates corroborate boundaries but never create predecessor tickers or intervals by themselves.",
+  "domain": "identity",
+  "grain": "One maximal XNYS-consecutive interval for the same asset_id, exact ticker, share_class_id, and issuer_id; a gap or one of those identity-field changes starts a new interval, while resolution status alone is a versioned attribute and does not change ticker_alias_id.",
+  "partition_by": [],
+  "primary_key": [
+    "ticker_alias_id"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "schema_exact",
+      "description": "Every output field, order, Arrow type, and nullability must equal this contract.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "published_source_trust_chain_invalid",
+      "description": "Every fixed S4 release-set member and fixed S5/S6 release must pass release-manifest, build-manifest, schema, checksum, row-count, and workflow trust-chain verification before use.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_release_binding_invalid",
+      "description": "Every row and each coordinated member build must bind the exact approved S4 three-release set, S5 request-status release, S5 event release, and S6 overview release; all four builds must share one exact six-dataset source digest and latest-by-time discovery is forbidden.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_null_or_duplicate_rows",
+      "description": "ticker_alias_id must be non-null and unique.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "foreign_asset_missing_rows",
+      "description": "Every asset_id must resolve to a v1 active_identity asset_master row.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "foreign_issuer_missing_rows",
+      "description": "Every non-null issuer_id must resolve to issuer_master.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "ticker_alias_id_recomputation_mismatch_rows",
+      "description": "Every ticker_alias_id must reproduce from the exact compact sorted-JSON payload, explicit null encoding, exact ticker/date encoding, and approved fixed vectors.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "id_rule_or_domain_invalid_rows",
+      "description": "ticker_alias_id and all identity FKs must be lowercase 64-hex values generated under the exact approved asset, share-class, issuer, and alias rule versions; ticker/date/null normalization must match the frozen payload contract.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "state_domain_invalid_rows",
+      "description": "interval_end_status must be membership_absent_or_identity_changed_next_source_session or right_censored_at_source_end; alias_resolution_method must be source_composite_figi_exact or source_composite_figi_exact_temporal_hierarchy; alias_resolution_status must be resolved_strong or resolved_temporal; scope and rule fields must equal reconstructed_historical_active_membership_v1, metadata_as_returned_at_source_capture_not_historical_vintage_v1, ame_stocks_ticker_alias_id_from_observed_interval_v1, and s7_ticker_interval_resolution_v1.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "state_matrix_invalid_rows",
+      "description": "source_composite_figi_exact pairs only with resolved_strong; source_composite_figi_exact_temporal_hierarchy pairs only with resolved_temporal. Both require asset/composite, optional jointly-null-or-valid share pair, optional valid issuer, and eligibility=true. ticker_event_corroborated equals ticker_event_count>0; right-censored status iff exclusive end is null, otherwise membership-absent-or-changed status with the next source-session endpoint.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "negative_count_rows",
+      "description": "interval_session_count, ticker_event_count, and source_row_count must be non-negative native int64 values, and an emitted interval must have positive session and source counts.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "evidence_count_recomputation_mismatch_rows",
+      "description": "ticker_event_count must equal the number of distinct accepted S5 ticker_change_event source_record_id values with exact response_composite_figi=interval composite_figi, exact effective_ticker=interval ticker, event_date_quality=ordinary_calendar_date, and valid_from_session<=event_date<=valid_through_session, provided the event matches exactly one emitted interval. Source_row_count and interval_session_count must exactly recompute from matching S4 daily membership rows. Sentinel/cluster-quality, pair-mismatch, out-of-interval, zero-match, multi-match, and S5 request-status rows are excluded from interval counts; no count is accepted from a prior aggregate.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_evidence_availability_recomputation_mismatch_rows",
+      "description": "identity_evidence_available_session must equal max(source_available_session) over the transitive accepted-source evidence closure used for this interval, its referenced asset/share/issuer state, eligibility, counts, hierarchy, corroboration, or conflict disposition. The closure includes every participating S4 selected row across sessions/entities, accepted S6 Overview rows, and only accepted S5 ticker_change_event rows uniquely associated by the exact event rule; unassociated or ambiguous S5 events, S5 request status, and sibling output rows are excluded, and every alias has non-empty S4 evidence.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "interval_order_invalid_rows",
+      "description": "valid_from_session must not exceed valid_through_session, and a non-null exclusive end must follow valid_through_session.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "interval_calendar_count_mismatch_rows",
+      "description": "interval_session_count must equal the XNYS sessions in the inclusive observed interval.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "interval_source_count_mismatch_rows",
+      "description": "source_row_count must equal interval_session_count because the active S4 source has one exact ticker row per included source session.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "interval_non_maximal_rows",
+      "description": "Adjacent intervals with identical identity fields and no XNYS gap must have been merged.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "interval_internal_gap_rows",
+      "description": "No interval may bridge an inactive or absent S4 membership session.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "ticker_session_multiple_asset_rows",
+      "description": "One exact ticker on one session may not resolve to more than one asset.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "ticker_interval_overlap_rows",
+      "description": "No two intervals for the same exact ticker may overlap on the fixed S4 source-session spine, even when they reference the same asset.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "interval_boundary_lineage_mismatch_rows",
+      "description": "first_source_record_id and last_source_record_id must match the exact S4 rows on valid_from_session and valid_through_session respectively.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "alias_universe_bidirectional_mismatch_rows",
+      "description": "In the coordinated group build, each eligible universe_daily row must be covered by exactly one matching alias and every expanded alias session must map back to exactly one active S4/universe row with the same ticker, asset, and Composite FIGI.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "composite_asset_anchor_mismatch_rows",
+      "description": "Every interval asset must equal the asset generated from its exact Composite FIGI.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "share_class_hierarchy_mismatch_rows",
+      "description": "Non-null share_class_id and share_class_figi must reproduce each other and may parent multiple assets.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "s5_status_identity_effect_invalid_rows",
+      "description": "S5 request-status rows, including HTTP 404, may measure endpoint coverage only and may never create, delete, truncate, or extend an alias interval.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "event_defined_interval_rows",
+      "description": "S5 events may corroborate only after exact Composite/ticker, ordinary date quality, and unique interval containment association; they may never create, extend, split, truncate, coalesce, or be the sole source of an interval or predecessor ticker.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "event_interval_association_ambiguous_rows",
+      "description": "No accepted S5 ticker_change_event source_record_id may associate to more than one emitted alias interval under the exact Composite/ticker, ordinary date quality, and inclusive calendar-date containment rule; ties fail the build rather than being broken by order, proximity, or source ordinal.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "coordinated_group_build_invalid",
+      "description": "The four sibling outputs must share one ephemeral resolution graph, identical six-release inputs/source digest/binding ID, and passing cross-table QA; sibling staging or unpublished outputs may not be source artifacts.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "right_censor_invalid_rows",
+      "description": "Only intervals reaching the fixed S4 coverage end may have a null exclusive end.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "eligibility_invalid_rows",
+      "description": "Every emitted ticker_alias row must have backtest_identity_eligible=true and cover only strong non-conflicted daily resolutions; weak or conflicted intervals are excluded from this table.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "overlapping_different_composite_rows",
+      "description": "Observed same-ticker incompatible Composite evidence remains a High issue and suppresses alias admission; S6 lifecycle envelopes alone do not prove overlap.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "weak_noncomposite_candidate_rows",
+      "description": "Share-class-, CIK-, or ticker-date-only candidate mappings remain outside ticker_alias until separately approved.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "unassociated_s5_ticker_event_rows",
+      "description": "Build-level count of accepted S5 ticker_change_event rows excluded from interval corroboration because date quality is not ordinary_calendar_date, the exact Composite/ticker pair is absent, the calendar date is outside every matching observed interval, or the event does not match exactly one interval. Report reason counts and bounded examples; these rows remain upstream event evidence and never alter interval membership.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    }
+  ],
+  "schema_version": 1,
+  "sort_by": [
+    "ticker",
+    "valid_from_session",
+    "asset_id"
+  ],
+  "source_datasets": [
+    "asset_observation_daily",
+    "asset_observation_version",
+    "universe_source_daily",
+    "ticker_event_request_status",
+    "ticker_change_event",
+    "ticker_overview_safe"
+  ],
+  "table": "ticker_alias"
+}

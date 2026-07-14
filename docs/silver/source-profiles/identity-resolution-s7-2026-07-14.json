@@ -1,0 +1,547 @@
+{
+  "active_anchor_by_type": [
+    {
+      "composite_figi_only_rows": 1364,
+      "no_security_figi_rows": 2125395,
+      "row_count": 12545704,
+      "share_class_figi_rows": 10418945,
+      "share_class_figi_rate": 0.8304791026474082,
+      "type_code": "CS"
+    },
+    {
+      "composite_figi_only_rows": 0,
+      "no_security_figi_rows": 431423,
+      "row_count": 6796768,
+      "share_class_figi_rows": 6365345,
+      "share_class_figi_rate": 0.9365252720116385,
+      "type_code": "ETF"
+    },
+    {
+      "composite_figi_only_rows": 0,
+      "no_security_figi_rows": 1240970,
+      "row_count": 1241097,
+      "share_class_figi_rows": 127,
+      "share_class_figi_rate": 0.00010232882683625857,
+      "type_code": "PFD"
+    },
+    {
+      "composite_figi_only_rows": 554548,
+      "no_security_figi_rows": 512111,
+      "row_count": 1066659,
+      "share_class_figi_rows": 0,
+      "share_class_figi_rate": 0.0,
+      "type_code": "WARRANT"
+    },
+    {
+      "composite_figi_only_rows": 0,
+      "no_security_figi_rows": 113501,
+      "row_count": 1040193,
+      "share_class_figi_rows": 926692,
+      "share_class_figi_rate": 0.8908846723636864,
+      "type_code": "FUND"
+    },
+    {
+      "composite_figi_only_rows": 0,
+      "no_security_figi_rows": 66495,
+      "row_count": 978574,
+      "share_class_figi_rows": 912079,
+      "share_class_figi_rate": 0.9320490836666414,
+      "type_code": "ADRC"
+    },
+    {
+      "composite_figi_only_rows": 0,
+      "no_security_figi_rows": 370528,
+      "row_count": 605113,
+      "share_class_figi_rows": 234585,
+      "share_class_figi_rate": 0.387671393607475,
+      "type_code": "UNIT"
+    },
+    {
+      "composite_figi_only_rows": 0,
+      "no_security_figi_rows": 387087,
+      "row_count": 394034,
+      "share_class_figi_rows": 6947,
+      "share_class_figi_rate": 0.017630458285325633,
+      "type_code": "SP"
+    },
+    {
+      "composite_figi_only_rows": 339,
+      "no_security_figi_rows": 225587,
+      "row_count": 358940,
+      "share_class_figi_rows": 133014,
+      "share_class_figi_rate": 0.3705744692706302,
+      "type_code": null
+    },
+    {
+      "composite_figi_only_rows": 0,
+      "no_security_figi_rows": 76691,
+      "row_count": 238669,
+      "share_class_figi_rows": 161978,
+      "share_class_figi_rate": 0.6786721358869396,
+      "type_code": "ETN"
+    },
+    {
+      "composite_figi_only_rows": 0,
+      "no_security_figi_rows": 44113,
+      "row_count": 111670,
+      "share_class_figi_rows": 67557,
+      "share_class_figi_rate": 0.6049700008954957,
+      "type_code": "INDEX"
+    },
+    {
+      "composite_figi_only_rows": 0,
+      "no_security_figi_rows": 68360,
+      "row_count": 103925,
+      "share_class_figi_rows": 35565,
+      "share_class_figi_rate": 0.3422179456338706,
+      "type_code": "RIGHT"
+    },
+    {
+      "composite_figi_only_rows": 0,
+      "no_security_figi_rows": 2,
+      "row_count": 80004,
+      "share_class_figi_rows": 80002,
+      "share_class_figi_rate": 0.9999750012499375,
+      "type_code": "ETS"
+    },
+    {
+      "composite_figi_only_rows": 0,
+      "no_security_figi_rows": 213,
+      "row_count": 63545,
+      "share_class_figi_rows": 63332,
+      "share_class_figi_rate": 0.9966480446927374,
+      "type_code": "ETV"
+    },
+    {
+      "composite_figi_only_rows": 0,
+      "no_security_figi_rows": 3750,
+      "row_count": 5149,
+      "share_class_figi_rows": 1399,
+      "share_class_figi_rate": 0.27170324334822293,
+      "type_code": "ADRP"
+    },
+    {
+      "composite_figi_only_rows": 0,
+      "no_security_figi_rows": 16,
+      "row_count": 23,
+      "share_class_figi_rows": 7,
+      "share_class_figi_rate": 0.30434782608695654,
+      "type_code": "ADRR"
+    }
+  ],
+  "cross_source_findings": {
+    "cik_is_not_asset_identity": {
+      "cik_to_multiple_composite_figi_keys": 2491,
+      "cik_to_multiple_share_class_figi_keys": 959,
+      "maximum_composite_figi_per_cik": 464,
+      "maximum_share_class_figi_per_cik": 454,
+      "s4_seven_day_sample_cik_join_expansion": 21.105,
+      "s4_seven_day_sample_cik_join_input_rows": 163537,
+      "s4_seven_day_sample_cik_join_output_pairs": 3451447
+    },
+    "composite_to_share_class": {
+      "composite_figi_keys": 17337,
+      "multiple_share_class_figi_keys": 3,
+      "no_share_class_figi_keys": 737,
+      "unique_share_class_figi_keys": 16597
+    },
+    "s4_seven_day_sample": {
+      "composite_present_but_no_s6_share_class_rows": 2506,
+      "composite_unseen_in_s6_rows": 90,
+      "only_cik_rows": 97212,
+      "only_ticker_rows": 24661,
+      "row_count": 195006,
+      "source_share_class_figi_rows": 70537
+    },
+    "s5_event_to_share_class_resolution": {
+      "composite_present_without_share_class_rows": 355,
+      "composite_unseen_in_s6_rows": 551,
+      "event_rows": 12895,
+      "globally_ambiguous_but_event_date_resolved_rows": 2,
+      "unique_share_class_resolution_rows_including_date_resolved": 11989
+    },
+    "s5_request_current_outcome_vs_s6_history": {
+      "complete_and_composite_seen_in_s6": 11240,
+      "complete_and_composite_unseen_in_s6": 231,
+      "http_404_and_composite_seen_in_s6": 3613,
+      "http_404_and_composite_unseen_in_s6": 89
+    }
+  },
+  "control_file_receipts": {
+    "s6_pending_quarantine": {
+      "bound_build_id": "f9e66da7f8aa86f9a2eacff4ee745874776f52d62182d3554d99c7f9b5b90ec0",
+      "bound_build_manifest_sha256": "b616b32bac23124d367dc7e5493130c101f76f222d179b6049c5ac813e1390e0",
+      "bound_release_id": "8715f90d0e01f990e9738b9266edfeb2830a76d59a00ae4fb7490d9f077092a5",
+      "bound_release_manifest_sha256": "a830ad88706393db8b28534379538149aa676e254ca87fd9cbb046ce4d2b51fe",
+      "bytes": 20063,
+      "path": "silver/schema=v1/identity/ticker_overview_safe/build_id=f9e66da7f8aa86f9a2eacff4ee745874776f52d62182d3554d99c7f9b5b90ec0/quarantine/quarantine-record.parquet",
+      "row_count": 169,
+      "sha256": "b12b8bae3b154f31a2e7ca46010db4dcdef72004d6151e443729116f74fe9b05",
+      "source_issue_set_digest": "660de577dd6a291b1fa1c57069583fafe8376528a8877921595568820957fa88"
+    },
+    "ticker_overview_lifecycle_plan": {
+      "bound_build_id": "f9e66da7f8aa86f9a2eacff4ee745874776f52d62182d3554d99c7f9b5b90ec0",
+      "bound_build_manifest_sha256": "b616b32bac23124d367dc7e5493130c101f76f222d179b6049c5ac813e1390e0",
+      "bound_coverage_receipt_path": "manifests/silver/source-coverage/ticker_overview/coverage-01b34fb0f08df51d67ef5124154a2e9026ed5a3621ec060f298440a0ac608a6b.json",
+      "bound_coverage_receipt_sha256": "b771d67e3c0d6139a31766c2b2ffb431292d1d896a4e593a7c100fcaec552ae7",
+      "bound_lifecycle_inventory": {
+        "bytes": 743,
+        "inventory_id": "b566cd78a7d65d9d986edbb3d538b567b03dd1b6efe898b3df994c35f5668076",
+        "path": "manifests/silver/source-inventories/ticker_overview/inventory-b566cd78a7d65d9d986edbb3d538b567b03dd1b6efe898b3df994c35f5668076.json",
+        "sha256": "321dfe2c548609b23a2defa9bb2792c4aa5d2943adc4c96be2e0eaecab5d965a"
+      },
+      "bound_overview_inventory": {
+        "bytes": 15401525,
+        "inventory_id": "5503057d5e575e3827bf53599ee342f7ad6d2d8328cf20a127b08ec5c1fc8c03",
+        "path": "manifests/silver/source-inventories/ticker_overview/inventory-5503057d5e575e3827bf53599ee342f7ad6d2d8328cf20a127b08ec5c1fc8c03.json",
+        "sha256": "822eeaa395e327f11c2b59472619e6b13425ccbf0a16eee5219c664fa50f62e7"
+      },
+      "bound_release_id": "8715f90d0e01f990e9738b9266edfeb2830a76d59a00ae4fb7490d9f077092a5",
+      "bound_release_manifest_sha256": "a830ad88706393db8b28534379538149aa676e254ca87fd9cbb046ce4d2b51fe",
+      "bytes": 12910337,
+      "identity_set_digest": "a1ecb676bb34ad6ec6fcac21407d2d71471a70be891b19f32ca905fca9c1d12f",
+      "path": "manifests/plans/ticker_overview/lifecycles-2016-07-11_2026-07-09.jsonl",
+      "row_count": 30739,
+      "sha256": "ce8e6c457ab6e7110d26d8d4afa38186b91509f6f02d4a3177352471779876a0"
+    }
+  },
+  "design_implications": [
+    "Use exact Composite FIGI as the v1 U.S. tradable asset anchor; Share-class FIGI is a parent layer and one share class may legitimately map to multiple Composite-FIGI assets.",
+    "Never generate or merge asset_id from CIK, ticker, name, ticker root, or Share-class FIGI alone.",
+    "Allow accepted S5 ticker_change_event rows to attach only to an asset independently anchored by accepted S4 selected membership or accepted S6 Overview; unattached S5 event identities remain upstream review evidence and create no S7 identity.",
+    "Use S4 daily active membership as the only interval spine; S6 first/last dates are observation envelopes and S5 events only corroborate boundaries.",
+    "Associate an accepted S5 event to a ticker_alias interval only by exact Composite FIGI, exact case-sensitive ticker, ordinary_calendar_date quality, inclusive observed-date containment, and exactly one interval match; all other events remain unassociated review evidence.",
+    "Keep unresolved active S4 rows visible and backtest-ineligible; do not silently drop them during identity enrichment.",
+    "Emit no superseded asset or issuer state in v1 because the fixed six-release bundle contains no independently approved supersession source or availability rule.",
+    "Treat 2026-captured names, SIC, type descriptions, and Overview fields as retrospective reference metadata rather than historical factor inputs."
+  ],
+  "deterministic_fact_digest": "f788483993e6c4536eb15acece4a90ddd4e8e86005763bfe8ad43d84ac7ec3af",
+  "deterministic_fact_digest_scope": [
+    "active_anchor_by_type",
+    "control_file_receipts",
+    "cross_source_findings",
+    "design_implications",
+    "fixed_input_bundle",
+    "fixed_sources",
+    "known_review_cases",
+    "profile_methods",
+    "s4_universe_full_profile",
+    "s4_release_set_receipt",
+    "s5_profile",
+    "s6_profile",
+    "source_integrity",
+    "source_release_binding",
+    "unresolved_claims",
+    "write_boundary"
+  ],
+  "fixed_input_bundle": {
+    "artifact_count": 7542,
+    "artifact_refs_digest": "0ee09491cfb7b3e627950d15f2cd12211aca44433e3b869f5556086065448a5a",
+    "artifact_refs_digest_version": "s7_release_output_groups_v1",
+    "release_bundle_digest": "79c8a1237569737368c6ebe56754cd7b932ce12b70cf817d90a93841b5185c1b",
+    "release_bundle_digest_version": "s7_six_release_receipts_v1",
+    "row_count_sum": 138825855,
+    "stored_bytes_sum": 15944020220
+  },
+  "source_release_binding": {
+    "artifact_refs_digest": "0ee09491cfb7b3e627950d15f2cd12211aca44433e3b869f5556086065448a5a",
+    "artifact_refs_digest_version": "s7_release_output_groups_v1",
+    "binding_id": "49f3d20725f2609b43d6736df78993b2975c9f1b71947af93190dc0658366c64",
+    "binding_version": "s7_six_release_bundle_v1",
+    "release_bundle_digest": "79c8a1237569737368c6ebe56754cd7b932ce12b70cf817d90a93841b5185c1b",
+    "release_bundle_digest_version": "s7_six_release_receipts_v1",
+    "release_ids_by_dataset": {
+      "asset_observation_daily": "26819530e50cb92cbe0ec833d4b731b959c8bd2463ee2197255c02994241d44c",
+      "asset_observation_version": "b422fd05df859b33587b8ece80d078247dd972d01d272710ef49c3529b0e54be",
+      "ticker_change_event": "18a7eb3dd6805b94151f5b6ce0167c19dbeb328f45bec7c2f806dac42b8a6350",
+      "ticker_event_request_status": "afc63db6850fb50295daa8e6e499c52fe1c16b8290b7932b08aea67531ff98eb",
+      "ticker_overview_safe": "8715f90d0e01f990e9738b9266edfeb2830a76d59a00ae4fb7490d9f077092a5",
+      "universe_source_daily": "c7e0d9a75857cbca130ba8873a737411ccb2f11d3e711ee0c0b0d9d0e2f5c614"
+    },
+    "release_manifest_sha256_by_dataset": {
+      "asset_observation_daily": "f5fb26e75f44382caddf980e8fdf88a77903465b55bfd367f8d9029852848084",
+      "asset_observation_version": "0ea30b7cf2338e6067b82eff455a3973c59fcc20b433a0de9ba486ec9d8deaf3",
+      "ticker_change_event": "34cff4cdacbdace305f5ee541c101112a5a7f7fb4e572a3c2405509cf178ba50",
+      "ticker_event_request_status": "29a8c5dbe1de1fbdc819a8e8a08f998967cde2ea19c3bb56e94b34bdea9fdb11",
+      "ticker_overview_safe": "a830ad88706393db8b28534379538149aa676e254ca87fd9cbb046ce4d2b51fe",
+      "universe_source_daily": "6b2c6ca1b612c4c38ddc8e359c1402c177a4f19b0295604d42b78bcd5804596d"
+    },
+    "s4_release_set_id": "f81c7ee28939db3350fce809326723e911b6d486c6db166d2575fcc92cb2101d",
+    "s4_release_set_manifest_sha256": "937eaf4ed502fb2786dafb0dce9ec613bcaccb2cd488812cc5900118238d6c13"
+  },
+  "fixed_sources": [
+    {
+      "artifact_count": 2513,
+      "build_id": "9e3b5df531c01d1bcdd73cbd9cdf747bd30cdff459481b262e1ed7a23f40acc4",
+      "contract_id": "dd916b8528b9ce1a341e6b8ad897ae80e40d5df118b8e102e4ea1f1ea6e9c045",
+      "outputs_digest": "6b97f8c20e36bd25df5588216613536eb1c5af5c99f2244145f86779d4f64b80",
+      "release_id": "26819530e50cb92cbe0ec833d4b731b959c8bd2463ee2197255c02994241d44c",
+      "release_manifest_sha256": "f5fb26e75f44382caddf980e8fdf88a77903465b55bfd367f8d9029852848084",
+      "row_count": 69381182,
+      "schema_digest": "402d0ea624dc26e43ea63974572ede5a46ae20e0741e97a3d01d07075a71bc1e",
+      "stored_bytes": 8248987847,
+      "table": "asset_observation_daily"
+    },
+    {
+      "artifact_count": 2513,
+      "build_id": "59708791dc897214d3151dfd7da6b15534800afabf0c36dd36c566bd8d01ef9a",
+      "contract_id": "14ce114f5911f7e4d1c15e58f0f42a8307066d6517e859d6233fa23c199616fc",
+      "outputs_digest": "be861e2e958fc95ca975eed9fa6eb9b314a9cbde3ef4fcb04d6c2412af421e2e",
+      "release_id": "b422fd05df859b33587b8ece80d078247dd972d01d272710ef49c3529b0e54be",
+      "release_manifest_sha256": "0ea30b7cf2338e6067b82eff455a3973c59fcc20b433a0de9ba486ec9d8deaf3",
+      "row_count": 9706,
+      "schema_digest": "4c797ca373d697078b2061b9a76696dc036a1d2db0a5f8e1fe3ce2dac4b6bb4b",
+      "stored_bytes": 14376829,
+      "table": "asset_observation_version"
+    },
+    {
+      "artifact_count": 2513,
+      "build_id": "21921c72c4be79665d41077664f8f027a1beb9ac0600ff4c6610d4f40638b185",
+      "contract_id": "9711320ee9227df347224b7cd17a41fe10a352fddf089cd72b758bde7a7f0c58",
+      "outputs_digest": "8c6bb87eb99fc101ec391488dd149230096639ee585623d20bcf10fa5d72cb6c",
+      "release_id": "c7e0d9a75857cbca130ba8873a737411ccb2f11d3e711ee0c0b0d9d0e2f5c614",
+      "release_manifest_sha256": "6b2c6ca1b612c4c38ddc8e359c1402c177a4f19b0295604d42b78bcd5804596d",
+      "row_count": 69376329,
+      "schema_digest": "78b799cd5a2621b5a78e4ed8c23c090f6aea686fcd786366e5c258e81ad278a5",
+      "stored_bytes": 7661290322,
+      "table": "universe_source_daily"
+    },
+    {
+      "artifact_count": 1,
+      "build_id": "7ff845634148274b61c2f515cb66cb9e94f8bb8a5e1abe47316343eaa9f22ca1",
+      "contract_id": "5890117915e8ffc585c2faa1b9f4a9909a75f068bdad50a5e6bd64f78cf1df02",
+      "outputs_digest": "dfd186ecec936fd63e0af89ad785cfa1b79e3a3d0ba18377e5ed6e6ac462cd35",
+      "release_id": "afc63db6850fb50295daa8e6e499c52fe1c16b8290b7932b08aea67531ff98eb",
+      "release_manifest_sha256": "29a8c5dbe1de1fbdc819a8e8a08f998967cde2ea19c3bb56e94b34bdea9fdb11",
+      "row_count": 15173,
+      "schema_digest": "8c80dbd8c56508c1c03a5a7a8ecd08c2de9e6afefdf7d4edef027c9c0bea7c88",
+      "stored_bytes": 2362190,
+      "table": "ticker_event_request_status"
+    },
+    {
+      "artifact_count": 1,
+      "build_id": "7753688e3d4f19658ca5657b2dc5ccb9bf4c4b229b3c58dc68b255d5999735d2",
+      "contract_id": "48a46dfd810b95137125b336917c23343da2aace5a6a71d99129b4d10f2e59b1",
+      "outputs_digest": "599206404072adf6086f4ef03f926f3b62a456e068de3e5cbd09da8cb690f2b4",
+      "release_id": "18a7eb3dd6805b94151f5b6ce0167c19dbeb328f45bec7c2f806dac42b8a6350",
+      "release_manifest_sha256": "34cff4cdacbdace305f5ee541c101112a5a7f7fb4e572a3c2405509cf178ba50",
+      "row_count": 12895,
+      "schema_digest": "b643a7381e3fd704800aa703aa6c621173b951c40c80ce806ae491f578715fb2",
+      "stored_bytes": 3805444,
+      "table": "ticker_change_event"
+    },
+    {
+      "artifact_count": 1,
+      "build_id": "f9e66da7f8aa86f9a2eacff4ee745874776f52d62182d3554d99c7f9b5b90ec0",
+      "contract_id": "f4e873e6595fee0a66362a0d39b3f7c36176b95354ecad93453613f7ac84ca3c",
+      "outputs_digest": "13cf10f1a93222ee91a174ff001b0c51524d15ff2615eb4e3387507d69509c4c",
+      "release_id": "8715f90d0e01f990e9738b9266edfeb2830a76d59a00ae4fb7490d9f077092a5",
+      "release_manifest_sha256": "a830ad88706393db8b28534379538149aa676e254ca87fd9cbb046ce4d2b51fe",
+      "row_count": 30570,
+      "schema_digest": "228404866f33e709fc75e2b50f1ce022602e1b833b84f63315e009a3e07a8643",
+      "stored_bytes": 13197588,
+      "table": "ticker_overview_safe"
+    }
+  ],
+  "known_review_cases": {
+    "composite_to_temporally_separable_share_class": [
+      {
+        "boundary": "2024-12-31/2025-01-02",
+        "composite_figi": "BBG000KMY6N2",
+        "ticker": "SOR"
+      },
+      {
+        "boundary": "2025-11-05/2025-11-06",
+        "composite_figi": "BBG01XL8FHT0",
+        "ticker": "XZO"
+      },
+      {
+        "boundary": "2026-04-06/2026-04-07",
+        "composite_figi": "BBG021DMXXT2",
+        "ticker": "ANABV"
+      }
+    ],
+    "same_ticker_overlapping_different_share_class_envelopes": [
+      "BCEL",
+      "PKD",
+      "RAD",
+      "SRCL",
+      "SWIR",
+      "VOXX"
+    ],
+    "single_day_cluster_date": "2019-09-24",
+    "single_day_cluster_tickers": [
+      "BCEL",
+      "RAD",
+      "SRCL",
+      "SWIR",
+      "VOXX"
+    ]
+  },
+  "profile_date": "2026-07-14",
+  "profile_methods": [
+    "full_s4_universe_streaming_scalar_profile_v1",
+    "full_s4_active_type_anchor_four_cell_profile_v1",
+    "full_s5_s6_in_memory_cross_source_profile_v1",
+    "six_release_and_control_file_integrity_receipt_v2"
+  ],
+  "profile_summary_schema_version": 1,
+  "profile_summary_source": "versioned_read_only_profile_and_integrity_scripts_bound_to_exact_published_inputs",
+  "profile_provenance": {
+    "initial_execution_remote_code_head": "ecf848fab498cebb4af53d982db8d03b2ec776bb",
+    "read_only_repeat_code_transport": "base64_inline_python_B_no_remote_file",
+    "read_only_repeat_receipt_verified_at_utc": "2026-07-14T15:25:05Z",
+    "scripts": [
+      {
+        "path": "scripts/s7_small_profile.py",
+        "sha256": "fd9b78a4b608d50d2dae39e118d57604c95a4aead96d6a6a40b94f2208850948",
+        "stdout_sha256_repeat": "921b4b5ac81a549f933db1f69d046962d800521324fafae1f440fce5d4696a89"
+      },
+      {
+        "path": "scripts/s7_universe_profile.py",
+        "sha256": "74eec67e7537b1f50507fafccbaed5bfdbae574d9e4c07e7e6d4c020329cfc89",
+        "stdout_sha256_repeat": "5f031abe9259d390ab2148728f8db869a7fd936ccca522de39025ec765a55347"
+      },
+      {
+        "path": "scripts/s7_type_anchor_profile.py",
+        "sha256": "48bc84ca9c74e28602e26b24d4c3fd1c2e35ed5f3acac5ece94ce6c628df4641",
+        "stdout_sha256_repeat": "c0523a8df4477922d31eed41abdc16da7248a8515acf934f16be874ed119d707"
+      },
+      {
+        "path": "scripts/s7_integrity_receipt.py",
+        "sha256": "90063edb9b56ec329ef7262975effeb72708d1209fd22fe37de8d2d3686eca74",
+        "stdout_sha256_repeat": "4a629fa338371c627efecb2aab4fa644cca301ea50f051778f0f51f5a380b069"
+      }
+    ],
+    "six_release_integrity_verified_at_utc": "2026-07-14T17:50:32Z"
+  },
+  "runtime": {
+    "full_s4_active_type_anchor": {
+      "elapsed_seconds": 12.03,
+      "file_system_output_bytes": 0,
+      "peak_rss_kib": 1233104
+    },
+    "full_s4_universe_scalar": {
+      "elapsed_seconds": 330.24,
+      "file_system_output_bytes": 0,
+      "peak_rss_kib": 1880736
+    },
+    "s5_s6_cross_source": {
+      "elapsed_seconds": 6.16,
+      "file_system_output_bytes": 0,
+      "peak_rss_kib": 522432
+    }
+  },
+  "s4_universe_full_profile": {
+    "active_anchor_rows": {
+      "composite_figi_only": 556251,
+      "no_security_figi": 5666242,
+      "share_class_figi": 19407574
+    },
+    "active_anchor_rates": {
+      "any_composite_figi": 0.7789220761693678,
+      "composite_figi_only": 0.02170306460767348,
+      "no_security_figi": 0.2210779238306322,
+      "share_class_figi": 0.7572190115616944
+    },
+    "active_rows": 25630067,
+    "active_rows_with_composite_figi": 19963825,
+    "active_share_class_without_composite_rows": 0,
+    "all_anchor_rows": {
+      "composite_figi_only": 930442,
+      "no_security_figi": 43675830,
+      "share_class_figi": 24770057
+    },
+    "date_end": "2026-07-09",
+    "date_start": "2016-07-11",
+    "daily_active_rows": {
+      "maximum": 12977,
+      "median": 10847,
+      "minimum": 8213
+    },
+    "daily_total_rows": {
+      "maximum": 36147,
+      "median": 27599,
+      "minimum": 20793
+    },
+    "distinct_active_cik": 10849,
+    "distinct_active_composite_figi": 18072,
+    "distinct_active_share_class_figi": 15018,
+    "distinct_active_ticker": 25381,
+    "distinct_all_cik": 14955,
+    "distinct_all_composite_figi": 18421,
+    "distinct_all_share_class_figi": 15361,
+    "distinct_all_ticker": 36573,
+    "file_count": 2513,
+    "identity_status_counts": {
+      "active_insufficient": 381719,
+      "active_multi_identifier": 19952874,
+      "active_single_identifier": 5295474,
+      "inactive_insufficient": 8543029,
+      "inactive_multi_identifier": 5727664,
+      "inactive_single_identifier": 29475569
+    },
+    "inactive_rows": 43746262,
+    "row_count": 69376329,
+    "session_count": 2513
+  },
+  "s5_profile": {
+    "accepted_event_rows": 12895,
+    "complete_request_rows": 11471,
+    "event_quarantine_rows": 193,
+    "http_404_request_rows": 3702,
+    "raw_event_rows": 13088,
+    "request_rows": 15173
+  },
+  "s6_profile": {
+    "accepted_rows": 30570,
+    "identity_match_basis": {
+      "cik": 9502,
+      "figi": 20340,
+      "ticker": 728
+    },
+    "pending_quarantine": {
+      "cik": 21,
+      "composite_figi": 3,
+      "issue_code": "identity_evidence_unresolved",
+      "review_status": "pending",
+      "row_count": 169,
+      "share_class_figi": 145
+    },
+    "requested_figi_but_only_cik_supported_rows": 679,
+    "source_lifecycle_rows": 30739
+  },
+  "s4_release_set_receipt": {
+    "bytes": 4440685,
+    "member_release_ids_by_table": {
+      "asset_observation_daily": "26819530e50cb92cbe0ec833d4b731b959c8bd2463ee2197255c02994241d44c",
+      "asset_observation_version": "b422fd05df859b33587b8ece80d078247dd972d01d272710ef49c3529b0e54be",
+      "universe_source_daily": "c7e0d9a75857cbca130ba8873a737411ccb2f11d3e711ee0c0b0d9d0e2f5c614"
+    },
+    "path": "manifests/silver/release-sets/assets/release_set_id=f81c7ee28939db3350fce809326723e911b6d486c6db166d2575fcc92cb2101d/manifest.json",
+    "release_set_id": "f81c7ee28939db3350fce809326723e911b6d486c6db166d2575fcc92cb2101d",
+    "sha256": "937eaf4ed502fb2786dafb0dce9ec613bcaccb2cd488812cc5900118238d6c13"
+  },
+  "source_integrity": {
+    "exact_six_release_manifest_and_artifact_trust_chain": "passed",
+    "integrity_receipt_script_sha256": "90063edb9b56ec329ef7262975effeb72708d1209fd22fe37de8d2d3686eca74",
+    "integrity_receipt_stdout_sha256": "4a629fa338371c627efecb2aab4fa644cca301ea50f051778f0f51f5a380b069",
+    "s4_release_set_marker_and_s6_control_lineage": "passed",
+    "verified_artifact_count": 7542,
+    "verified_release_count": 6,
+    "verified_s6_source_binding_count": 30739
+  },
+  "unresolved_claims": [
+    "The full-history post-resolution asset coverage rate has not been computed because no S7 transform or preview exists.",
+    "The 169 S6 quarantine rows have been classified but not accepted or resolved.",
+    "S6 lifecycle envelopes do not prove continuous ticker validity.",
+    "S5 events do not expose predecessor ticker and cannot independently define alias intervals.",
+    "No permanent asset_id, share_class_id, issuer_id, ticker interval, or backtest-eligible universe has been generated."
+  ],
+  "write_boundary": {
+    "bronze_or_published_silver_modified": false,
+    "profile_artifact_written_to_remote_data_root": false,
+    "remote_profile_file_system_outputs": 0,
+    "s7_build_or_release_created": false
+  }
+}

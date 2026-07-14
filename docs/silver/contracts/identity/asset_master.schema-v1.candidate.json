@@ -1,0 +1,418 @@
+{
+  "columns": [
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 from stable_digest of the exact-key payload {anchor_type: composite_figi, anchor_value: canonical_composite_figi, namespace: ame_stocks.identity.asset, rule_version: ame_stocks_asset_id_from_composite_figi_v1}; no trim, case conversion, Unicode normalization, omitted keys, or extra keys are allowed.",
+      "name": "asset_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Validated exact Composite FIGI and the only v1 permanent U.S. tradable-security anchor.",
+      "name": "canonical_composite_figi",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed ame_stocks_asset_id_from_composite_figi_v1 rule using json.dumps with allow_nan=false, ensure_ascii=true, separators comma/colon, sort_keys=true; UTF-8, no newline, and SHA-256 lowercase hex. Existing IDs are never recomputed under a later rule.",
+      "name": "asset_id_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 from stable_digest of the exact-key payload {anchor_type: share_class_figi, anchor_value: canonical_share_class_figi, namespace: ame_stocks.identity.share_class, rule_version: ame_stocks_share_class_id_from_share_class_figi_v1}; null when the parent is absent or temporally multiple.",
+      "name": "share_class_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed ame_stocks_share_class_id_from_share_class_figi_v1 rule using the same allow_nan=false, ensure_ascii=true, compact sorted-JSON SHA-256 algorithm; a non-null share_class_id must be independently reproducible.",
+      "name": "share_class_id_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact share-class FIGI corresponding to share_class_id; a share class may legitimately parent multiple Composite-FIGI assets.",
+      "name": "canonical_share_class_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact domain unique_share_class, temporal_multiple_share_classes, missing_share_class, or conflicted_share_class.",
+      "name": "share_class_resolution_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact v1 domain resolved_strong_s4 or reference_only_s6; only resolved_strong_s4 can be backtest identity eligible. The fixed six-release bundle contains no approved supersession source.",
+      "name": "identity_resolution_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed v1 active_identity registry state; this is not exchange trading status. A future supersession state requires a separately approved source, contract version, and release binding.",
+      "name": "asset_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Reserved replacement asset_id; always null in v1 because the fixed six-release bundle has no approved supersession source. Silent remapping is forbidden.",
+      "name": "superseded_by_asset_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Earliest S4 membership session carrying this exact Composite FIGI, or earliest S6 lifecycle observation when reference-only.",
+      "name": "first_observed_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Latest S4 membership session carrying this exact Composite FIGI, or latest S6 lifecycle observation when reference-only.",
+      "name": "last_observed_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Distinct exact case-sensitive tickers observed for this asset anchor.",
+      "name": "observed_ticker_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Distinct share-class FIGIs observed under this Composite FIGI; overlapping values conflict, while reviewed non-overlapping transitions remain temporal evidence.",
+      "name": "observed_share_class_figi_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Distinct normalized CIK-based issuer identities observed for this asset; this is diagnostic and cannot change asset_id.",
+      "name": "observed_issuer_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "S4 selected observations carrying the exact canonical_composite_figi.",
+      "name": "strong_evidence_row_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Accepted S6 Overview rows plus accepted S5 ticker_change_event occurrences that attach to an asset already anchored by accepted S4 selected membership or accepted S6 Overview. Neither S5 events nor S5 request-status rows are independently sufficient to create or merge an asset.",
+      "name": "candidate_evidence_row_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Accepted S4 selected rows, accepted S6 Overview rows, or accepted S5 ticker_change_event occurrences attached to an S4/S6-anchored asset and retained as incompatible security-level relationship issues; S5 request status is excluded. Conflicts never delete a valid Composite-FIGI asset anchor and must be zero for backtest-eligible assets.",
+      "name": "conflict_evidence_row_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "True only for an active strong Composite-FIGI identity with no unresolved security-level conflict; this does not make descriptive metadata point-in-time.",
+      "name": "backtest_identity_eligible",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed retrospective_identity_reference_not_signal_v1 marker; mapping may link history but may not supply a historical signal or membership state.",
+      "name": "identity_mapping_time_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Maximum source_available_session over the transitive accepted-source evidence closure used for every field, count, hierarchy, and conflict disposition on this row; S5 request-status-only coverage is excluded and this field does not make the mapping a historical signal.",
+      "name": "identity_evidence_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed s7_asset_resolution_v1 evidence precedence, conflict disposition, and temporal rule version.",
+      "name": "resolution_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact protected S4 three-table release-set ID consumed through an S7-scoped evidence reader.",
+      "name": "source_s4_release_set_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S5 ticker-event request-status release ID used for coverage and 404 semantics.",
+      "name": "source_s5_status_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S5 ticker-change-event release ID used only as dated corroborating evidence.",
+      "name": "source_s5_event_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S6 ticker-overview-safe release ID used as retrospective reference evidence.",
+      "name": "source_s6_overview_release_id",
+      "nullable": false
+    }
+  ],
+  "contract_id": "d7a6ef66f72c1048b6556b57910af3afbea4926661f3c6062708937fbc2b4ba6",
+  "contract_schema_version": 1,
+  "description": "Permanent U.S. tradable-security identities anchored only by a validated Composite FIGI in accepted S4 selected membership or accepted S6 Overview identity evidence. S5 events may attach to an existing S4/S6 anchor but cannot create one. Share-class FIGI is the parent security layer; CIK, ticker, name, and ticker root can never create or merge an asset by themselves.",
+  "domain": "identity",
+  "grain": "One immutable active v1 U.S. tradable-security identity per canonical Composite FIGI anchored by accepted S4 or S6 evidence.",
+  "partition_by": [],
+  "primary_key": [
+    "asset_id"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "schema_exact",
+      "description": "Every output field, order, Arrow type, and nullability must equal this contract.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "published_source_trust_chain_invalid",
+      "description": "Every fixed S4 release-set member and fixed S5/S6 release must pass release-manifest, build-manifest, schema, checksum, row-count, and workflow trust-chain verification before use.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_release_binding_invalid",
+      "description": "Every row and each coordinated member build must bind the exact approved S4 three-release set, S5 request-status release, S5 event release, and S6 overview release; all four builds must share one exact six-dataset source digest and latest-by-time discovery is forbidden.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_null_or_duplicate_rows",
+      "description": "asset_id must be non-null and unique.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "canonical_composite_figi_invalid_rows",
+      "description": "Every canonical anchor must be a syntactically valid exact Composite FIGI.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "asset_id_recomputation_mismatch_rows",
+      "description": "Every asset_id must exactly reproduce from the contract-bound compact sorted-JSON payload and immutable v1 namespace using the approved fixed vector.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "id_rule_or_domain_invalid_rows",
+      "description": "Every generated or referenced identity must be lowercase 64-hex and use the exact asset/share-class rule version, exact payload key set, FIGI syntax, and normalization contract.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "composite_figi_to_multiple_asset_id_rows",
+      "description": "One canonical Composite FIGI may never map to multiple live asset IDs under one approved resolution version.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "share_class_hierarchy_invalid_rows",
+      "description": "share_class_id and canonical_share_class_figi must be jointly null or jointly valid, and one share class may parent multiple assets.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "state_domain_invalid_rows",
+      "description": "share_class_resolution_status must be one of unique_share_class, temporal_multiple_share_classes, missing_share_class, conflicted_share_class; identity_resolution_status must be resolved_strong_s4 or reference_only_s6; asset_status must be active_identity; identity_mapping_time_scope must be retrospective_identity_reference_not_signal_v1; ID rule versions and resolution_rule_version must equal their named v1 literals.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "state_matrix_invalid_rows",
+      "description": "unique_share_class requires non-null parent pair and observed_share_class_figi_count=1; temporal_multiple_share_classes requires null parent, count>=2, conflict count=0; missing_share_class requires null parent and count=0; conflicted_share_class requires null parent, count>=2, and conflict count>0. resolved_strong_s4 requires strong_evidence_row_count>0; reference_only_s6 requires strong=0 and candidate>0. Every v1 row is active_identity with null superseded_by_asset_id. Eligibility is true only for resolved_strong_s4 with conflict count=0 and non-conflicted share status; relationship conflicts retain the asset row but force eligibility false.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "negative_evidence_count_rows",
+      "description": "All observed and evidence count columns must be non-negative native int64 values.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "evidence_count_recomputation_mismatch_rows",
+      "description": "Every observed ticker/share-class/issuer count and strong/candidate/conflict evidence count must exactly recompute at canonical_composite_figi grain from accepted S4 selected rows, accepted S6 Overview rows, and accepted S5 ticker_change_event occurrences only after they attach to an asset already anchored by S4 or S6. S5-only event identities and S5 ticker_event_request_status rows, including 404, are excluded from asset-row counts; stored counts cannot be trusted as inputs to status or eligibility.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_evidence_availability_recomputation_mismatch_rows",
+      "description": "identity_evidence_available_session must equal max(source_available_session) over the transitive accepted-source evidence closure used for this asset's fields, observed/evidence counts, hierarchy, eligibility, or conflict state. The closure includes every participating S4 selected row across sessions/entities, accepted S6 Overview rows, and only accepted S5 ticker_change_event rows attached to this S4/S6-anchored asset; unattached S5 events, S5 request status, and sibling output rows are excluded, and an asset has no empty-evidence fallback.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "date_range_invalid_rows",
+      "description": "first_observed_session must not exceed last_observed_session.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "supersession_invalid_rows",
+      "description": "The fixed v1 six-release bundle has no approved supersession source: asset_status must always be active_identity, identity_resolution_status may not be superseded, and superseded_by_asset_id must be null on every row. Any future supersession requires a separately approved source, contract version, and release binding.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "eligibility_without_strong_anchor_rows",
+      "description": "A backtest-eligible row must be resolved_strong_s4, active_identity, and free of unresolved security-level conflicts.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "s5_status_identity_effect_invalid_rows",
+      "description": "S5 request-status rows, including HTTP 404, may measure endpoint coverage only and may never create, delete, merge, supersede, or date-bound an asset identity.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "s5_event_created_asset_rows",
+      "description": "An accepted S5 ticker_change_event may contribute only after its exact Composite FIGI attaches to an asset anchor independently present in accepted S4 selected membership or accepted S6 Overview. No S5-only event identity may create an asset, issuer relationship, alias, or universe resolution.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "noncomposite_derived_asset_id_rows",
+      "description": "No asset ID may be generated from Share-class FIGI, CIK, ticker, name, or ticker root without a validated Composite FIGI.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "row_funnel_unreconciled",
+      "description": "Every syntactically valid unique Composite-FIGI anchor in accepted S4 selected membership or accepted S6 Overview identity evidence must reconcile to exactly one accepted v1 asset row. S5-only event identities are excluded from this asset funnel and reconcile through unattached_s5_event_identity_rows instead. No supersession branch, synthetic anchor, silent drop, or duplicate is allowed; relationship conflicts remain issue metrics and may not remove an S4/S6 anchor from DATA.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "coordinated_group_build_invalid",
+      "description": "The four sibling tables must be produced from one ephemeral resolution graph, identical six-release inputs/source digest/binding ID, and passing cross-table QA; sibling staging or unpublished outputs may not be declared as source artifacts.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "retrospective_scope_invalid_rows",
+      "description": "Every row must retain the frozen retrospective identity-only scope and conservative availability session.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "unattached_s5_event_identity_rows",
+      "description": "Build-level count of accepted S5 ticker_change_event rows whose exact Composite FIGI cannot attach to any asset anchor independently present in accepted S4 selected membership or accepted S6 Overview. These rows remain upstream event evidence, create no asset/issuer/alias/universe identity, and require bounded review rather than DATA-row quarantine.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "reference_only_asset_rows",
+      "description": "S6-only Composite-FIGI anchors remain reference-only and backtest-ineligible until separately corroborated.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "security_level_conflict_rows",
+      "description": "Any overlapping Composite-to-share-class contradiction remains a retained High relationship issue and suppresses the ambiguous parent and eligibility; ordinary share-class-to-multiple-Composite hierarchy is not a conflict.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    }
+  ],
+  "schema_version": 1,
+  "sort_by": [
+    "asset_id"
+  ],
+  "source_datasets": [
+    "asset_observation_daily",
+    "asset_observation_version",
+    "universe_source_daily",
+    "ticker_event_request_status",
+    "ticker_change_event",
+    "ticker_overview_safe"
+  ],
+  "table": "asset_master"
+}
