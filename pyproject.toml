@@ -55,6 +55,7 @@ ame-silver-assets-preview = "ame_stocks_api.cli.silver_assets_preview:main"
 ame-silver-assets-full-run-plan = "ame_stocks_api.cli.silver_assets_full_run_plan:main"
 ame-silver-assets-full-run-plan-approval = "ame_stocks_api.cli.silver_assets_full_run_plan_approval:main"
 ame-silver-assets-full = "ame_stocks_api.cli.silver_assets_full:main"
+ame-silver-assets-publish-plan = "ame_stocks_api.cli.silver_assets_publish_plan:main"
 ame-view-parquet = "ame_stocks_api.cli.parquet_view:main"
 
 [tool.pytest.ini_options]
