@@ -129,17 +129,26 @@ _ALLOWED_RELEASE_COMMIT_DIFF = frozenset(
     {
         "backend/ame_stocks_api/cli/silver_assets_release_set.py",
         "backend/ame_stocks_api/silver/asset_release_set.py",
+        "backend/ame_stocks_api/silver/contracts.py",
         "backend/ame_stocks_api/silver/reader.py",
         "backend/ame_stocks_api/silver/store.py",
         "pyproject.toml",
         "tests/test_silver_asset_release_set.py",
         "tests/test_silver_asset_release_visibility.py",
+        "tests/test_silver_contracts.py",
     }
 )
 
 
 def _json_bytes(document: Mapping[str, object]) -> bytes:
-    safe = ensure_json_safe(document, label="asset release-set document")
+    # Production S4 has 2,513 daily partitions per table. Keep every generic
+    # JSON safety/secret check, but lift only the per-list bound for these exact,
+    # strictly typed release and release-set documents.
+    safe = ensure_json_safe(
+        document,
+        label="asset release-set document",
+        max_list_items=5_000,
+    )
     return (
         json.dumps(
             thaw_json(safe),
@@ -2211,6 +2220,7 @@ def _verify_release_checkout(
     required = {
         "backend/ame_stocks_api/cli/silver_assets_release_set.py",
         "backend/ame_stocks_api/silver/asset_release_set.py",
+        "backend/ame_stocks_api/silver/contracts.py",
         "backend/ame_stocks_api/silver/reader.py",
         "backend/ame_stocks_api/silver/store.py",
         "pyproject.toml",

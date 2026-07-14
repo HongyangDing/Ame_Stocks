@@ -2087,11 +2087,23 @@ def arrow_schema_digest(schema: pa.Schema) -> str:
     return stable_digest(fields)
 
 
-def ensure_json_safe(value: object, *, label: str) -> Mapping[str, object]:
+def ensure_json_safe(
+    value: object,
+    *,
+    label: str,
+    max_list_items: int = 1_000,
+) -> Mapping[str, object]:
     """Return a canonical JSON mapping after rejecting secrets and unsafe values."""
 
+    if type(max_list_items) is not int or not 1 <= max_list_items <= 10_000:
+        raise SilverContractError("max_list_items must be a native int between 1 and 10000")
     document = _mapping(value, label)
-    normalized = _json_value(document, label=label, depth=0)
+    normalized = _json_value(
+        document,
+        label=label,
+        depth=0,
+        max_list_items=max_list_items,
+    )
     if not isinstance(normalized, dict):  # pragma: no cover - guarded by _mapping
         raise SilverContractError(f"{label} must be an object")
     # Canonical serialization is also the final NaN/Infinity guard.
@@ -2120,7 +2132,13 @@ def _freeze_json(value: object) -> object:
     return value
 
 
-def _json_value(value: object, *, label: str, depth: int) -> object:
+def _json_value(
+    value: object,
+    *,
+    label: str,
+    depth: int,
+    max_list_items: int,
+) -> object:
     if depth > 8:
         raise SilverContractError(f"{label} exceeds the maximum nesting depth")
     if value is None or type(value) in {bool, int}:
@@ -2145,12 +2163,25 @@ def _json_value(value: object, *, label: str, depth: int) -> object:
             lowered = key.lower()
             if any(sensitive in lowered for sensitive in _SENSITIVE_KEYS):
                 raise SilverContractError(f"{label} contains a sensitive key: {key}")
-            result[key] = _json_value(item, label=label, depth=depth + 1)
+            result[key] = _json_value(
+                item,
+                label=label,
+                depth=depth + 1,
+                max_list_items=max_list_items,
+            )
         return dict(sorted(result.items()))
     if isinstance(value, (list, tuple)):
-        if len(value) > 1_000:
+        if len(value) > max_list_items:
             raise SilverContractError(f"{label} contains too many items")
-        return [_json_value(item, label=label, depth=depth + 1) for item in value]
+        return [
+            _json_value(
+                item,
+                label=label,
+                depth=depth + 1,
+                max_list_items=max_list_items,
+            )
+            for item in value
+        ]
     raise SilverContractError(f"{label} contains a non-JSON value")
 
 

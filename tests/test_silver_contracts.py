@@ -126,6 +126,26 @@ def test_json_contract_rejects_secrets_and_nonfinite_numbers(payload: object) ->
         ensure_json_safe(payload, label="test payload")
 
 
+def test_json_contract_allows_an_explicit_bounded_large_list_without_weakening_safety() -> None:
+    payload = {"items": list(range(2_513))}
+
+    with pytest.raises(SilverContractError, match="too many items"):
+        ensure_json_safe(payload, label="test payload")
+
+    observed = ensure_json_safe(
+        payload,
+        label="test payload",
+        max_list_items=5_000,
+    )
+    assert len(observed["items"]) == 2_513
+    with pytest.raises(SilverContractError, match="sensitive key"):
+        ensure_json_safe(
+            {"api_key": ["do-not-store"] * 2_513},
+            label="test payload",
+            max_list_items=5_000,
+        )
+
+
 def test_quarantine_contract_round_trip_and_issue_identity() -> None:
     record = QuarantineRecord(
         source_record_id="source-row-7",
