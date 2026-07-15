@@ -1,0 +1,746 @@
+{
+  "columns": [
+    {
+      "arrow_type": "int64",
+      "description": "Four-digit year derived from session_date for physical partitioning.",
+      "name": "session_year",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "XNYS reconstructed historical membership date inherited from S4.",
+      "name": "session_date",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact case-sensitive provider ticker inherited from S4 without normalization.",
+      "name": "ticker",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always true; every S4 active row is retained exactly once, including unresolved identities.",
+      "name": "active_on_date",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Canonical research asset_master sibling-output foreign key reproduced from canonical_composite_figi. It is null for candidate, unresolved, unadjudicated suspected contamination, or conflicted-unresolved evidence; it never overwrites provider observation.",
+      "name": "asset_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Canonical research share-class parent identity reproduced only from canonical_share_class_figi. Provider-observed share-class evidence remains separate and cannot populate this field for a different canonical asset unless independently corroborated for that canonical asset.",
+      "name": "share_class_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact canonical research Share-class FIGI corresponding to share_class_id; jointly null with share_class_id when no independently corroborated canonical parent is available.",
+      "name": "canonical_share_class_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Canonical normalized-CIK issuer_master foreign key reproduced only from canonical_cik_normalized; never used to generate asset_id and never copied from a contaminated observed episode without independent canonical-asset corroboration.",
+      "name": "issuer_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Validated ten-digit canonical research CIK corresponding to issuer_id; jointly null with issuer_id when no independently corroborated canonical issuer relationship is available.",
+      "name": "canonical_cik_normalized",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "ticker_alias interval covering this exact session/ticker when strong identity resolution exists.",
+      "name": "ticker_alias_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S4 provider type code; no current S2 dictionary value is backfilled into historical rows.",
+      "name": "type_code",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S4 primary_exchange candidate MIC as returned at source capture; not historical vintage.",
+      "name": "primary_exchange_mic",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Validated ten-digit normalization of the exact provider-observed S4 CIK. It is raw relationship evidence, not automatically the canonical asset's issuer; the original unnormalized value remains in S4.",
+      "name": "observed_cik_normalized",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider-observed S4 Composite FIGI preserved without rewrite, including a suspected or confirmed contaminated B episode.",
+      "name": "observed_composite_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Deterministic diagnostic asset hash from observed_composite_figi; null when no valid observed Composite exists and not necessarily an asset_master FK for contaminated or unresolved observations.",
+      "name": "observed_asset_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Canonical research Composite FIGI reproducing asset_id; null for unresolved/candidate rows. It differs from observed_composite_figi only under an effective approved provider-contamination adjudication.",
+      "name": "canonical_composite_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider-observed S4 Share-class FIGI when present. It remains immutable raw hierarchy evidence and may differ from or be unusable for the canonical asset during a contaminated episode.",
+      "name": "observed_share_class_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact domain resolved_strong, resolved_approved_override, resolved_conflicted, candidate, unresolved, or conflicted_unresolved. Every active membership remains in DATA; identity quality never changes membership status.",
+      "name": "identity_resolution_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact method source_composite_figi_exact, approved_genuine_transition, approved_provider_contamination_override, provider_figi_bounce_pending_unresolved, provider_figi_bounce_adjudicated_unresolved, source_composite_figi_exact_with_relationship_conflict, share_class_date_unique_composite_candidate, share_class_only, cik_issuer_only, ticker_only, or conflict.",
+      "name": "identity_resolution_method",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact domain observed_consistent, confirmed_genuine_transition, confirmed_provider_contamination, pending_unresolved, adjudicated_unresolved, or not_applicable_no_observed_composite. Pending means no adjudication version is available at the explicit resolution cutoff; adjudicated unresolved means the selected terminal decision explicitly retains or withdraws the case to unresolved.",
+      "name": "identity_disposition",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Deterministic provider-FIGI bounce case ID for suspected or adjudicated episodes; null when no bounce case applies.",
+      "name": "identity_case_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session on which the complete A-to-B-to-A case, including the right-side A evidence and immutable candidate manifest, is available. It is non-null exactly when identity_case_id is non-null and is never backdated to the middle-B episode.",
+      "name": "identity_case_available_session",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact immutable candidate-manifest ID consumed by the cutoff-bound resolver. Every row in one build carries the same non-null ID so pending case lineage remains auditable even when no adjudication row exists.",
+      "name": "source_identity_case_candidate_manifest_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 of the exact immutable candidate-manifest bytes bound by source_identity_case_candidate_manifest_id.",
+      "name": "source_identity_case_candidate_manifest_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Selected terminal identity_adjudication ID for confirmed genuine, confirmed provider-contamination, or adjudicated-unresolved episodes at identity_resolution_cutoff_session; null for observed-consistent, pending-unresolved, and non-Composite rows.",
+      "name": "identity_adjudication_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Availability session of the selected terminal identity_adjudication version when present; null otherwise. It must not exceed identity_resolution_cutoff_session or precede identity_case_available_session.",
+      "name": "adjudication_available_session",
+      "nullable": true
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Explicit research-resolution cutoff used to select the unique terminal adjudication-chain head and materialize this row. No case or decision with availability after this cutoff may affect any output field.",
+      "name": "identity_resolution_cutoff_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "True only for a structurally resolved direct or explicitly adjudicated relation that also passes all ordinary canonical-asset, hierarchy-conflict, alias-coverage, and cutoff gates. Confirmation alone never guarantees eligibility; pending/adjudicated unresolved and confirmed-but-conflicted relations are false.",
+      "name": "backtest_identity_eligible",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact domain resolved_identity or identity_uncertain_no_new_trade_no_forced_exit_run_incomplete. resolved_identity is allowed exactly when backtest_identity_eligible=true; every identity-quality ineligible row uses the incomplete value. S7 supplies this static control signal but cannot itself enforce portfolio behavior.",
+      "name": "position_continuity_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false. Identity uncertainty alone is never an inactive, delisting, sale, zero-return, or forced-liquidation signal. Actual no-forced-exit, no-stale-carry, and incomplete-run behavior remains a mandatory future backtest-engine blocker test before these rows can drive portfolios.",
+      "name": "identity_quality_liquidation_signal",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false in S7; type, exchange, issuer, and other current-reference metadata captured after the historical session may not be used as point-in-time factor values.",
+      "name": "current_reference_factor_eligible",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed source_type_code_as_returned_not_historical_dictionary_v1 marker; factor-universe type eligibility is a later policy.",
+      "name": "security_type_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S4 universe_source_daily selected parent record ID.",
+      "name": "selected_source_record_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "S4 source candidate count for the session/ticker selection.",
+      "name": "source_version_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S4 selection status retained without re-selection in S7.",
+      "name": "source_selection_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed reconstructed_historical_active_membership_v1 marker: the table reduces current-universe survivorship bias but is a retrospective historical-date snapshot, not an archived as-known vintage.",
+      "name": "membership_time_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Exact S4 universe_source_daily source_available_session copied for this membership row; it is operational ingestion availability of the reconstructed snapshot, distinct from session_date and identity evidence availability.",
+      "name": "membership_source_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S4 source_availability_quality copied without reinterpretation; fixed reconstructed_historical_snapshot_without_archived_vintage.",
+      "name": "membership_source_availability_quality",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed metadata_as_returned_at_source_capture_not_historical_vintage_v1 marker.",
+      "name": "metadata_time_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed cutoff_bound_revised_identity_not_factor_signal_v1 marker. The table is materialized from one pinned candidate manifest and registry release at identity_resolution_cutoff_session; it never creates an as-known view by simply masking a later row.",
+      "name": "identity_mapping_time_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Maximum availability over the transitive accepted-source evidence closure, identity_case_available_session when a case affects disposition, the selected adjudication version, and the pinned registry release availability. It must not exceed identity_resolution_cutoff_session; S5 request-status-only coverage is excluded.",
+      "name": "identity_evidence_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed s7_universe_resolution_with_adjudication_v2 observed/canonical separation, bounce detection, episode-scoped mapping, temporal join, and conflict rule version.",
+      "name": "resolution_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact protected S4 release-set ID.",
+      "name": "source_s4_release_set_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S5 ticker-event request-status release ID used only for coverage and 404 semantics.",
+      "name": "source_s5_status_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S5 ticker-change-event release ID.",
+      "name": "source_s5_event_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S6 ticker-overview-safe release ID.",
+      "name": "source_s6_overview_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact independently published identity_adjudication release ID; latest-by-time discovery is forbidden.",
+      "name": "source_identity_adjudication_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session on which the exact pinned identity_adjudication release is published and available to the resolver. No decision from the registry may affect a row before this session or when it exceeds identity_resolution_cutoff_session.",
+      "name": "source_identity_adjudication_release_available_session",
+      "nullable": false
+    }
+  ],
+  "contract_id": "0555e785b4fb5f9df8832d37f8c08cf5fc487e8573993cf39ae3ffba4ccc45b0",
+  "contract_schema_version": 1,
+  "description": "One row for every S4 active session/ticker membership, preserving unresolved rows and provider-observed identity/hierarchy separately from canonical research identity/hierarchy. Identity uncertainty never changes membership and S7 emits no liquidation signal, but actual portfolio behavior remains a future backtest-engine blocker test. Historical inactive observations remain in S4; this active-only reconstructed snapshot reduces current-universe survivorship bias but is not an archived as-known universe and does not claim to eliminate all survivorship or revision bias.",
+  "domain": "reference",
+  "grain": "One active S4 membership observation per exact case-sensitive (session_date, ticker), enriched with S7 identity status and lineage.",
+  "partition_by": [
+    "session_year",
+    "session_date"
+  ],
+  "primary_key": [
+    "session_date",
+    "ticker"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "schema_exact",
+      "description": "Every output field, order, Arrow type, and nullability must equal this contract.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "published_source_trust_chain_invalid",
+      "description": "Every fixed S4 release-set member, fixed S5/S6 release, immutable candidate manifest/decision plan, and exact independently published identity_adjudication release with its publication-availability receipt must pass the complete trust chain before use.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_release_binding_invalid",
+      "description": "Every row and coordinated build binds the exact six market-evidence releases, exact identity-case candidate manifest, exact identity_adjudication release and release-availability session, and one explicit identity_resolution_cutoff_session. Unapproved decision plans are not derived-table inputs; latest-by-time discovery or an unbound cutoff is forbidden.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "active_left_funnel_unreconciled",
+      "description": "Every active S4 universe_source_daily row must appear exactly once in DATA; no inactive row may enter and no candidate, pending-unresolved, adjudicated-unresolved, confirmed-but-conflicted, resolved-conflicted, or conflicted-unresolved active row may be dropped into generic quarantine.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "state_domain_invalid_rows",
+      "description": "Resolution status, method, disposition, position continuity, source-selection status, scope, and rule fields must stay within their exact named domains. Bounce disposition is exactly pending_unresolved, adjudicated_unresolved, confirmed_genuine_transition, or confirmed_provider_contamination; methods include provider_figi_bounce_pending_unresolved and provider_figi_bounce_adjudicated_unresolved; the rule is s7_universe_resolution_with_adjudication_v2.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "state_matrix_invalid_rows",
+      "description": "All rows bind a candidate manifest, registry release and cutoff. observed_consistent has null case/adjudication and follows the direct strong/conflict matrix. pending_unresolved has a case and availability but no adjudication, canonical identity or alias. adjudicated_unresolved adds a selected adjudication and availability but still has no canonical identity or alias; both are ineligible. Confirmed genuine uses observed=canonical; confirmed contamination uses observed!=canonical. A confirmed relation is eligible and emits an alias only when all ordinary asset, hierarchy and conflict gates pass; otherwise it is resolved_conflicted, alias-null and ineligible. Every identity-quality ineligible row uses identity_uncertain_no_new_trade_no_forced_exit_run_incomplete; resolved_identity is allowed exactly for eligible rows. Canonical hierarchy needs independent corroboration. current_reference_factor_eligible and identity_quality_liquidation_signal are always false.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "negative_source_count_rows",
+      "description": "source_version_count must be a positive native int64 value.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_null_or_duplicate_rows",
+      "description": "The active session_date and exact ticker key must be non-null and unique.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "inactive_rows",
+      "description": "active_on_date must be true for every row.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "selected_source_parent_missing_rows",
+      "description": "Every selected_source_record_id must resolve to the fixed S4 asset_observation_daily release and match its S4 universe parent.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_selection_lineage_mismatch_rows",
+      "description": "S4 source_version_count, selection status, membership source availability session, and availability quality must be copied exactly without S7 re-selection or temporal reinterpretation.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_evidence_availability_recomputation_mismatch_rows",
+      "description": "identity_evidence_available_session must equal the maximum over the accepted-source closure, identity_case_available_session whenever case status affects the row, adjudication_available_session for the selected terminal version, and source_identity_adjudication_release_available_session whenever the registry affects resolution. It must not exceed identity_resolution_cutoff_session. Unattached S5 events, request status, and sibling outputs remain excluded; ticker-only fallback and conflict closure remain exact.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_case_lineage_or_availability_invalid_rows",
+      "description": "identity_case_id and identity_case_available_session must be jointly null or jointly valid and exactly recompute from the immutable source_identity_case_candidate_manifest_id/SHA. The case availability includes the right-side A observation and candidate-manifest availability; no pending or adjudicated disposition may precede it.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_resolution_cutoff_invalid_rows",
+      "description": "Every row in one coordinated build must carry the exact approved identity_resolution_cutoff_session. No source fact, case, registry release, adjudication version, canonical mapping, conflict disposition, count, or eligibility decision with availability after that cutoff may affect the row; reusing a later materialized row and masking selected columns is forbidden.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "registry_release_availability_invalid_rows",
+      "description": "source_identity_adjudication_release_available_session must exactly reproduce from the pinned registry release publication receipt and not exceed identity_resolution_cutoff_session. No registry decision may affect any row before both its own availability and the registry release availability.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "foreign_asset_missing_rows",
+      "description": "In the coordinated group build, every non-null asset_id must resolve to a current asset_master sibling row.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "foreign_asset_eligibility_mismatch_rows",
+      "description": "Every eligible resolved_strong or resolved_approved_override row references an eligible canonical asset. A confirmed genuine or contamination relation that fails any ordinary asset/hierarchy/conflict gate remains resolved_conflicted and ineligible, may retain its canonical asset, and emits no alias. Pending/adjudicated unresolved, candidate, unresolved, and conflicted-unresolved rows carry no canonical asset.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "foreign_issuer_missing_rows",
+      "description": "In the coordinated group build, every non-null issuer_id must resolve to an issuer_master sibling row.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "foreign_alias_missing_or_uncovered_rows",
+      "description": "In the coordinated group build, every non-null ticker_alias_id must resolve to exactly one backtest_identity_eligible=true ticker_alias sibling interval covering this exact session/ticker/asset.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "resolved_row_incomplete_rows",
+      "description": "Eligible resolved_strong and resolved_approved_override rows must have canonical FIGI, asset and alias, valid cutoff-bound disposition lineage, independently valid canonical hierarchy when populated, and eligibility=true. A confirmed relation may instead remain resolved_conflicted, alias-null and ineligible when another ordinary gate fails.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "nonresolved_row_eligible_rows",
+      "description": "Candidate, pending-unresolved, adjudicated-unresolved, unresolved, resolved-conflicted, and conflicted-unresolved rows remain ineligible and emit no alias. Only resolved-conflicted may retain a canonical asset. Both unresolved bounce states retain raw observed identity and case; adjudicated_unresolved additionally retains its decision lineage, but neither carries a canonical mapping.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "noncomposite_only_asset_rows",
+      "description": "Share-class-only, CIK-only, and ticker-only methods may not populate asset_id or ticker_alias_id.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "composite_asset_mismatch_rows",
+      "description": "observed_asset_id must reproduce from observed_composite_figi and canonical asset_id from canonical_composite_figi. A difference is legal only inside one effective confirmed-provider-contamination episode.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "share_class_hierarchy_mismatch_rows",
+      "description": "share_class_id and canonical_share_class_figi must be jointly null or jointly valid and exactly reproduce each other; observed_share_class_figi remains independent immutable source evidence and may legitimately differ or be unusable during a contaminated episode.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "canonical_issuer_hierarchy_mismatch_rows",
+      "description": "issuer_id and canonical_cik_normalized must be jointly null or jointly valid and exactly reproduce each other. observed_cik_normalized remains immutable source evidence and cannot become the canonical issuer relationship solely because the episode maps to another canonical asset.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "contaminated_hierarchy_evidence_leak_rows",
+      "description": "Share-class FIGI or CIK evidence present only on a confirmed provider-contamination B episode may not populate canonical_share_class_figi/share_class_id or canonical_cik_normalized/issuer_id for canonical A without independent accepted evidence for A. Raw observed hierarchy remains preserved regardless.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "alias_universe_bidirectional_mismatch_rows",
+      "description": "Every eligible daily row is covered by exactly one cutoff-compatible alias, and every alias session maps back to one active row with the same ticker, canonical asset, observed/canonical FIGIs and hierarchy, disposition, adjudication ID and resolution cutoff. Pending/adjudicated unresolved and confirmed-but-conflicted rows have no alias.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "type_code_backfill_or_mutation_rows",
+      "description": "type_code must equal the S4 source value exactly; S2 is current-only diagnostic and cannot backfill history.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "current_reference_factor_enabled_rows",
+      "description": "current_reference_factor_eligible must remain false; current-capture type, exchange, issuer reference, name, SIC, and identity metadata cannot become historical factor values.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "s5_status_identity_effect_invalid_rows",
+      "description": "S5 request-status rows, including HTTP 404, may measure endpoint coverage only and may never create, delete, truncate, or extend a membership or identity link.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "s5_event_created_resolution_rows",
+      "description": "No universe row may gain or change asset/share/issuer/alias IDs, identity_resolution_method, identity_resolution_status, interval coverage, or eligibility solely from an S5 ticker_change_event. S5 events contribute only after the relevant identity is independently anchored by accepted S4/S6 evidence and, for alias corroboration, uniquely associated to an already observed interval.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "coordinated_group_build_invalid",
+      "description": "The four derived sibling outputs share one cutoff-bound graph, identical six market releases, the exact identity-case candidate manifest, one independently published adjudication release with release availability, and identical identity_resolution_cutoff_session. Unapproved decision plans, sibling staging, and unpublished outputs are not sources.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "temporal_scope_invalid_rows",
+      "description": "Membership, observed metadata, canonical hierarchy, case availability, adjudication availability, registry release availability, and explicit resolution cutoff must remain distinct. Cutoff-bound retrospective canonical repair is not a historical factor signal and cannot be created by masking a later materialized table.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "observed_identity_lineage_mutated_rows",
+      "description": "observed_composite_figi, observed_asset_id, observed_share_class_figi, observed_cik_normalized, selected_source_record_id, and source-selection lineage must reproduce the exact S4 row. Canonicalization adds separate fields and never overwrites provider identity or hierarchy evidence.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "unapproved_canonical_identity_override_rows",
+      "description": "Every non-null canonical_composite_figi different from observed_composite_figi must match the unique terminal confirmed-provider-contamination decision selected from the pinned registry by case, ticker, complete episode source-record set and identity_resolution_cutoff_session. The required numerator is zero.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "suspected_provider_contamination_eligible_rows",
+      "description": "Rows with disposition pending_unresolved or adjudicated_unresolved must have backtest_identity_eligible=false, null canonical asset/FIGI/alias, retained observed identity/case lineage, and incomplete continuity. pending_unresolved has null adjudication/availability; adjudicated_unresolved retains its selected terminal decision/availability. Confirmed contamination is outside this numerator but can be eligible only after all ordinary gates pass.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "adjudication_scope_or_availability_invalid_rows",
+      "description": "No decision may apply outside its exact complete episode, mismatch case/source rows, or be selected when either decision availability or registry release availability exceeds identity_resolution_cutoff_session. The resolver selects exactly one terminal complete-chain head at the cutoff; simple masking, recency outside the chain, or input-order tie-breaking is forbidden.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_quality_membership_mutation_rows",
+      "description": "Identity disposition may not change active_on_date, synthesize inactive/delisted status, delete an active row, or alter the exact S4 membership funnel.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_quality_forced_liquidation_signal_rows",
+      "description": "identity_quality_liquidation_signal must always be false and every identity-quality ineligible row must carry incomplete continuity. This S7 QA verifies only the emitted control fields; actual no-new-trade, no-forced-exit, no-zero-return, no-stale-carry and incomplete-run behavior for existing holdings remains a mandatory future backtest-engine blocker test unless independent exit evidence exists.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_quality_continuity_matrix_invalid_rows",
+      "description": "position_continuity_status must equal resolved_identity exactly when backtest_identity_eligible=true. Every pending/adjudicated unresolved, weak candidate, no-Composite unresolved, resolved-conflicted, confirmed-but-conflicted, or conflicted-unresolved row must equal identity_uncertain_no_new_trade_no_forced_exit_run_incomplete and must not expose a liquidation signal.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "suspected_provider_figi_bounce_rows",
+      "description": "High review metric for every middle-B row in a maximal-run exact-ticker A-to-B-to-A with B length at most 20 XNYS sessions. Report 1, 2-5, and 6-20 session bands, support-reason counts, identity_case_available_session, candidate-manifest lineage and bounded examples. Detector output never auto-corrects and a case not available by the explicit cutoff cannot affect that cutoff-bound table.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "identity_quality_exclusion_coverage_missing",
+      "description": "Data Health must report by session and type the active membership denominator, eligible count/rate, pending/adjudicated unresolved counts, confirmed-but-ineligible counts, and return coverage excluded by identity quality so fail-closed filtering is not hidden selection bias.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "unresolved_active_rows",
+      "description": "Active memberships without a strong security-level identity remain visible and excluded from backtests.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "weak_noncomposite_candidate_rows",
+      "description": "Unique Share-class- or ticker-date candidates remain non-eligible until a separately approved promotion rule exists.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "active_common_stock_without_eligible_identity_rows",
+      "description": "Active CS rows lacking a strong eligible identity require an explicit coverage review before factor-universe use.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "security_level_conflict_rows",
+      "description": "Composite-to-share-class temporal ambiguity or overlapping incompatible share classes remain visible as resolved_conflicted or conflicted_unresolved DATA rows and must never become eligible.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "s6_pending_quarantine_unresolved_rows",
+      "description": "The 169 S6 pending evidence-quarantine issues and 193 S5 event-quarantine issues are release-authenticated and reconciled at build level; they cannot be silently promoted or automatically mapped onto membership rows.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    }
+  ],
+  "schema_version": 1,
+  "sort_by": [
+    "session_date",
+    "ticker"
+  ],
+  "source_datasets": [
+    "asset_observation_daily",
+    "asset_observation_version",
+    "universe_source_daily",
+    "ticker_event_request_status",
+    "ticker_change_event",
+    "ticker_overview_safe",
+    "identity_case_candidate_manifest",
+    "identity_adjudication"
+  ],
+  "table": "universe_daily"
+}

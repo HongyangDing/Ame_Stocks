@@ -11,9 +11,14 @@ Bronze 已具备进入 Silver 的条件。最终 Bronze v9 已证明冻结范围
 一一对应。
 
 截至 2026-07-15，S1–S6 已分别发布；S7 的只读 combined-source profile 已完成，旧四表 proposal
-因 provider-FIGI bounce 风险撤回，现有一份受保护 `identity_adjudication` registry 加四份派生表共五份
-revised schema candidates。当前为 `revised schema review / awaiting explicit re-approval`，尚无
-transform、pipeline fixture、preview 或 release。不能描述成“全部 Silver 数据已处理”：
+因 provider-FIGI bounce 风险撤回。新的一份受保护 `identity_adjudication` registry 加四份派生表共五份
+schema 已获批准；bounded control primitives 已实现，包括 exact source reader、受 250,000-row 上限约束
+的 fixture/preview detector、candidate/external/calendar artifacts、裁决控制链、exact registry snapshot、
+cutoff fixture 和固定小样本。最终审计发现 production candidate/membership 仍缺 exact source provenance，
+因此代码主动拒绝 unattested production binding。当前为
+`bounded_primitives / production_ingress_blocked / awaiting code review`，尚未运行真实 detector、四表
+transform、preview 或 release。不能
+描述成“全部 Silver 数据已处理”：
 
 - S1 exchanges、S2 ticker types 和 S3 condition codes 已正式发布；
 - S4 Assets 的十年 full scope 已按三个精确 `FullRunPlan` 完成并作为一个原子 release set 发布；
@@ -514,12 +519,14 @@ quarantine issue 只在 full/publish 审批中按 ID 接受。169 条仍是 `pen
 
 ### S7 — `identity_adjudication` + `asset_master` / `ticker_alias` / `issuer_master` / `universe_daily`
 
-**状态（2026-07-15）：`revised schema review / awaiting explicit re-approval`。** 只读
-combined-source profile 和五份 revised candidate contracts 已完成，详见
+**状态（2026-07-15）：`schema approved / bounded primitives / production ingress blocked /
+awaiting code review`。** 只读 combined-source profile、五份批准 contracts 和 fail-closed 控制组件已完成，详见
 [`silver-s7-identity-resolution-schema-review.md`](silver-s7-identity-resolution-schema-review.md)。
-当前没有 S7 transform、pipeline fixture、preview、FullRunPlan 或 release。旧四份 ID/SHA 已撤回；
-只有用户逐字批准新五份 Contract ID/candidate SHA 后，才可进入 code-ready；后续 detector case
-manifest、adjudication registry、bounded preview、Full 和 publish 仍分别审批。
+当前没有真实 S7 detector/candidate/adjudication、四表 materialization、preview、FullRunPlan 或 release。
+旧四份 ID/SHA 已撤回；generic detector 会物化输入，只允许最多 250,000 observations，且不能生成正式
+source verification。下一步必须先完成 source-bound streaming preview runner 与逐条 provider evidence
+verification；之后的 bounded detector preview、adjudication registry 内容、四表 preview、Full 和 publish
+仍分别审批。本次 code approval 不能启动任何真实 preview 或十年扫描。
 
 S7 必须在 S4–S6 分别验收后单独审批：
 
@@ -861,15 +868,17 @@ quarantine 并等待人工 review；Medium/Low 保留标志，不能从分母中
 
 ## 15. 推荐的下一步
 
-S0–S6 已分别通过独立审批并完成；S7 combined-source profile 与五份 revised schema proposal 已完成。
-当前下一步只建议：
+S0–S6 已分别通过独立审批并完成；S7 combined-source profile、五份 schema approval 与 bounded
+control primitives 已完成，但 production ingress 仍被代码硬阻断。当前下一步只建议：
 
-1. 用户逐字批准五份 S7 Contract ID 与 candidate file SHA-256；
-2. 获批后只实现 source readers、bounded bounce detector/candidate manifest、optional external-evidence
-   capture contract、adjudication control lifecycle、resolution engine 与固定小样本测试，然后停在
-   code-ready；
-3. 先显式 review/approve adjudication registry，再让四张派生表消费 exact registry release；
-4. 后续严格按 bounded preview → review → 单独批准 full/publish 推进，不沿用 S6 的连续完成授权。
+1. 先 review exact source reader、bounded detector、candidate/calendar/external evidence artifacts、
+   adjudication registry、cutoff fixture 与本轮 audit hard stops；
+2. 实现 source-bound streaming preview runner 和 provider evidence selection manifest，使正式 candidate
+   能证明六份 exact releases、scope、行数和 record lineage；
+3. 再另行定义并批准一个 ticker/session/row 数有硬上限的 detector preview；
+4. preview 只生成 candidate manifest 和 QA，真实 disposition 必须逐 case evidence/approval；
+5. 先显式 review/approve exact adjudication registry snapshot，再让四张派生表消费；
+6. 后续严格按四表 bounded preview → review → 单独批准 full/publish 推进，不沿用 S6 的连续完成授权。
 
 当 S4–S15（身份、公司行动、三套行情、复权和收益）完成并发布后，price-derived Barra 和
 普通日频因子即可开始；S16–S34 可以继续逐项扩充，不应阻塞第一批价格型因子。

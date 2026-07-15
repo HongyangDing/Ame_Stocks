@@ -1,0 +1,692 @@
+{
+  "columns": [
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 from stable_digest of the exact-key v2 payload {adjudication_available_session, asset_id, canonical_cik_normalized, canonical_composite_figi, canonical_share_class_figi, identity_adjudication_id, identity_case_available_session, identity_case_id, identity_disposition, identity_resolution_cutoff_session, issuer_id, namespace, observed_cik_normalized, observed_composite_figi, observed_share_class_figi, rule_version, share_class_id, source_identity_adjudication_release_available_session, source_identity_adjudication_release_id, source_identity_case_candidate_manifest_id, source_identity_case_candidate_manifest_sha256, ticker, valid_from_session}. Every nullable key is present as JSON null; dates are exact YYYY-MM-DD strings. The payload binds provider observation, independently supported canonical hierarchy, case/decision availability, candidate manifest, exact registry release, and the cutoff-specific resolution view.",
+      "name": "ticker_alias_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed ame_stocks_ticker_alias_id_from_observed_and_canonical_interval_v2 rule using compact sorted JSON, UTF-8, no newline, and lowercase SHA-256.",
+      "name": "ticker_alias_id_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Canonical research foreign key to identity/asset_master; it is reproduced from canonical_composite_figi, never from ticker or CIK.",
+      "name": "asset_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact case-sensitive provider ticker preserved without trimming, casefolding, root parsing, or punctuation normalization.",
+      "name": "ticker",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session in the observed active interval, inclusive.",
+      "name": "valid_from_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Last XNYS session in the observed active interval, inclusive.",
+      "name": "valid_through_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Next ordered distinct XNYS source session in the fixed S4 release after valid_through_session; null only when right-censored at the fixed S4 coverage end. It is calendar/session-spine derived even when the ticker is absent on that next session.",
+      "name": "valid_to_session_exclusive",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact domain membership_absent_or_identity_changed_next_source_session or right_censored_at_source_end.",
+      "name": "interval_end_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of XNYS membership sessions in this maximal interval.",
+      "name": "interval_session_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider-observed Composite FIGI constant within the interval and preserved from S4 without rewrite.",
+      "name": "observed_composite_figi",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Deterministic diagnostic asset hash reproduced from observed_composite_figi. It is not necessarily an asset_master foreign key when the observation is confirmed contamination.",
+      "name": "observed_asset_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider-observed S4 Share-class FIGI preserved without rewrite; null when absent or invalid. It is evidence only and never automatically becomes the canonical share-class relation for an adjudicated asset.",
+      "name": "observed_share_class_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact validated ten-digit normalization of the provider-observed S4 CIK; null when absent or invalid. It is evidence only and never automatically becomes the canonical issuer relation for an adjudicated asset.",
+      "name": "observed_cik_normalized",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact canonical research Composite FIGI reproducing asset_id. It equals observed_composite_figi except within an approved provider-contamination episode.",
+      "name": "canonical_composite_figi",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact canonical Share-class FIGI for the canonical asset, populated only from independently corroborated, non-conflicting accepted evidence. It is never inferred from a FIGI adjudication and may be null even when observed_share_class_figi is present.",
+      "name": "canonical_share_class_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact canonical ten-digit CIK for the canonical asset, populated only from independently corroborated, non-conflicting accepted evidence. It is never inferred from a FIGI adjudication and may be null even when observed_cik_normalized is present.",
+      "name": "canonical_cik_normalized",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact domain observed_consistent, confirmed_genuine_transition, or confirmed_provider_contamination. Unresolved suspected episodes emit no alias.",
+      "name": "identity_disposition",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Effective approved identity_adjudication ID for confirmed genuine or contamination episodes; null only for observed_consistent direct evidence.",
+      "name": "identity_adjudication_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Deterministic provider-FIGI bounce case ID for adjudicated episodes; null for observed_consistent intervals.",
+      "name": "identity_case_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Availability session of the exact candidate-manifest case for an adjudicated interval; null for observed_consistent direct evidence. It must not exceed identity_resolution_cutoff_session.",
+      "name": "identity_case_available_session",
+      "nullable": true
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Availability session from identity_adjudication for an adjudicated interval; null for observed_consistent direct evidence. As-known readers must mask the decision before this session.",
+      "name": "adjudication_available_session",
+      "nullable": true
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Exact research cutoff session frozen by this derived release. The selected registry revision, candidate case, adjudication decision, and registry release must all be available no later than this cutoff; no latest-by-time lookup is permitted.",
+      "name": "identity_resolution_cutoff_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Deterministic canonical share-class parent identity reproduced only from canonical_share_class_figi after independent, non-conflicting corroboration. It never derives from observed_share_class_figi merely because a FIGI adjudication exists.",
+      "name": "share_class_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Canonical issuer foreign key reproduced only from canonical_cik_normalized after independent, non-conflicting corroboration. It is not an asset merge key and a FIGI adjudication can never create or change it.",
+      "name": "issuer_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact method source_composite_figi_exact, approved_genuine_transition, or approved_provider_contamination_override. S5/S6 support and hierarchy changes are review evidence only and never automatic canonicalization.",
+      "name": "alias_resolution_method",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact domain resolved_strong, resolved_temporal, or resolved_approved_override; suspected/unresolved episodes are excluded from this table.",
+      "name": "alias_resolution_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Whether at least one accepted S5 event occurrence is uniquely associated to this interval by exact Composite FIGI, exact case-sensitive ticker, ordinary_calendar_date quality, and calendar-date containment within the observed inclusive interval; false does not invalidate observed S4 membership.",
+      "name": "ticker_event_corroborated",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of distinct accepted S5 ticker_change_event source_record_id values whose response_composite_figi and effective_ticker exactly equal this interval, whose event_date_quality is ordinary_calendar_date, and whose event_date lies between valid_from_session and valid_through_session inclusive. The event must match exactly one emitted interval; all other events count only in build-level association review and never define a prior ticker or interval boundary.",
+      "name": "ticker_event_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Number of S4 active universe rows collapsed into the interval.",
+      "name": "source_row_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "S4 selected_source_record_id for valid_from_session.",
+      "name": "first_source_record_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "S4 selected_source_record_id for valid_through_session.",
+      "name": "last_source_record_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "True only when every session in the interval has a strong, non-conflicted asset resolution.",
+      "name": "backtest_identity_eligible",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed reconstructed_historical_active_membership_v1 marker inherited from S4 session evidence.",
+      "name": "membership_time_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed metadata_as_returned_at_source_capture_not_historical_vintage_v1 marker.",
+      "name": "metadata_time_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Maximum availability over the transitive accepted-source evidence closure and any effective adjudication used for the interval; S5 request-status-only coverage is excluded.",
+      "name": "identity_evidence_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed s7_ticker_interval_resolution_with_adjudication_v2 observed-FIGI segmentation, canonical mapping, and event-corroboration rule version.",
+      "name": "resolution_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact protected S4 release-set ID.",
+      "name": "source_s4_release_set_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S5 ticker-event request-status release ID used only for coverage and 404 semantics.",
+      "name": "source_s5_status_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S5 ticker-change-event release ID.",
+      "name": "source_s5_event_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S6 ticker-overview-safe release ID.",
+      "name": "source_s6_overview_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact immutable S7 identity candidate manifest ID used to detect and enumerate provider-FIGI bounce cases for this cutoff-bound build.",
+      "name": "source_identity_case_candidate_manifest_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 of the exact immutable S7 identity candidate manifest bytes. The ID/SHA pair is frozen across all four derived siblings.",
+      "name": "source_identity_case_candidate_manifest_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact independently published identity_adjudication release ID; latest-by-time discovery is forbidden.",
+      "name": "source_identity_adjudication_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Operational availability session of the exact independently published identity_adjudication release. It must not exceed identity_resolution_cutoff_session for any row in this cutoff-bound derived release.",
+      "name": "source_identity_adjudication_release_available_session",
+      "nullable": false
+    }
+  ],
+  "contract_id": "384d1e5acf2181f929e29c5e3a5369a796f0ee42cdde7740b7ca3bdfdf8faf3b",
+  "contract_schema_version": 1,
+  "description": "Cutoff-bound XNYS-session ticker intervals that preserve provider-observed Composite FIGI, Share-class FIGI, and CIK separately from independently corroborated canonical research identity. Approved FIGI dispositions never override unresolved share-class, issuer, or other security-level conflicts. Pending and adjudicated-unresolved episodes emit no alias; every emitted row is finally eligible under the exact candidate manifest, registry release, and identity-resolution cutoff.",
+  "domain": "identity",
+  "grain": "One maximal interval on the global fixed-S4 XNYS source-session spine for one exact registry release, cutoff, ticker, canonical asset, observed/canonical Composite FIGI, observed/canonical Share-class FIGI and CIK, canonical hierarchy IDs, disposition, case/adjudication, manifest, and availability tuple. Ticker absence, inactive membership, a global source-session gap, or any tuple-field change splits the interval. At expanded-session grain, (registry release, cutoff, session, exact ticker) identifies at most one alias/canonical asset, and (registry release, cutoff, session, canonical asset) identifies at most one exact ticker/observed membership; collisions fail rather than coalesce or deduplicate.",
+  "partition_by": [],
+  "primary_key": [
+    "ticker_alias_id"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "schema_exact",
+      "description": "Every output field, order, Arrow type, and nullability must equal this contract.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "published_source_trust_chain_invalid",
+      "description": "Every fixed S4 release-set member, fixed S5/S6 release, exact immutable identity candidate manifest, and exact independently published identity_adjudication release must pass its complete trust chain before use.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_release_binding_invalid",
+      "description": "Every row and coordinated member build must bind the exact approved six market-evidence releases, one exact candidate manifest ID/SHA, one exact identity_adjudication release and its availability session, and one exact identity_resolution_cutoff_session. All four derived builds share this cutoff-bound binding; latest-by-time release, decision, or case discovery is forbidden.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "candidate_manifest_binding_invalid_rows",
+      "description": "source_identity_case_candidate_manifest_id and SHA must identify the exact immutable detector output bound by the registry release and all four derived siblings. Every non-null identity_case_id must resolve to that manifest with the same ticker, observed episode, source-record set, detector version, and identity_case_available_session; no case may be discovered from another manifest.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_null_or_duplicate_rows",
+      "description": "ticker_alias_id must be non-null and unique.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "foreign_asset_missing_rows",
+      "description": "Every asset_id must resolve to a v1 active_identity asset_master row.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "foreign_issuer_missing_rows",
+      "description": "Every non-null issuer_id must resolve to issuer_master and reproduce only from independently corroborated canonical_cik_normalized; provider-observed CIK and FIGI adjudication alone are insufficient.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "ticker_alias_id_recomputation_mismatch_rows",
+      "description": "Every ticker_alias_id must reproduce from the exact v2 compact sorted-JSON payload named by the column contract, including observed/canonical hierarchy, case/decision availability, candidate-manifest ID/SHA, exact registry release and availability, and cutoff session. Every nullable key is explicit JSON null; dates are exact YYYY-MM-DD strings and fixed vectors must match.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "id_rule_or_domain_invalid_rows",
+      "description": "ticker_alias_id, observed_asset_id, canonical asset and all identity FKs, case/decision IDs, candidate-manifest ID/SHA, and registry release ID must satisfy their exact 64-hex or frozen identifier domains. Observed/canonical FIGI and CIK syntax, v2 ticker/date/null encoding, and independent share/issuer ID rules must match the frozen payload.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "state_domain_invalid_rows",
+      "description": "interval_end_status retains its two-value domain; method must be source_composite_figi_exact, approved_genuine_transition, or approved_provider_contamination_override; status must be resolved_strong, resolved_temporal, or resolved_approved_override; disposition must be observed_consistent, confirmed_genuine_transition, or confirmed_provider_contamination. Pending_unresolved and adjudicated_unresolved never enter this table. Scope/rule fields, hierarchy formats, candidate-manifest binding, registry availability, and cutoff date must satisfy their exact v2 domains.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "state_matrix_invalid_rows",
+      "description": "observed_consistent/source_composite_figi_exact requires observed=canonical Composite, null case/case-availability/adjudication/adjudication-availability, and resolved_strong or resolved_temporal. confirmed_genuine_transition requires observed=canonical Composite and a matching effective case/adjudication whose case, decision, and registry release are available by cutoff. confirmed_provider_contamination requires observed!=canonical Composite and the analogous approved terminal override. Observed hierarchy is always copied from S4; canonical share/CIK and their IDs are jointly null or independently corroborated and non-conflicting. A FIGI disposition resolves no other conflict. Every emitted alias is finally eligible; pending or adjudicated unresolved episodes, relationship conflicts, weak candidates, and non-terminal or post-cutoff decisions emit none.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "negative_count_rows",
+      "description": "interval_session_count, ticker_event_count, and source_row_count must be non-negative native int64 values, and an emitted interval must have positive session and source counts.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "evidence_count_recomputation_mismatch_rows",
+      "description": "ticker_event_count must equal distinct accepted S5 events with response_composite_figi=observed_composite_figi, exact ticker, event_date_quality=ordinary_calendar_date, inclusive containment, and one interval match. Source counts recompute from exact S4 rows. Canonical FIGI never replaces observed FIGI in source-event matching; excluded event categories and request-status rows remain out of counts.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_evidence_availability_recomputation_mismatch_rows",
+      "description": "identity_evidence_available_session must equal the maximum over the transitive accepted-source closure, identity_case_available_session and adjudication_available_session when present, and source_identity_adjudication_release_available_session. The exact terminal decision and complete episode must be selected as of identity_resolution_cutoff_session; post-cutoff cases, decisions, revisions, and registry releases are excluded. Unassociated S5 events, request status, and sibling outputs remain excluded.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "interval_order_invalid_rows",
+      "description": "valid_from_session must not exceed valid_through_session, and a non-null exclusive end must follow valid_through_session.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "interval_calendar_count_mismatch_rows",
+      "description": "interval_session_count must equal the XNYS sessions in the inclusive observed interval.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "interval_source_count_mismatch_rows",
+      "description": "source_row_count must equal interval_session_count because the active S4 source has one exact ticker row per included source session.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "interval_non_maximal_rows",
+      "description": "Adjacent rows merge only when every field in the contract grain tuple is identical and they are consecutive on the global fixed-S4 XNYS source-session spine. Ticker absence, inactive membership, a global source-session gap, or any observed/canonical hierarchy, case, decision, availability, candidate-manifest, registry-release, or cutoff change forces a split.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "interval_internal_gap_rows",
+      "description": "No interval may bridge an inactive or absent S4 membership session.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "ticker_session_multiple_asset_rows",
+      "description": "One exact ticker on one session may not resolve to more than one asset.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "ticker_interval_overlap_rows",
+      "description": "No two intervals for the same exact ticker may overlap on the fixed S4 source-session spine, even when they reference the same asset.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "interval_boundary_lineage_mismatch_rows",
+      "description": "first_source_record_id and last_source_record_id must match the exact S4 rows on valid_from_session and valid_through_session respectively.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "alias_universe_bidirectional_mismatch_rows",
+      "description": "Each finally eligible universe_daily row at the exact registry release and cutoff must be covered by exactly one alias, and every expanded alias session must map back to one active row with identical ticker, canonical asset, observed/canonical Composite FIGI, observed/canonical Share-class FIGI and CIK, canonical hierarchy IDs, disposition, case/decision lineage, candidate manifest, registry availability, and cutoff.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "composite_asset_anchor_mismatch_rows",
+      "description": "observed_asset_id must reproduce from observed_composite_figi and canonical asset_id from canonical_composite_figi. A difference is legal only for confirmed provider contamination with the unique terminal adjudication effective at the exact cutoff; no Share-class, CIK, ticker, majority, or recency evidence can create this override.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "share_class_hierarchy_mismatch_rows",
+      "description": "canonical_share_class_figi/share_class_id and canonical_cik_normalized/issuer_id must be jointly null or jointly reproducible from independently corroborated, non-conflicting canonical-asset evidence. Observed hierarchy is preserved separately and may differ; a FIGI adjudication never copies, infers, or approves canonical hierarchy.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "canonical_hierarchy_without_independent_support_rows",
+      "description": "Every non-null canonical Share-class FIGI/ID or canonical CIK/issuer ID must be supported independently for canonical_composite_figi by accepted non-contaminated S4/S6 evidence available by the cutoff. Observed hierarchy from the adjudicated episode, the adjudication outcome, S5 events, ticker, name, majority, or nearest-date evidence cannot be the sole support.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "adjudication_changed_nonfigi_hierarchy_rows",
+      "description": "A FIGI adjudication may select only canonical_composite_figi/asset_id for its exact episode. It may not create, copy, replace, merge, or suppress canonical Share-class or issuer relationships; any such effect is a critical failure.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "adjudication_bypassed_nonfigi_conflict_rows",
+      "description": "No confirmed genuine or provider-contamination disposition may emit an alias while the canonical asset has an unresolved share-class, issuer, duplicate-membership, source-lineage, temporal, or other security-level conflict. Adjudication resolves only the bounded Composite-FIGI bounce.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "s5_status_identity_effect_invalid_rows",
+      "description": "S5 request-status rows, including HTTP 404, may measure endpoint coverage only and may never create, delete, truncate, or extend an alias interval.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "event_defined_interval_rows",
+      "description": "S5 events may corroborate only after exact Composite/ticker, ordinary date quality, and unique interval containment association; they may never create, extend, split, truncate, coalesce, or be the sole source of an interval or predecessor ticker.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "event_interval_association_ambiguous_rows",
+      "description": "No accepted S5 ticker_change_event source_record_id may associate to more than one emitted alias interval under the exact Composite/ticker, ordinary date quality, and inclusive calendar-date containment rule; ties fail the build rather than being broken by order, proximity, or source ordinal.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "coordinated_group_build_invalid",
+      "description": "The four derived sibling outputs share one graph, identical six market releases, exact candidate-manifest ID/SHA, exact independently published adjudication release and availability, exact identity-resolution cutoff, and passing cross-table QA. Sibling staging, unpublished outputs, and post-cutoff registry revisions are not sources.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "right_censor_invalid_rows",
+      "description": "Only intervals reaching the fixed S4 coverage end may have a null exclusive end.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "eligibility_invalid_rows",
+      "description": "Every emitted ticker_alias row is backtest_identity_eligible=true and covers a finally eligible daily resolution at the exact cutoff. A confirmed genuine or contamination disposition resolves only the Composite-FIGI bounce and cannot bypass unresolved share-class, issuer, duplicate-membership, source-lineage, temporal, or other security-level conflict. Pending/adjudicated unresolved, weak, conflicted, post-cutoff, or non-terminal intervals are excluded.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "observed_identity_lineage_mutated_rows",
+      "description": "observed_composite_figi, observed_share_class_figi, observed_cik_normalized, and boundary source-record IDs must equal the exact S4 rows throughout the interval. Canonicalization may add separately supported fields but never replace, suppress, or relabel provider-observed lineage.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "unapproved_canonical_identity_override_rows",
+      "description": "Every observed-to-different-canonical alias must match the unique terminal approved provider-contamination adjudication selected from the exact registry release at identity_resolution_cutoff_session by candidate case, exact ticker, inclusive episode, and complete source-record-set digest. Case, decision, and registry release availability must not exceed cutoff; the required numerator is zero.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "adjudication_scope_or_availability_invalid_rows",
+      "description": "No adjudication may apply outside its exact episode, overlap another terminal decision at the cutoff, or be selected before identity_case_available_session, adjudication_available_session, or source_identity_adjudication_release_available_session. The resolver uses only the unique terminal revision in the exact pinned release as of identity_resolution_cutoff_session and never discovers a later revision.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "cutoff_bound_registry_selection_invalid_rows",
+      "description": "The exact registry release must be available by identity_resolution_cutoff_session. For each series, the resolver may use only the unique terminal approved decision whose case and decision availability do not exceed cutoff; a successor becomes effective only at its availability, its predecessor remains effective before then, and post-cutoff revisions cannot influence alias presence, fields, segmentation, or eligibility.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "unresolved_suspected_episode_alias_rows",
+      "description": "A pending-unreviewed A-to-B-to-A middle episode may not emit a ticker_alias row, even when B is a syntactically valid and daily-unique Composite FIGI.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "adjudicated_unresolved_episode_alias_rows",
+      "description": "An episode whose unique terminal decision at identity_resolution_cutoff_session is adjudicated_unresolved may not emit a ticker_alias row. The decision remains auditable in the registry and universe lineage but supplies no canonical asset, hierarchy, alias, or eligibility.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "canonical_asset_session_collision_rows",
+      "description": "At expanded-session grain, (source_identity_adjudication_release_id, identity_resolution_cutoff_session, session, exact ticker) may identify at most one alias/canonical asset, and (source_identity_adjudication_release_id, identity_resolution_cutoff_session, session, canonical asset_id) may identify at most one exact ticker/observed membership under v2. Any incompatible collision fails rather than using input order, recency, coalescing, or deduplication.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "overlapping_different_composite_rows",
+      "description": "Observed same-ticker incompatible Composite evidence remains a High issue and suppresses alias admission unless an exact episode has an effective approved disposition; S6 lifecycle envelopes alone do not prove a genuine transition.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "weak_noncomposite_candidate_rows",
+      "description": "Share-class-, CIK-, or ticker-date-only candidate mappings remain outside ticker_alias until separately approved.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "unassociated_s5_ticker_event_rows",
+      "description": "Build-level count of accepted S5 ticker_change_event rows excluded from interval corroboration because date quality is not ordinary_calendar_date, the exact Composite/ticker pair is absent, the calendar date is outside every matching observed interval, or the event does not match exactly one interval. Report reason counts and bounded examples; these rows remain upstream event evidence and never alter interval membership.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    }
+  ],
+  "schema_version": 1,
+  "sort_by": [
+    "ticker",
+    "valid_from_session",
+    "asset_id"
+  ],
+  "source_datasets": [
+    "asset_observation_daily",
+    "asset_observation_version",
+    "universe_source_daily",
+    "ticker_event_request_status",
+    "ticker_change_event",
+    "ticker_overview_safe",
+    "identity_case_candidate_manifest",
+    "identity_adjudication"
+  ],
+  "table": "ticker_alias"
+}

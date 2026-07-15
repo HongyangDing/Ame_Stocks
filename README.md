@@ -7,7 +7,7 @@ can be inspected and reproduced.
 ## Current milestone
 
 The project has passed the **Bronze data checkpoint** for the catalog frozen on 2026-07-12 and is
-now at **Silver Phase 2 with S1–S6 published; S7 is stopped at schema review**:
+now at **Silver Phase 2 with S1–S6 published; S7 production ingress is fail-closed**:
 
 - ten years of full-market minute/day aggregate Flat Files and 29 required REST research
   datasets (31 dataset families in total) are stored immutably on the remote data volume;
@@ -32,13 +32,16 @@ now at **Silver Phase 2 with S1–S6 published; S7 is stopped at schema review**
   `backtest_identity_eligible=false`;
 - S6 published 30,570 retrospective Overview evidence rows plus 169 pending High quarantine rows;
   permanent identity, ticker validity intervals, and a backtestable universe still require S7;
-- S7 has completed its read-only combined-source profile and replaced the withdrawn four-table
-  proposal with five revised candidates: one protected `identity_adjudication` registry plus four
-  cutoff-bound derived tables that separate provider-observed from canonical identity and hierarchy.
-  The registry supports immutable reviewed revisions, including explicit withdrawal to unresolved;
-  unresolved cases may add content-addressed external-source snapshots, never mutable links or
-  automatic third-party overrides. The work is stopped before transform code, pipeline fixture,
-  preview, or release and remains pending explicit re-approval.
+- S7 has completed its read-only combined-source profile; five revised contracts are approved and
+  packaged for one protected `identity_adjudication` registry plus four cutoff-bound derived tables.
+  Implemented control primitives include exact six-release readers, a discovery-only in-memory
+  FIGI-bounce detector capped at 250,000 observations, immutable candidate/external-evidence/calendar
+  artifacts, append-only human adjudication, exact registry snapshots, and cutoff fixtures. Synthetic
+  tests cover genuine transition, confirmed contamination, unresolved/withdrawn and conflict states.
+  A generic caller cannot promote a candidate carrying the production binding: the control store
+  requires source-bundle verification that the current fixture detector cannot mint. No real S7
+  detector scan, four-table materialization, preview, full run, or release has run. The next code step
+  is a source-bound streaming preview runner and verified provider-evidence selection, not a data run;
 
 The final strict full audit is
 `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/bronze/full-2026-07-12-v9.json`
@@ -96,10 +99,10 @@ documented in
 [docs/silver-s5-ticker-events-schema-review.md](docs/silver-s5-ticker-events-schema-review.md). The
 published S6 evidence contract, lifecycle coverage, QA/quarantine results, and release are documented
 in [docs/silver-s6-ticker-overview-schema-review.md](docs/silver-s6-ticker-overview-schema-review.md).
-The current hard stop is S7 schema re-approval: the read-only joint profile and five revised
-candidates exist, but no S7 transform, pipeline fixture, preview, full build, or release is
-authorized. The exact input binding, observed/canonical split, adjudication rules, contract digests,
-and approval wording are in
+The current hard stop is S7 production provenance: the five revised contracts are approved and the
+bounded control primitives exist, but no source-attested streaming detector, production membership
+resolver, preview, full build, or release is authorized. The exact input binding,
+observed/canonical split, adjudication rules, contract digests, and approval wording are in
 [docs/silver-s7-identity-resolution-schema-review.md](docs/silver-s7-identity-resolution-schema-review.md).
 For S4, the approved schemas are loaded by
 [asset_contract.py](backend/ame_stocks_api/silver/asset_contract.py); the manifest-bound reader and

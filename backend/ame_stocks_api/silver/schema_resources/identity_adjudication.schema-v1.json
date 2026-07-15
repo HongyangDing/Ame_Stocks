@@ -1,0 +1,509 @@
+{
+  "columns": [
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 from stable_digest of the exact-key payload {adjudication_series_id, canonical_asset_id, canonical_composite_figi, decision_version, disposition, evidence_digest, identity_case_id, namespace: ame_stocks.identity.adjudication, reason_code, reason_detail, rule_version: s7_identity_adjudication_id_v1, supersedes_identity_adjudication_id}. Nullable values are explicit JSON null; approval fields are excluded to avoid a receipt-subject digest cycle.",
+      "name": "identity_adjudication_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 from stable_digest of the exact-key payload {identity_case_id, namespace: ame_stocks.identity.adjudication_series, rule_version: s7_identity_adjudication_series_id_v1}. All revisions of one case share this series ID.",
+      "name": "adjudication_series_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Positive append-only decision version within adjudication_series_id, starting at 1 and increasing by exactly one.",
+      "name": "decision_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Immediately prior immutable identity_adjudication_id in the same series; null exactly for version 1. A successor never deletes or rewrites its predecessor.",
+      "name": "supersedes_identity_adjudication_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 from stable_digest of the candidate-manifest exact-key payload {detector_rule_version, episode_source_record_set_digest, episode_valid_from_session, episode_valid_through_session, left_outer_composite_figi, left_outer_source_record_id, middle_observed_composite_figi, namespace: ame_stocks.identity.provider_figi_bounce_case, right_outer_composite_figi, right_outer_source_record_id, rule_version: s7_provider_figi_bounce_case_id_v1, six_release_binding_id, ticker}. Exact case payload is verified against the content-addressed candidate manifest.",
+      "name": "identity_case_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session on which the complete A-to-B-to-A case and its content-addressed candidate manifest are available; it includes the right-side A evidence and is never backdated to the B episode.",
+      "name": "identity_case_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact case-sensitive S4 provider ticker for this episode; no trimming, casefolding, root parsing, or global ticker mapping is allowed.",
+      "name": "observed_ticker",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact syntactically valid provider-observed middle-B Composite FIGI; the raw observation remains immutable under every disposition.",
+      "name": "observed_composite_figi",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First session in the maximal contiguous middle-B run on the global S4 source-session spine, inclusive.",
+      "name": "episode_valid_from_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Last session in the maximal contiguous middle-B run on the global S4 source-session spine, inclusive.",
+      "name": "episode_valid_through_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Positive count of distinct exact S4 selected_source_record_id values in the complete middle-B episode.",
+      "name": "episode_source_record_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 of json.dumps(sorted(unique selected_source_record_id values), allow_nan=false, ensure_ascii=true, separators=comma/colon) encoded as UTF-8 with no newline. Override scope matches only the complete set.",
+      "name": "episode_source_record_set_digest",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed s7_provider_figi_bounce_detector_v1: exact ticker maximal FIGI runs on the global S4 source-session spine; ticker absence, inactive membership, or global-session gap breaks a run; outer A values equal, middle B differs and is valid, and B lasts at most 20 sessions.",
+      "name": "detector_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "json_string",
+      "description": "Canonical sorted JSON array of detector reason codes, including 1, 2-5, or 6-20 session band and S5/S6/hierarchy-support flags. These are review evidence, never automatic dispositions.",
+      "name": "detector_reason_codes",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact approved domain confirmed_genuine_transition, confirmed_provider_contamination, or adjudicated_unresolved. The last is the append-only way to retain or withdraw a case to unresolved without deleting prior decisions.",
+      "name": "disposition",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Canonical research Composite FIGI; equals observed for confirmed genuine, differs for confirmed contamination, and is null for adjudicated_unresolved.",
+      "name": "canonical_composite_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Deterministic asset ID reproduced from canonical_composite_figi; non-null for the two confirmed dispositions and null for adjudicated_unresolved.",
+      "name": "canonical_asset_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "True exactly for confirmed_provider_contamination; false for confirmed_genuine_transition and adjudicated_unresolved.",
+      "name": "canonical_override",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Versioned controlled reason code. Majority, recency, longest run, prior/next value, returns, factor values, and backtest outcomes are forbidden reasons.",
+      "name": "reason_code",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Non-empty immutable human rationale included verbatim in identity_adjudication_id, so it cannot change under the same decision ID.",
+      "name": "reason_detail",
+      "nullable": false
+    },
+    {
+      "arrow_type": "json_string",
+      "description": "Canonical sorted JSON evidence manifest with exact dataset, release, source-record, field, session, and availability references used by the decision.",
+      "name": "evidence_refs",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 of the exact canonical evidence_refs bytes.",
+      "name": "evidence_digest",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Positive count of distinct structured evidence records in evidence_refs.",
+      "name": "evidence_record_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of evidence_refs backed by an immutable external-source snapshot rather than the six fixed Massive-derived releases. Zero requires null external-manifest fields; a positive value requires one content-addressed manifest.",
+      "name": "external_evidence_record_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Optional immutable manifest ID for captured external evidence such as an SEC filing, exchange or FINRA notice, issuer announcement, or reviewed identifier reference. The manifest stores source authority class, URL, captured bytes/path/SHA, publication and retrieval timestamps, exact asserted fields, and availability; a live URL alone is invalid.",
+      "name": "source_external_evidence_manifest_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 of the exact optional external-evidence manifest bytes; jointly null or non-null with source_external_evidence_manifest_id.",
+      "name": "source_external_evidence_manifest_sha256",
+      "nullable": true
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Maximum source_available_session among all admitted evidence refs. For external evidence, availability cannot precede either the source publication/filing time or immutable capture time mapped to the bound XNYS calendar.",
+      "name": "evidence_cutoff_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Immutable row-specific approval receipt ID binding identity_adjudication_id, decision-plan ID/SHA, candidate-manifest ID/SHA, actor, decision, and timestamp.",
+      "name": "approval_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Normalized relative path to the immutable row-specific approval receipt; no secret, credential, or absolute path is allowed.",
+      "name": "approval_receipt_path",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 of the exact approval receipt bytes.",
+      "name": "approval_receipt_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed effective-registry value approved. Rejection/draft receipts remain control history; withdrawal is represented by an approved adjudicated_unresolved successor row.",
+      "name": "approval_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Non-empty stable reviewer identity from the approval receipt.",
+      "name": "approved_by",
+      "nullable": false
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "UTC timestamp of the explicit row-specific approval receipt.",
+      "name": "approved_at_utc",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session whose official open UTC timestamp is strictly after approved_at_utc under the bound calendar.",
+      "name": "approval_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "Official XNYS open UTC timestamp for adjudication_available_session under the bound calendar.",
+      "name": "adjudication_available_at_utc",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Maximum of identity_case_available_session, evidence_cutoff_session, and approval_available_session. A cutoff-bound resolver cannot use this version earlier.",
+      "name": "adjudication_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed s7_adjudication_availability_from_case_evidence_approval_v1 rule.",
+      "name": "availability_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact versioned XNYS calendar artifact ID used for episode continuity and availability mapping.",
+      "name": "availability_calendar_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 of the exact bound XNYS calendar artifact bytes.",
+      "name": "availability_calendar_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed s7_identity_adjudication_v1 exact payload, episode scope, terminal-chain-head, and append-only revision rule.",
+      "name": "adjudication_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed cutoff_bound_revised_identity_not_factor_signal_v1 marker. A resolver selects a unique terminal chain head from an exact pinned registry release and explicit cutoff; it never mutates a later table by simple masking.",
+      "name": "adjudication_time_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false. Returns, factor values, portfolio results, and backtest outcomes are prohibited adjudication evidence.",
+      "name": "outcome_or_backtest_evidence_used",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact protected S4 three-table release-set ID.",
+      "name": "source_s4_release_set_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S5 ticker-event request-status release ID used only as review evidence.",
+      "name": "source_s5_status_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S5 ticker-change-event release ID used only as review evidence.",
+      "name": "source_s5_event_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S6 ticker-overview-safe release ID used only as retrospective review evidence.",
+      "name": "source_s6_overview_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Immutable candidate manifest ID containing the full detector case payload and bounded evidence.",
+      "name": "source_identity_case_candidate_manifest_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 of the exact immutable candidate manifest bytes.",
+      "name": "source_identity_case_candidate_manifest_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Stable ID of the decision-plan logical payload. The logical payload contains adjudication IDs and candidate references but excludes approval fields and its own ID/SHA.",
+      "name": "source_decision_plan_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Normalized relative path to the immutable decision-plan bytes targeted by the approval receipt.",
+      "name": "source_decision_plan_path",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 of the exact decision-plan bytes, computed before any approval receipt exists.",
+      "name": "source_decision_plan_sha256",
+      "nullable": false
+    }
+  ],
+  "contract_id": "6423cc01b952498cc78d55e93a349d7afe408bd30003e4f7be59f211102f2d5e",
+  "contract_schema_version": 1,
+  "description": "Protected append-only registry of approved episode-scoped identity decision versions. The order is immutable candidate manifest, optional captured external-evidence manifest, decision-plan payload and bytes, row-specific approval receipt, then registry row. It preserves provider observations, permits explicit withdrawal to adjudicated_unresolved, and is independently published before the four S7 derived outputs consume one exact release.",
+  "domain": "identity",
+  "grain": "One immutable approved decision version for one deterministic provider-FIGI bounce case and exact middle-B episode.",
+  "partition_by": [],
+  "primary_key": [
+    "identity_adjudication_id"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "schema_exact",
+      "description": "Every field, order, Arrow type, and nullability must equal this contract.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "published_source_trust_chain_invalid",
+      "description": "The exact six evidence releases, candidate manifest, any referenced external-evidence manifest and captured artifacts, decision plan, approval receipts, and calendar artifact must pass their complete trust chains before registry publication.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_release_binding_invalid",
+      "description": "Every row and registry build binds one exact six-release bundle, candidate manifest, optional external-evidence manifest, decision plan, receipt, and calendar. Latest-by-time discovery is forbidden.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_null_or_duplicate_rows",
+      "description": "identity_adjudication_id must be non-null and unique.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_case_or_decision_id_recomputation_mismatch_rows",
+      "description": "Case, series, adjudication, asset, episode-record-set, evidence, candidate-manifest, plan, receipt, and calendar IDs/digests must reproduce exactly from frozen payloads and bytes; fixed vectors must pass.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "adjudication_version_chain_invalid_rows",
+      "description": "Each series begins at version 1 with null predecessor; later versions increment by one and reference the immediately prior row. At a cutoff, the unique highest available complete-chain version is terminal; once its successor is available, the predecessor ceases to be effective but remains stored.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "adjudication_episode_scope_invalid_rows",
+      "description": "The episode must equal the complete maximal middle-B run on the global source-session spine. Dates, ticker, FIGI, positive count, sorted-unique record-set digest, and every source row must match exactly; absence, inactive membership, or a global session gap terminates the run.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "adjudication_state_matrix_invalid_rows",
+      "description": "confirmed_genuine_transition requires canonical=observed, non-null asset, override=false; confirmed_provider_contamination requires canonical!=observed, non-null asset, override=true; adjudicated_unresolved requires null canonical/asset and override=false. All require approved status and immutable case lineage.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "adjudication_evidence_digest_mismatch_rows",
+      "description": "evidence_refs must be canonical sorted JSON; SHA-256, total count, external count, referenced immutable artifacts, and evidence_cutoff_session must reproduce exactly. External availability is no earlier than both publication and capture availability.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "external_evidence_manifest_binding_invalid_rows",
+      "description": "external_evidence_record_count=0 requires both external-manifest fields null; a positive count requires a trusted content-addressed manifest whose every record binds source authority class, normalized URL, immutable captured path/bytes/SHA, publication and retrieval timestamps, exact assertion, availability, and evidence_ref. An uncaptured live URL, mutable page, missing timestamp, unavailable artifact, or manifest digest mismatch is invalid. External evidence informs review but never auto-overrides provider identity or bypasses row-specific approval.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "adjudication_approval_chain_invalid_rows",
+      "description": "Workflow order must be candidate manifest then decision-plan logical payload/bytes then row-specific receipt then registry. Each accepted receipt binds exact plan/candidate/adjudication IDs and SHAs, actor, approved decision, and timestamp; plan bytes contain no approval field or self SHA.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "adjudication_approval_binding_conflict_rows",
+      "description": "One adjudication ID may bind exactly one accepted approval receipt tuple globally; conflicting actor/time/plan/candidate/receipt bindings fail rather than selecting one.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "adjudication_availability_mismatch_rows",
+      "description": "approval_available_session is the first bound-calendar open strictly after approval; adjudication_available_session is max(case, evidence, approval); adjudication_available_at_utc is its official open. All rule/calendar fields must match.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "adjudication_terminal_head_selection_invalid_rows",
+      "description": "For each series and explicit resolution cutoff within one pinned registry release, select exactly the highest complete-chain version with availability not after cutoff. No available version means pending unresolved; simple masking of a later materialized row is forbidden.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "adjudication_scope_overlap_rows",
+      "description": "After terminal-head selection, one exact S4 source row may match at most one effective decision; overlaps fail rather than using recency, version, or input order as a tie-breaker.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "canonical_override_target_unanchored_rows",
+      "description": "A confirmed contamination target must be independently anchored by eligible, non-conflicted direct S4 evidence outside the B episode; S6-only, suspected, or adjudicated rows cannot create the target. Confirmed genuine promotes only its own observed B episode.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "outcome_or_backtest_evidence_rows",
+      "description": "No return, factor, portfolio, or backtest outcome may be used as adjudication evidence.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "silent_or_global_canonical_override_rows",
+      "description": "Every observed-to-different-canonical mapping matches one exact full episode and approved decision. Majority, longest run, prior/next/latest value, partial record sets, or global B-to-A rules are forbidden.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "provider_figi_bounce_cases_without_reason_counts",
+      "description": "The candidate manifest must report all v1 cases by 1, 2-5, and 6-20 session bands, support-reason counts, case availability, and bounded examples before review.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    }
+  ],
+  "schema_version": 1,
+  "sort_by": [
+    "adjudication_series_id",
+    "decision_version"
+  ],
+  "source_datasets": [
+    "asset_observation_daily",
+    "asset_observation_version",
+    "universe_source_daily",
+    "ticker_event_request_status",
+    "ticker_change_event",
+    "ticker_overview_safe",
+    "identity_case_candidate_manifest",
+    "identity_external_evidence_manifest",
+    "identity_adjudication_plan"
+  ],
+  "table": "identity_adjudication"
+}

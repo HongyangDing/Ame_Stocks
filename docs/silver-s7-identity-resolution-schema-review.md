@@ -6,15 +6,28 @@
 provider 污染。若同一 ticker 出现 `A → B → A`，旧方案会把 B 直接提升为强身份，既可能让错误资产
 进入回测，也无法在保留原始 B 的同时把研究身份映射回 A。
 
-因此旧四份 S7 proposal 和本次复核前的中间候选均已撤回。本次只更新：
+因此旧四份 S7 proposal 和本次复核前的中间候选均已撤回。第 13 节五份最终候选已由用户在
+2026-07-15 以 `审批通过 进行下一步` 明确批准；该原文 SHA-256 为
+`bd4de939dc2aef5146f6c6f51dcffede9b466cac29cc180cbad783ae0104a0d9`，其批准对象是上一审批点逐项
+展示的五份 exact Contract ID / Candidate SHA-256，不扩展到 preview、Full 或 publish。
+
+批准后的本轮实现只更新：
 
 1. S7 source profile 的设计含义；
 2. 一份独立 `identity_adjudication` registry contract；
 3. `asset_master`、`ticker_alias`、`issuer_master`、`universe_daily` 四份 cutoff-bound contracts；
-4. schema-level fixed vectors、hashes 和 QA tests。
+4. schema-level fixed vectors、hashes 和 QA tests；
+5. exact-release source reader、**有硬内存上限的 preview/fixture detector**、candidate manifest、外部证据/
+   裁决控制链、exact registry snapshot 和纯内存 cutoff fixture；
+6. genuine、confirmed contamination、pending/adjudicated unresolved、conflict 和 availability 的固定小样本。
 
-没有实现或运行 S7 transform、fixture、preview、FullRunPlan、PublishPlan 或任何远端 S7 数据任务；没有
-写入远端 staging/Silver，也没有修改 Bronze 或已发布 S1–S6 release。
+当前状态为 **schema approved / bounded control primitives implemented / production ingress blocked /
+awaiting code review**。最终审计确认，当前 generic detector 和纯内存 resolver 只能用于固定 fixture 或另行
+限定的 preview，不能证明输入 observations/membership 来自六份 exact releases，也不能承载 69,376,329 行
+全历史输入。代码因此拒绝将仅由调用方填写正式 binding、但没有 exact source-bundle verification 的
+candidate 送入 production adjudication store。没有运行真实 S7 detector、没有产生远端 candidate manifest
+或 adjudication、没有实现/运行四表 materialization、preview、FullRunPlan、PublishPlan 或任何远端 S7
+数据任务；没有写入远端 staging/Silver，也没有修改 Bronze 或已发布 S1–S6 release。
 
 ## 2. 固定 Massive 证据没有改变
 
@@ -90,8 +103,14 @@ case 也必须保留并 fail closed。四表仍作为一个 coordinated sibling 
 
 ## 5. Bounce detector 只发现，不裁决
 
-`s7_provider_figi_bounce_detector_v1` 的 case 是 exact case-sensitive ticker 在全局 S4 source-session
+`s7_provider_figi_bounce_detector_v1` 的 case 是 exact case-sensitive ticker 在给定 S4 source-session
 spine 上的三个 maximal runs：外侧均为 A，中间为不同且有效的 B，B 最长 20 个 XNYS sessions。
+
+当前函数会把输入物化为内存对象，因此明确限制最多 250,000 observations 与 5,000 source sessions；这是
+preview/fixture 安全上限，不是十年全市场 runner。正式 runner 必须由 `open_identity_source_bundle()` 内部
+读取六份 exact releases，生成不可伪造的 source verification，按 session 流式维护状态，并把 release
+manifests、artifact scope、日期/股票范围、行数和 record-set digest 写入 candidate manifest。在该入口完成前，
+正式 six-release binding 的 unattested candidate 会被 control store 拒绝。
 
 以下任一情况都会打断 run，不能跨越后拼成 A/B/A：
 
@@ -265,10 +284,11 @@ run 才能产生；本次 schema review 不预先批准任何 future warning。
 7. observed/canonical hierarchy mismatch；
 8. active membership 不变、liquidation signal=false、run-incomplete state。
 
-这些是 schema-level decision vectors 和 digest tests，不是 transform fixture，也不能证明 backtest engine 已
-执行 no-forced-exit 行为。
+这些规则现在同时有 schema-level vectors 和纯内存 pipeline fixture；fixture 只验证规则矩阵、cutoff 和
+fail-closed 行为。它不证明 observations/membership 来自正式 S4 release，也不是四表 Parquet transform，
+不能证明 backtest engine 已执行 no-forced-exit 行为。
 
-## 13. 新候选 contracts
+## 13. 已批准并资源化的 contracts
 
 | Table | columns / QA | Contract ID | Arrow schema digest | Candidate SHA-256 |
 | --- | ---: | --- | --- | --- |
@@ -278,7 +298,7 @@ run 才能产生；本次 schema review 不预先批准任何 future warning。
 | `identity/issuer_master` | 30 / 33 | `4951c0ab96fdd91b961cf4234185607e858856fb1b1ad4279b2e84d41fb2eb58` | `638f66cdb812ed657844e26c91ea7e1dcda4b27aa7ea4aedd75e94b0353c8bd9` | `6f326ae11885affb5bac37500c2006bdc845f2205d7388e2043b5504d0fb0ec8` |
 | `reference/universe_daily` | 48 / 47 | `0555e785b4fb5f9df8832d37f8c08cf5fc487e8573993cf39ae3ffba4ccc45b0` | `e22cddaa57c7836f49bc21633a521f795751e473b22b4f3215b13d2e74c83b68` | `fe8d5760384322419eb28a0f8b3af6f45d52c1cbba18bc5226578fa471766701` |
 
-候选文件：
+批准时的候选文件：
 
 - [`identity_adjudication.schema-v1.candidate.json`](silver/contracts/identity/identity_adjudication.schema-v1.candidate.json)
 - [`asset_master.schema-v1.candidate.json`](silver/contracts/identity/asset_master.schema-v1.candidate.json)
@@ -296,16 +316,35 @@ run 才能产生；本次 schema review 不预先批准任何 future warning。
 复核过程中的中间五份 IDs（`91df2789…`、`c06cedc8…`、`5d87d912…`、`3155390e…`、
 `79edaa58…`）也不是待批准版本。
 
-## 14. 下一审批点
+## 14. Code-ready 实现结果
 
-当前状态：**combined-source profile complete；五份 revised candidates awaiting explicit re-approval；
-transform code not started；no remote S7 task run**。
+| 组件 | 入口 | Fail-closed 边界 |
+| --- | --- | --- |
+| 五份批准合同 | `identity_resolution_contract.py` | import 时同时校验 exact Contract ID 与 approved file SHA |
+| 六表 source reader | `identity_source.py` | 只接受固定六个 release ID/manifest SHA/build/row count；无 latest lookup |
+| bounce detector | `identity_bounce.py` | preview/fixture 内存上限 250k rows；exact ticker maximal `A→B→A`，1–20 sessions；只发现、不裁决 |
+| candidate manifest | `identity_bounce.py` | canonical content-addressed path、完整 cases、reason counts、bounded examples；正式 binding 缺 source verification 时禁止进入裁决 |
+| 外部证据 | `identity_adjudication.py` | URL/bytes/SHA/timestamps/assertion/license 固化；敏感 query 与篡改拒绝 |
+| 裁决控制链 | `identity_adjudication.py` | exact real candidate cases、plan、row approval、append-only successor |
+| registry snapshot | `identity_adjudication.py` | 显式 decision IDs 的不可变 release；新增 successor 不改变旧 snapshot |
+| cutoff fixture | `identity_resolution.py` | control object 精确、membership 仍由 fixture 提供；pending/unresolved 无 alias、不可回测；不导出 production API |
+| availability | `calendar_artifact.py` / `availability.py` | exact immutable calendar ID/SHA；candidate、approval、registry availability 重算 |
 
-如批准，请逐字批准第 13 节五份 Contract ID 与 Candidate SHA-256。该批准只允许下一阶段实现：
+实现中的三个用户指定 gate 已闭合：
 
-1. source readers；
-2. bounded bounce detector 与 immutable candidate manifest；
-3. optional external-evidence capture contract 和 adjudication control lifecycle；
-4. cutoff-bound resolution engine 与固定小样本 fixture。
+- detector manifest 产出 `suspected_provider_figi_bounce_rows`、reason counts 和 bounded examples；
+- resolver 强制 `unapproved_canonical_identity_override_rows=0`；
+- pending/adjudicated-unresolved 行强制
+  `suspected_provider_contamination_eligible_rows=0`、无 alias、无 liquidation signal。
 
-实现后仍停在 code-ready / bounded review；不会直接运行十年 preview、Full 或 publish。
+定向自动测试覆盖 approved contract byte hashes、bounded detector、candidate→adjudication fixture 绑定、
+外部证据、registry snapshot、cutoff、三类 `A→B→A`、withdrawal、relationship conflict、无强平信号和
+content-addressed XNYS calendar。测试只在临时目录写 synthetic artifacts，不写远端数据盘。
+
+## 15. 下一审批点
+
+当前硬停在 **bounded primitives / production ingress blocked / awaiting review**。下一次若继续，不能直接
+运行 detector preview；应先实现并审查 source-bound、流式的 production preview runner，以及逐条
+provider evidence selection/verification manifest。随后才能单独定义一个有明确 session/ticker/row 上限的
+本地或远端 detector preview。该 preview 只能生成待审 candidate manifest 和 QA 摘要，不能自动生成裁决、
+四表 FullRunPlan 或 publish，也不能沿用本次 schema/code approval 启动十年扫描。
