@@ -206,16 +206,20 @@
     }
   },
   "design_implications": [
-    "Use exact Composite FIGI as the v1 U.S. tradable asset anchor; Share-class FIGI is a parent layer and one share class may legitimately map to multiple Composite-FIGI assets.",
+    "Preserve exact provider-observed Composite FIGI separately from canonical research identity. Direct exact Composite remains the default asset anchor, but a short A-to-B-to-A observation is not promoted automatically; any observed-to-different-canonical mapping requires an independently published, episode-scoped identity adjudication.",
     "Never generate or merge asset_id from CIK, ticker, name, ticker root, or Share-class FIGI alone.",
     "Allow accepted S5 ticker_change_event rows to attach only to an asset independently anchored by accepted S4 selected membership or accepted S6 Overview; unattached S5 event identities remain upstream review evidence and create no S7 identity.",
-    "Use S4 daily active membership as the only interval spine; S6 first/last dates are observation envelopes and S5 events only corroborate boundaries.",
+    "Use S4 daily active membership as the only interval spine; S6 first/last dates are observation envelopes and S5 events only corroborate boundaries. Neither S5/S6 presence nor absence automatically proves a genuine transition or provider contamination.",
     "Associate an accepted S5 event to a ticker_alias interval only by exact Composite FIGI, exact case-sensitive ticker, ordinary_calendar_date quality, inclusive observed-date containment, and exactly one interval match; all other events remain unassociated review evidence.",
-    "Keep unresolved active S4 rows visible and backtest-ineligible; do not silently drop them during identity enrichment.",
+    "Detect maximal-run exact-ticker A-to-B-to-A episodes with a middle run of at most 20 XNYS sessions as review cases. Ticker absence, inactive membership, a global-session gap, or null/malformed observed Composite FIGI breaks a run; the case becomes available only after its right-side A evidence and content-addressed candidate manifest are available.",
+    "Publish identity_adjudication as a protected append-only revision registry before the four derived S7 tables consume one exact release. At an explicit research cutoff, use only the unique highest complete-chain version whose case, evidence, approval, registry publication, and bound-calendar availability are not later than the cutoff; an approved adjudicated_unresolved successor is the only way to withdraw an earlier mapping without rewriting history.",
+    "Permit unresolved cases to use separately captured external corroboration, but only through an immutable content-addressed evidence manifest recording authority class, URL, captured bytes and SHA, publication and retrieval timestamps, exact asserted fields, and availability. A live URL or third-party majority never auto-overrides provider identity and all decisions still require row-specific approval.",
+    "Keep provider-observed FIGI, Share-class FIGI, and CIK lineage separate from canonical research FIGI, Share-class FIGI, and CIK hierarchy. A confirmed relationship does not bypass independent anchor, hierarchy, or conflict eligibility gates.",
+    "Keep identity quality independent from membership and trading status: unresolved rows remain active membership and cannot become inactive, delisted, zero-return, stale-price carry, or forced-liquidation signals. S7 exposes a fail-closed continuity state; executable existing-position behavior remains a required later backtest-engine blocker test.",
     "Emit no superseded asset or issuer state in v1 because the fixed six-release bundle contains no independently approved supersession source or availability rule.",
     "Treat 2026-captured names, SIC, type descriptions, and Overview fields as retrospective reference metadata rather than historical factor inputs."
   ],
-  "deterministic_fact_digest": "f788483993e6c4536eb15acece4a90ddd4e8e86005763bfe8ad43d84ac7ec3af",
+  "deterministic_fact_digest": "42141c3998e3ae3270b9fdf4994363edb06a3c7adb7eed6b26a161264593c04d",
   "deterministic_fact_digest_scope": [
     "active_anchor_by_type",
     "control_file_receipts",
@@ -536,7 +540,8 @@
     "The 169 S6 quarantine rows have been classified but not accepted or resolved.",
     "S6 lifecycle envelopes do not prove continuous ticker validity.",
     "S5 events do not expose predecessor ticker and cannot independently define alias intervals.",
-    "No permanent asset_id, share_class_id, issuer_id, ticker interval, or backtest-eligible universe has been generated."
+    "No permanent asset_id, share_class_id, issuer_id, ticker interval, or backtest-eligible universe has been generated.",
+    "The full-history s7_provider_figi_bounce_detector_v1 numerator and reason counts have not been computed; this schema redesign did not run any remote S7 data task."
   ],
   "write_boundary": {
     "bronze_or_published_silver_modified": false,

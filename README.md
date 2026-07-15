@@ -32,8 +32,13 @@ now at **Silver Phase 2 with S1–S6 published; S7 is stopped at schema review**
   `backtest_identity_eligible=false`;
 - S6 published 30,570 retrospective Overview evidence rows plus 169 pending High quarantine rows;
   permanent identity, ticker validity intervals, and a backtestable universe still require S7;
-- S7 has completed its read-only combined-source profile and proposed four schema candidates. It is
-  stopped before transform code, fixture, preview, or release pending explicit schema approval.
+- S7 has completed its read-only combined-source profile and replaced the withdrawn four-table
+  proposal with five revised candidates: one protected `identity_adjudication` registry plus four
+  cutoff-bound derived tables that separate provider-observed from canonical identity and hierarchy.
+  The registry supports immutable reviewed revisions, including explicit withdrawal to unresolved;
+  unresolved cases may add content-addressed external-source snapshots, never mutable links or
+  automatic third-party overrides. The work is stopped before transform code, pipeline fixture,
+  preview, or release and remains pending explicit re-approval.
 
 The final strict full audit is
 `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/bronze/full-2026-07-12-v9.json`
@@ -91,9 +96,10 @@ documented in
 [docs/silver-s5-ticker-events-schema-review.md](docs/silver-s5-ticker-events-schema-review.md). The
 published S6 evidence contract, lifecycle coverage, QA/quarantine results, and release are documented
 in [docs/silver-s6-ticker-overview-schema-review.md](docs/silver-s6-ticker-overview-schema-review.md).
-The current hard stop is S7 schema approval: the read-only joint profile and four revised candidates
-exist, but no S7 transform, fixture, preview, full build, or release is authorized. The exact input
-binding, profile findings, ID rules, contract digests, and approval wording are in
+The current hard stop is S7 schema re-approval: the read-only joint profile and five revised
+candidates exist, but no S7 transform, pipeline fixture, preview, full build, or release is
+authorized. The exact input binding, observed/canonical split, adjudication rules, contract digests,
+and approval wording are in
 [docs/silver-s7-identity-resolution-schema-review.md](docs/silver-s7-identity-resolution-schema-review.md).
 For S4, the approved schemas are loaded by
 [asset_contract.py](backend/ame_stocks_api/silver/asset_contract.py); the manifest-bound reader and

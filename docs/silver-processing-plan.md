@@ -10,9 +10,10 @@ Bronze 已具备进入 Silver 的条件。最终 Bronze v9 已证明冻结范围
 编号 S1–S34 中，S7、S14、S15 是跨数据集派生审批点；其余 31 项与 31 个 Bronze family
 一一对应。
 
-截至 2026-07-14，S1–S6 已分别发布；S7 的只读 combined-source profile 与四份 schema candidate
-已完成，当前为 `schema review / awaiting explicit approval`，尚无 transform、fixture、preview 或
-release。不能描述成“全部 Silver 数据已处理”：
+截至 2026-07-15，S1–S6 已分别发布；S7 的只读 combined-source profile 已完成，旧四表 proposal
+因 provider-FIGI bounce 风险撤回，现有一份受保护 `identity_adjudication` registry 加四份派生表共五份
+revised schema candidates。当前为 `revised schema review / awaiting explicit re-approval`，尚无
+transform、pipeline fixture、preview 或 release。不能描述成“全部 Silver 数据已处理”：
 
 - S1 exchanges、S2 ticker types 和 S3 condition codes 已正式发布；
 - S4 Assets 的十年 full scope 已按三个精确 `FullRunPlan` 完成并作为一个原子 release set 发布；
@@ -511,23 +512,39 @@ quarantine issue 只在 full/publish 审批中按 ID 接受。169 条仍是 `pen
 - QA：30,570/30,739 identity match；169 行隔离/人工复核；`list_date <= query_date`；SIC/list
   date coverage；不得把 safe SIC 描述成完整 PIT industry。
 
-### S7 — 派生 `asset_master` / `ticker_alias` / `issuer_master` / `universe_daily`
+### S7 — `identity_adjudication` + `asset_master` / `ticker_alias` / `issuer_master` / `universe_daily`
 
-**状态（2026-07-14）：`schema review / awaiting explicit approval`。** 只读 combined-source
-profile 和四份 candidate contract 已完成，详见
+**状态（2026-07-15）：`revised schema review / awaiting explicit re-approval`。** 只读
+combined-source profile 和五份 revised candidate contracts 已完成，详见
 [`silver-s7-identity-resolution-schema-review.md`](silver-s7-identity-resolution-schema-review.md)。
-当前没有 S7 transform、fixture、preview、FullRunPlan 或 release。只有用户逐字批准四个 Contract ID、
-candidate SHA 和 active-only `universe_daily` 选择后，才可进入 code-ready；后续 bounded preview、
-Full 和 publish 仍分别审批。
+当前没有 S7 transform、pipeline fixture、preview、FullRunPlan 或 release。旧四份 ID/SHA 已撤回；
+只有用户逐字批准新五份 Contract ID/candidate SHA 后，才可进入 code-ready；后续 detector case
+manifest、adjudication registry、bounded preview、Full 和 publish 仍分别审批。
 
 S7 必须在 S4–S6 分别验收后单独审批：
 
 - 综合 Assets、Ticker Events 和 Overview 身份证据；
+- 确定性检测短期 `A → B → A`，但 detector 只报警，不能自动 canonicalize；
+- `identity_adjudication` 先作为 episode-scoped、append-only、显式批准且可追加
+  `adjudicated_unresolved` 撤回版本的受保护 registry 单独发布；
+- 永久分离 provider-observed 与 canonical research 的 Composite FIGI、Share-class FIGI 和 CIK hierarchy，
+  禁止多数/最近值静默覆盖，也禁止 FIGI 裁决绕过其他 relationship conflict；
+- Massive 无法确认的 case 可使用监管、交易所、FINRA、公司公告或 reviewed identifier reference，但
+  必须先固化原始快照、URL、SHA、公布/抓取时间、具体 assertion 与 availability；可变 URL 或第三方
+  majority 不能自动产生 canonical override；
 - 生成确定性 `asset_id`、`issuer_id` 和 ticker 有效区间；
 - 生成 `reference/universe_daily`，以每个信号日的 active snapshot 为左表，附最终
   `asset_id`、身份状态、security type 和版本选择 lineage；
-- 同 ticker 不同 FIGI 拆成不同资产，同 FIGI 的非重叠 ticker 生命周期才可候选合并；
+- 同 ticker 不同 observed FIGI 必须拆成不同 observation interval；canonical asset 默认也不同，只有
+  绑定完整 episode、证据、审批与 availability 的版本化 adjudication 才能让不同 observed FIGI
+  指向同一 canonical asset；
+- 所有四张派生表都绑定明确的 identity-resolution cutoff 与不晚于 cutoff 的 registry release；不能把
+  一张后来生成的 revised 表简单按日期 mask 后冒充 historical-as-known；
 - 仅凭名字、ticker root 或相同 CIK 不自动合并 share class；
+- identity quality 不改变 active/inactive/delist，也不能独自触发强制平仓；
+- S7 只输出 fail-closed continuity state 和恒假的 identity-quality liquidation signal；已有持仓遇到身份
+  不确定时不强平、不填零收益、不静默 carry stale price 的实际执行逻辑，必须在后续 backtest engine
+  fixture 中作为独立 blocker test 验证，不能由 schema approval 代替；
 - 输出 identity coverage、conflict、provisional 和人工 review 清单。
 
 ### S8 — `ipos`
@@ -844,14 +861,15 @@ quarantine 并等待人工 review；Medium/Low 保留标志，不能从分母中
 
 ## 15. 推荐的下一步
 
-S0–S6 已分别通过独立审批并完成；S7 combined-source profile 与四份 schema proposal 也已完成。
+S0–S6 已分别通过独立审批并完成；S7 combined-source profile 与五份 revised schema proposal 已完成。
 当前下一步只建议：
 
-1. 用户逐字批准四份 S7 Contract ID、candidate file SHA-256，并确认 active-only
-   `universe_daily`；
-2. 获批后只实现 source readers、resolution engine、正式 contract resources 与固定小样本 fixture，
-   然后停在 code-ready；
-3. 后续严格按 bounded preview → review → 单独批准 full/publish 推进，不沿用 S6 的连续完成授权。
+1. 用户逐字批准五份 S7 Contract ID 与 candidate file SHA-256；
+2. 获批后只实现 source readers、bounded bounce detector/candidate manifest、optional external-evidence
+   capture contract、adjudication control lifecycle、resolution engine 与固定小样本测试，然后停在
+   code-ready；
+3. 先显式 review/approve adjudication registry，再让四张派生表消费 exact registry release；
+4. 后续严格按 bounded preview → review → 单独批准 full/publish 推进，不沿用 S6 的连续完成授权。
 
 当 S4–S15（身份、公司行动、三套行情、复权和收益）完成并发布后，price-derived Barra 和
 普通日频因子即可开始；S16–S34 可以继续逐项扩充，不应阻塞第一批价格型因子。

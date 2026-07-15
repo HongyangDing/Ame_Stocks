@@ -15,9 +15,13 @@ ROOT = Path(__file__).resolve().parents[1]
 PROFILE_PATH = (
     ROOT / "docs/silver/source-profiles/identity-resolution-s7-2026-07-14.json"
 )
-PROFILE_SHA256 = "02678e174d70d2801152a4fed67c2e6579f32ed0a2d3922cfc63651df4851545"
+PROFILE_SHA256 = "b35e7df2ceb136b7717b0c8faf36e01e83599f3425dae3e05dc76901b083f2d0"
 
 CANDIDATE_PATHS = {
+    "identity_adjudication": (
+        ROOT
+        / "docs/silver/contracts/identity/identity_adjudication.schema-v1.candidate.json"
+    ),
     "asset_master": (
         ROOT / "docs/silver/contracts/identity/asset_master.schema-v1.candidate.json"
     ),
@@ -32,22 +36,25 @@ CANDIDATE_PATHS = {
     ),
 }
 EXPECTED_CONTRACT_IDS = {
-    "asset_master": "d7a6ef66f72c1048b6556b57910af3afbea4926661f3c6062708937fbc2b4ba6",
-    "ticker_alias": "e645573e813c18a82fcea80f3bfef07c547c738fc00cc01419a1f1824a27a47b",
-    "issuer_master": "33c146bab2a9aed61a44d8c20e9b301fd1aa116deb5185214df92a4ee69f632d",
-    "universe_daily": "915a389ccfa9d8442cd2b7b2a14f782adf68f2bb5c8635ddf90224102750e319",
+    "identity_adjudication": "6423cc01b952498cc78d55e93a349d7afe408bd30003e4f7be59f211102f2d5e",
+    "asset_master": "adbba0d86bd9681e034b0ffda3e380da40b6fc92d280942d856d416a1b53f868",
+    "ticker_alias": "384d1e5acf2181f929e29c5e3a5369a796f0ee42cdde7740b7ca3bdfdf8faf3b",
+    "issuer_master": "4951c0ab96fdd91b961cf4234185607e858856fb1b1ad4279b2e84d41fb2eb58",
+    "universe_daily": "0555e785b4fb5f9df8832d37f8c08cf5fc487e8573993cf39ae3ffba4ccc45b0",
 }
 EXPECTED_SCHEMA_DIGESTS = {
-    "asset_master": "83415d165ed166cea75fc9103c0ce062bac893bb725cea478759bdf049f138ff",
-    "ticker_alias": "e5b021c0e1ae2e956b815b41a1f8ecd8ad9762daecbd6b5d9088654770143793",
-    "issuer_master": "0b308f96f3277385e40faf1f42a3aa420df1dd7d9dd85f7a932036fec8527f6e",
-    "universe_daily": "c6133821e404b3a35ed7b460035796ffee6a1d69c456c8f380076fa6e9cd2329",
+    "identity_adjudication": "e5082a8611bedb6913f79da506f1f5cc19c94507b9e27d04edfb88566033575f",
+    "asset_master": "827ce87a698faa903c35b93f8957f807a83caedf4936736f351adc881fa4cdc0",
+    "ticker_alias": "dd79463bc022a49b65c441f3baf98a3455c06ab563bbccf22ae100ab5c787e95",
+    "issuer_master": "638f66cdb812ed657844e26c91ea7e1dcda4b27aa7ea4aedd75e94b0353c8bd9",
+    "universe_daily": "e22cddaa57c7836f49bc21633a521f795751e473b22b4f3215b13d2e74c83b68",
 }
 EXPECTED_FILE_SHA256 = {
-    "asset_master": "ef8b6a9160a20a9f9d7313e978c7588ee26db97fe994139399511d532cf2cce4",
-    "ticker_alias": "5da4cedd48bc83d39225e2facaf1c2f05ef5655f3ec2480e5d42067f8daba77f",
-    "issuer_master": "4f637d92bf89fb685577be013809649c82967400228648c54272d785ab3d5e6a",
-    "universe_daily": "12cf84371b99e23c10b4578760bf8ee6b64a139505bfacf0e6ac521325ca8a84",
+    "identity_adjudication": "eb5e9d1746ad2014d7b0e4a9a56ffa29e4f36cf1e1d18d348634a058f0d22231",
+    "asset_master": "0a6dd9cb244e60723eeff625b6d82b42fc6fe882fbe0660532807054a4f717f2",
+    "ticker_alias": "8ef120892c5748ca51fc1242d143372237c1b5d9b92ac9f4f2585aea48fd5afe",
+    "issuer_master": "6f326ae11885affb5bac37500c2006bdc845f2205d7388e2043b5504d0fb0ec8",
+    "universe_daily": "fe8d5760384322419eb28a0f8b3af6f45d52c1cbba18bc5226578fa471766701",
 }
 
 EXPECTED_SIX_UPSTREAM = (
@@ -58,11 +65,27 @@ EXPECTED_SIX_UPSTREAM = (
     "ticker_change_event",
     "ticker_overview_safe",
 )
+EXPECTED_ADJUDICATION_UPSTREAM = (
+    *EXPECTED_SIX_UPSTREAM,
+    "identity_case_candidate_manifest",
+    "identity_external_evidence_manifest",
+    "identity_adjudication_plan",
+)
+EXPECTED_DERIVED_UPSTREAM = (
+    *EXPECTED_SIX_UPSTREAM,
+    "identity_case_candidate_manifest",
+    "identity_adjudication",
+)
 EXPECTED_BINDING_COLUMNS = {
+    "identity_resolution_cutoff_session",
     "source_s4_release_set_id",
     "source_s5_status_release_id",
     "source_s5_event_release_id",
     "source_s6_overview_release_id",
+    "source_identity_case_candidate_manifest_id",
+    "source_identity_case_candidate_manifest_sha256",
+    "source_identity_adjudication_release_id",
+    "source_identity_adjudication_release_available_session",
 }
 
 
@@ -175,7 +198,7 @@ def test_s7_profile_is_machine_readable_and_exactly_reconciled() -> None:
     }
     assert stable_digest(fact_payload) == profile["deterministic_fact_digest"]
     assert profile["deterministic_fact_digest"] == (
-        "f788483993e6c4536eb15acece4a90ddd4e8e86005763bfe8ad43d84ac7ec3af"
+        "42141c3998e3ae3270b9fdf4994363edb06a3c7adb7eed6b26a161264593c04d"
     )
     controls = profile["control_file_receipts"]
     lifecycle = controls["ticker_overview_lifecycle_plan"]
@@ -306,6 +329,7 @@ def test_s7_candidate_contracts_are_valid_and_digest_frozen() -> None:
         name: (contract.domain, contract.table, contract.schema_version)
         for name, contract in contracts.items()
     } == {
+        "identity_adjudication": ("identity", "identity_adjudication", 1),
         "asset_master": ("identity", "asset_master", 1),
         "ticker_alias": ("identity", "ticker_alias", 1),
         "issuer_master": ("identity", "issuer_master", 1),
@@ -315,25 +339,33 @@ def test_s7_candidate_contracts_are_valid_and_digest_frozen() -> None:
         name: (len(contract.columns), len(contract.qa_rules))
         for name, contract in contracts.items()
     } == {
-        "asset_master": (26, 26),
-        "ticker_alias": (29, 33),
-        "issuer_master": (24, 27),
-        "universe_daily": (32, 33),
+        "identity_adjudication": (51, 19),
+        "asset_master": (40, 34),
+        "ticker_alias": (44, 44),
+        "issuer_master": (30, 33),
+        "universe_daily": (48, 47),
     }
+    assert contracts["identity_adjudication"].source_datasets == (
+        EXPECTED_ADJUDICATION_UPSTREAM
+    )
     assert all(
-        contract.source_datasets == EXPECTED_SIX_UPSTREAM
-        for contract in contracts.values()
+        contracts[name].source_datasets == EXPECTED_DERIVED_UPSTREAM
+        for name in ("asset_master", "ticker_alias", "issuer_master", "universe_daily")
     )
     assert all(
         {column.name for column in contract.columns if not column.nullable}
         >= EXPECTED_BINDING_COLUMNS
-        for contract in contracts.values()
+        for name, contract in contracts.items()
+        if name != "identity_adjudication"
     )
+    assert "identity_adjudication" not in contracts[
+        "identity_adjudication"
+    ].source_datasets
     assert all(
         {"asset_master", "ticker_alias", "issuer_master", "universe_daily"}.isdisjoint(
-            contract.source_datasets
+            contracts[name].source_datasets
         )
-        for contract in contracts.values()
+        for name in ("asset_master", "ticker_alias", "issuer_master", "universe_daily")
     )
 
 
@@ -366,22 +398,162 @@ def test_s7_deterministic_identity_fixed_vectors() -> None:
     )
     assert issuer_id == "cd178adefcd4e3b564cafee98411e18c87bd843d91eeb502a4ac2604dfee7940"
 
+    episode_source_record_set_digest = stable_digest(["s4-b-001", "s4-b-002"])
+    assert episode_source_record_set_digest == (
+        "c198348b6aec22c308729c9b042557bd68c6a39f5825acd7f352d785e963c49c"
+    )
+    identity_case_payload = {
+        "namespace": "ame_stocks.identity.provider_figi_bounce_case",
+        "rule_version": "s7_provider_figi_bounce_case_id_v1",
+        "six_release_binding_id": (
+            "49f3d20725f2609b43d6736df78993b2975c9f1b71947af93190dc0658366c64"
+        ),
+        "detector_rule_version": "s7_provider_figi_bounce_detector_v1",
+        "ticker": "AAPL",
+        "left_outer_composite_figi": "BBG000B9XRY4",
+        "middle_observed_composite_figi": "BBG000BPH459",
+        "right_outer_composite_figi": "BBG000B9XRY4",
+        "left_outer_source_record_id": "s4-a-left",
+        "right_outer_source_record_id": "s4-a-right",
+        "episode_valid_from_session": "2024-01-03",
+        "episode_valid_through_session": "2024-01-04",
+        "episode_source_record_set_digest": episode_source_record_set_digest,
+    }
+    identity_case_id = stable_digest(identity_case_payload)
+    assert identity_case_id == (
+        "8cd333b4fb72b62e4534ddb316d2ebf30f3cc6d852e19ea778375c13b7daa46e"
+    )
+    adjudication_series_payload = {
+        "namespace": "ame_stocks.identity.adjudication_series",
+        "rule_version": "s7_identity_adjudication_series_id_v1",
+        "identity_case_id": identity_case_id,
+    }
+    adjudication_series_id = stable_digest(adjudication_series_payload)
+    assert adjudication_series_id == (
+        "2a5a3791079973fbf1efa307feed29165225c74afe3dfe745a64072a1646c5dd"
+    )
+    evidence_digest = stable_digest(
+        [
+            {
+                "dataset": "asset_observation_daily",
+                "release_id": "r-s4",
+                "source_record_id": "s4-a-left",
+            },
+            {
+                "dataset": "asset_observation_daily",
+                "release_id": "r-s4",
+                "source_record_id": "s4-a-right",
+            },
+        ]
+    )
+    assert evidence_digest == (
+        "94c74efd73502eb2f645f8a2a84f1c19b9a89a5087d398249b7c9f14a03de06e"
+    )
+    asset_b_id = stable_digest(
+        {
+            "namespace": "ame_stocks.identity.asset",
+            "rule_version": "ame_stocks_asset_id_from_composite_figi_v1",
+            "anchor_type": "composite_figi",
+            "anchor_value": "BBG000BPH459",
+        }
+    )
+    adjudication_base = {
+        "namespace": "ame_stocks.identity.adjudication",
+        "rule_version": "s7_identity_adjudication_id_v1",
+        "adjudication_series_id": adjudication_series_id,
+        "decision_version": 1,
+        "supersedes_identity_adjudication_id": None,
+        "identity_case_id": identity_case_id,
+        "evidence_digest": evidence_digest,
+    }
+    genuine_adjudication_id = stable_digest(
+        {
+            **adjudication_base,
+            "canonical_asset_id": asset_b_id,
+            "canonical_composite_figi": "BBG000BPH459",
+            "disposition": "confirmed_genuine_transition",
+            "reason_code": "corroborated_security_transition",
+            "reason_detail": (
+                "Bounded S4 episode and corroborating identity fields support a "
+                "genuine transition."
+            ),
+        }
+    )
+    contamination_adjudication_id = stable_digest(
+        {
+            **adjudication_base,
+            "canonical_asset_id": asset_id,
+            "canonical_composite_figi": "BBG000B9XRY4",
+            "disposition": "confirmed_provider_contamination",
+            "reason_code": "provider_figi_episode_contamination",
+            "reason_detail": (
+                "Bounded S4 episode lacks a paired identity transition and the "
+                "outer canonical anchor is independently supported."
+            ),
+        }
+    )
+    withdrawn_adjudication_id = stable_digest(
+        {
+            **adjudication_base,
+            "decision_version": 2,
+            "supersedes_identity_adjudication_id": contamination_adjudication_id,
+            "canonical_asset_id": None,
+            "canonical_composite_figi": None,
+            "disposition": "adjudicated_unresolved",
+            "reason_code": "withdraw_prior_identity_mapping",
+            "reason_detail": (
+                "New evidence invalidates the prior mapping; retain the episode as "
+                "unresolved pending further review."
+            ),
+        }
+    )
+    assert genuine_adjudication_id == (
+        "4b06f7fb805fbda6176cbc41df5feb7d1607998a6dc5dd303a357163409f5d9d"
+    )
+    assert contamination_adjudication_id == (
+        "d897dffb0aa7cb874c3abb723e9ae95d8ff1ceebdf2a8fb61b9badff958db8bf"
+    )
+    assert withdrawn_adjudication_id == (
+        "970cbf5d97c646df84ec31715de710707646f428658dc20ad9fd2fcf162a2777"
+    )
+    assert len({genuine_adjudication_id, contamination_adjudication_id}) == 2
+
     alias_payload = {
         "namespace": "ame_stocks.identity.ticker_alias",
-        "rule_version": "ame_stocks_ticker_alias_id_from_observed_interval_v1",
+        "rule_version": "ame_stocks_ticker_alias_id_from_observed_and_canonical_interval_v2",
+        "adjudication_available_session": None,
         "asset_id": asset_id,
+        "canonical_cik_normalized": "0000320193",
+        "canonical_composite_figi": "BBG000B9XRY4",
+        "canonical_share_class_figi": "BBG001S5N8V8",
+        "identity_adjudication_id": None,
+        "identity_case_available_session": None,
+        "identity_case_id": None,
+        "identity_disposition": "observed_consistent",
+        "identity_resolution_cutoff_session": "2026-07-15",
+        "issuer_id": issuer_id,
+        "observed_cik_normalized": "0000320193",
+        "observed_composite_figi": "BBG000B9XRY4",
+        "observed_share_class_figi": "BBG001S5N8V8",
+        "share_class_id": share_class_id,
+        "source_identity_adjudication_release_available_session": "2026-07-15",
+        "source_identity_adjudication_release_id": "e" * 64,
+        "source_identity_case_candidate_manifest_id": "f" * 64,
+        "source_identity_case_candidate_manifest_sha256": "1" * 64,
         "ticker": "AAPL",
         "valid_from_session": "2024-01-02",
-        "share_class_id": share_class_id,
-        "issuer_id": issuer_id,
     }
     assert stable_digest(alias_payload) == (
-        "ff8708591441fc3a86ed609d1e025b78f392b9a9f415f268573f2f44224f34f1"
+        "2eaf3bafc14ec395bfa86facd69e1a63ee75d3a86f494fbdb14df49b4dfd33a7"
     )
+    alias_payload["canonical_cik_normalized"] = None
+    alias_payload["canonical_share_class_figi"] = None
     alias_payload["share_class_id"] = None
     alias_payload["issuer_id"] = None
+    alias_payload["observed_cik_normalized"] = None
+    alias_payload["observed_share_class_figi"] = None
     assert stable_digest(alias_payload) == (
-        "47dbba345b3eabb922f9a5f4cf51448aae8e4cce2f711464576dd51d9222612c"
+        "59012901b6b9ff4fcc5a46c8c34c5e7d37646d44fede6a6dfda3c0381d37e0f5"
     )
 
 
@@ -394,11 +566,23 @@ def test_asset_master_uses_composite_asset_and_share_class_parent_layers() -> No
     assert contract.partition_by == ()
     assert "canonical_composite_figi" in columns
     assert columns["canonical_composite_figi"].nullable is False
+    assert columns["canonical_identity_basis"].nullable is False
+    assert columns["observed_composite_figi_count"].nullable is False
+    assert columns["adjudicated_override_evidence_row_count"].nullable is False
+    assert columns["identity_adjudication_count"].nullable is False
+    assert columns["genuine_transition_adjudication_count"].nullable is False
+    assert columns["provider_contamination_adjudication_count"].nullable is False
+    assert columns["first_direct_observed_session"].nullable is False
+    assert columns["first_canonical_membership_session"].nullable is True
+    assert columns["identity_resolution_cutoff_session"].nullable is False
+    assert columns[
+        "source_identity_adjudication_release_available_session"
+    ].nullable is False
     assert columns["share_class_id_rule_version"].nullable is False
     assert columns["share_class_id"].nullable is True
     assert columns["canonical_share_class_figi"].nullable is True
     assert "U.S. tradable-security" in contract.grain
-    assert "only v1 permanent" in columns["canonical_composite_figi"].description
+    assert "provider-observed FIGI" in columns["canonical_composite_figi"].description
     assert "may legitimately parent multiple" in columns["canonical_share_class_figi"].description
     assert rules["noncomposite_derived_asset_id_rows"].severity is QASeverity.CRITICAL
     assert rules["state_domain_invalid_rows"].severity is QASeverity.CRITICAL
@@ -414,9 +598,22 @@ def test_asset_master_uses_composite_asset_and_share_class_parent_layers() -> No
     assert rules["security_level_conflict_rows"].severity is QASeverity.HIGH
     assert rules["security_level_conflict_rows"].failure_status is QAStatus.WARNING
     assert rules["row_funnel_unreconciled"].severity is QASeverity.CRITICAL
-    assert "exactly one accepted v1 asset row" in rules[
-        "row_funnel_unreconciled"
-    ].description
+    assert "retained unresolved universe rows" in rules["row_funnel_unreconciled"].description
+    assert rules["unapproved_canonical_identity_override_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["contaminated_hierarchy_evidence_leak_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["unadjudicated_suspected_episode_created_asset_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["approved_adjudication_bypassed_conflict_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["identity_resolution_cutoff_invalid_rows"].severity is (
+        QASeverity.CRITICAL
+    )
     assert rules["s5_event_created_asset_rows"].severity is QASeverity.CRITICAL
     assert "No S5-only event identity" in rules[
         "s5_event_created_asset_rows"
@@ -427,9 +624,61 @@ def test_asset_master_uses_composite_asset_and_share_class_parent_layers() -> No
     assert "ticker_event_request_status" in rules[
         "evidence_count_recomputation_mismatch_rows"
     ].description
-    assert "transitive accepted-source evidence closure" in rules[
+    assert "adjudication availability" in rules[
         "identity_evidence_availability_recomputation_mismatch_rows"
     ].description
+
+
+def test_identity_adjudication_is_protected_append_only_upstream_registry() -> None:
+    contract = load_contract("identity_adjudication")
+    columns = {column.name: column for column in contract.columns}
+    rules = {rule.check_id: rule for rule in contract.qa_rules}
+
+    assert contract.primary_key == ("identity_adjudication_id",)
+    assert contract.source_datasets == EXPECTED_ADJUDICATION_UPSTREAM
+    assert columns["observed_composite_figi"].nullable is False
+    assert columns["canonical_composite_figi"].nullable is True
+    assert columns["canonical_asset_id"].nullable is True
+    assert columns["episode_source_record_set_digest"].nullable is False
+    assert columns["episode_source_record_count"].nullable is False
+    assert columns["identity_case_id"].nullable is False
+    assert columns["identity_case_available_session"].nullable is False
+    assert columns["source_identity_case_candidate_manifest_id"].nullable is False
+    assert columns["source_identity_case_candidate_manifest_sha256"].nullable is False
+    assert columns["external_evidence_record_count"].nullable is False
+    assert columns["source_external_evidence_manifest_id"].nullable is True
+    assert columns["source_external_evidence_manifest_sha256"].nullable is True
+    assert columns["approval_receipt_sha256"].nullable is False
+    assert columns["approval_available_session"].nullable is False
+    assert columns["adjudication_available_session"].nullable is False
+    assert columns["availability_calendar_sha256"].nullable is False
+    assert columns["outcome_or_backtest_evidence_used"].nullable is False
+    assert "published before" in contract.description
+    assert rules["adjudication_version_chain_invalid_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["adjudication_state_matrix_invalid_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["adjudication_scope_overlap_rows"].severity is QASeverity.CRITICAL
+    assert rules["adjudication_terminal_head_selection_invalid_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["adjudication_approval_binding_conflict_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["external_evidence_manifest_binding_invalid_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["canonical_override_target_unanchored_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["outcome_or_backtest_evidence_rows"].severity is QASeverity.CRITICAL
+    assert rules["provider_figi_bounce_cases_without_reason_counts"].severity is (
+        QASeverity.HIGH
+    )
+
+
 def test_ticker_alias_is_observed_half_open_interval_evidence() -> None:
     contract = load_contract("ticker_alias")
     columns = {column.name: column for column in contract.columns}
@@ -441,9 +690,19 @@ def test_ticker_alias_is_observed_half_open_interval_evidence() -> None:
     assert columns["valid_through_session"].nullable is False
     assert columns["valid_to_session_exclusive"].nullable is True
     assert columns["ticker_alias_id_rule_version"].nullable is False
-    assert columns["composite_figi"].nullable is False
+    assert columns["observed_composite_figi"].nullable is False
+    assert columns["observed_asset_id"].nullable is False
+    assert columns["canonical_composite_figi"].nullable is False
+    assert columns["observed_share_class_figi"].nullable is True
+    assert columns["observed_cik_normalized"].nullable is True
+    assert columns["canonical_share_class_figi"].nullable is True
+    assert columns["canonical_cik_normalized"].nullable is True
+    assert columns["identity_disposition"].nullable is False
+    assert columns["identity_adjudication_id"].nullable is True
+    assert columns["identity_case_available_session"].nullable is True
+    assert columns["identity_resolution_cutoff_session"].nullable is False
     assert columns["share_class_id"].nullable is True
-    assert "maximal XNYS-consecutive interval" in contract.grain
+    assert "observed/canonical Composite FIGI" in contract.grain
     assert "be the sole source" in rules["event_defined_interval_rows"].description
     assert rules["interval_internal_gap_rows"].severity is QASeverity.CRITICAL
     assert rules["interval_source_count_mismatch_rows"].severity is QASeverity.CRITICAL
@@ -472,7 +731,25 @@ def test_ticker_alias_is_observed_half_open_interval_evidence() -> None:
     assert rules["unassociated_s5_ticker_event_rows"].failure_status is (
         QAStatus.WARNING
     )
-    assert "transitive accepted-source evidence closure" in rules[
+    assert rules["unapproved_canonical_identity_override_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["unresolved_suspected_episode_alias_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["adjudicated_unresolved_episode_alias_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["canonical_hierarchy_without_independent_support_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["adjudication_bypassed_nonfigi_conflict_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["cutoff_bound_registry_selection_invalid_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert "adjudication_available_session" in rules[
         "identity_evidence_availability_recomputation_mismatch_rows"
     ].description
 
@@ -487,9 +764,15 @@ def test_issuer_master_keeps_cik_out_of_asset_resolution() -> None:
     assert columns["reference_name"].nullable is True
     assert "not labeled a legal issuer name" in columns["reference_name"].description
     assert columns["sic_code_current_reference"].nullable is True
+    assert columns["excluded_contamination_evidence_row_count"].nullable is False
+    assert columns["identity_resolution_cutoff_session"].nullable is False
+    assert columns[
+        "source_identity_adjudication_release_available_session"
+    ].nullable is False
     assert "never an asset identity key" in contract.description
     assert rules["asset_id_derived_from_cik_rows"].severity is QASeverity.CRITICAL
     assert columns["source_s5_status_release_id"].nullable is False
+    assert columns["source_identity_adjudication_release_id"].nullable is False
     assert rules["state_domain_invalid_rows"].severity is QASeverity.CRITICAL
     assert (
         rules["evidence_count_recomputation_mismatch_rows"].severity
@@ -501,7 +784,7 @@ def test_issuer_master_keeps_cik_out_of_asset_resolution() -> None:
     )
     assert rules["multiple_reference_sic_rows"].severity is QASeverity.HIGH
     assert rules["row_funnel_unreconciled"].severity is QASeverity.CRITICAL
-    assert "exactly one v1 issuer row" in rules["row_funnel_unreconciled"].description
+    assert "exactly one issuer row" in rules["row_funnel_unreconciled"].description
     assert rules["s5_event_created_issuer_rows"].severity is QASeverity.CRITICAL
     assert "No S5-only event evidence" in rules[
         "s5_event_created_issuer_rows"
@@ -509,12 +792,24 @@ def test_issuer_master_keeps_cik_out_of_asset_resolution() -> None:
     assert rules["unattached_s5_event_issuer_rows"].severity is QASeverity.HIGH
     assert rules["unattached_s5_event_issuer_rows"].failure_status is QAStatus.WARNING
     assert "no approved supersession source" in rules["supersession_invalid_rows"].description
-    assert "ticker_event_request_status" in rules[
+    assert "request-status rows" in rules[
         "evidence_count_recomputation_mismatch_rows"
     ].description
-    assert "transitive accepted-source evidence closure" in rules[
+    assert "accepted-source availability" in rules[
         "reference_availability_recomputation_mismatch_rows"
     ].description
+    assert rules["adjudication_changed_issuer_identity_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["contaminated_issuer_evidence_leak_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["contamination_only_cik_created_issuer_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules[
+        "contamination_exclusion_count_recomputation_mismatch_rows"
+    ].severity is QASeverity.CRITICAL
 
 
 def test_universe_daily_is_active_left_preserving_and_fail_closed() -> None:
@@ -528,6 +823,21 @@ def test_universe_daily_is_active_left_preserving_and_fail_closed() -> None:
     assert columns["asset_id"].nullable is True
     assert columns["share_class_id"].nullable is True
     assert columns["ticker_alias_id"].nullable is True
+    assert columns["observed_composite_figi"].nullable is True
+    assert columns["observed_asset_id"].nullable is True
+    assert columns["canonical_composite_figi"].nullable is True
+    assert columns["observed_share_class_figi"].nullable is True
+    assert columns["observed_cik_normalized"].nullable is True
+    assert columns["canonical_share_class_figi"].nullable is True
+    assert columns["canonical_cik_normalized"].nullable is True
+    assert columns["identity_disposition"].nullable is False
+    assert columns["identity_case_id"].nullable is True
+    assert columns["identity_case_available_session"].nullable is True
+    assert columns["identity_adjudication_id"].nullable is True
+    assert columns["adjudication_available_session"].nullable is True
+    assert columns["identity_resolution_cutoff_session"].nullable is False
+    assert columns["position_continuity_status"].nullable is False
+    assert columns["identity_quality_liquidation_signal"].nullable is False
     assert columns["membership_source_available_session"].nullable is False
     assert columns["membership_source_availability_quality"].nullable is False
     assert columns["identity_evidence_available_session"].nullable is False
@@ -546,7 +856,9 @@ def test_universe_daily_is_active_left_preserving_and_fail_closed() -> None:
     assert rules["foreign_asset_eligibility_mismatch_rows"].severity is (
         QASeverity.CRITICAL
     )
-    assert "resolved_strong rows" in rules["resolved_row_incomplete_rows"].description
+    assert "resolved_strong and resolved_approved_override rows" in rules[
+        "resolved_row_incomplete_rows"
+    ].description
     assert rules["active_common_stock_without_eligible_identity_rows"].severity is (
         QASeverity.HIGH
     )
@@ -555,6 +867,290 @@ def test_universe_daily_is_active_left_preserving_and_fail_closed() -> None:
     assert "No universe row may gain or change" in rules[
         "s5_event_created_resolution_rows"
     ].description
-    assert "transitive accepted-source evidence closure" in rules[
+    assert rules["suspected_provider_figi_bounce_rows"].severity is QASeverity.HIGH
+    assert rules["suspected_provider_figi_bounce_rows"].failure_status is (
+        QAStatus.WARNING
+    )
+    assert rules["unapproved_canonical_identity_override_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["suspected_provider_contamination_eligible_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["contaminated_hierarchy_evidence_leak_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["identity_resolution_cutoff_invalid_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["registry_release_availability_invalid_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["identity_quality_continuity_matrix_invalid_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["identity_quality_membership_mutation_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["identity_quality_forced_liquidation_signal_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert "adjudication_available_session" in rules[
         "identity_evidence_availability_recomputation_mismatch_rows"
     ].description
+
+
+def test_provider_figi_bounce_fixed_contract_decision_vectors() -> None:
+    """Freeze schema-level outcomes without implementing an S7 transform fixture."""
+
+    canonical_a = "a" * 64
+    canonical_b = "b" * 64
+    case_id = "8cd333b4fb72b62e4534ddb316d2ebf30f3cc6d852e19ea778375c13b7daa46e"
+    genuine_adjudication = (
+        "4b06f7fb805fbda6176cbc41df5feb7d1607998a6dc5dd303a357163409f5d9d"
+    )
+    contamination_adjudication = (
+        "d897dffb0aa7cb874c3abb723e9ae95d8ff1ceebdf2a8fb61b9badff958db8bf"
+    )
+    withdrawn_adjudication = (
+        "970cbf5d97c646df84ec31715de710707646f428658dc20ad9fd2fcf162a2777"
+    )
+    candidate_manifest_id = "e" * 64
+    candidate_manifest_sha256 = "f" * 64
+    registry_release_available_session = "2026-07-16"
+    cutoff_session = "2026-07-16"
+    cases = {
+        "confirmed_genuine_transition": {
+            "active_on_date": True,
+            "observed_composite_figi": "BBG00000000B",
+            "observed_share_class_figi": "BBG0000000SB",
+            "observed_cik_normalized": "0000000002",
+            "canonical_composite_figi": "BBG00000000B",
+            "canonical_share_class_figi": "BBG0000000SB",
+            "canonical_cik_normalized": "0000000002",
+            "asset_id": canonical_b,
+            "identity_resolution_status": "resolved_strong",
+            "identity_resolution_method": "approved_genuine_transition",
+            "identity_disposition": "confirmed_genuine_transition",
+            "identity_case_id": case_id,
+            "identity_case_available_session": "2026-07-14",
+            "source_identity_case_candidate_manifest_id": candidate_manifest_id,
+            "source_identity_case_candidate_manifest_sha256": candidate_manifest_sha256,
+            "identity_adjudication_id": genuine_adjudication,
+            "adjudication_available_session": "2026-07-15",
+            "source_identity_adjudication_release_available_session": (
+                registry_release_available_session
+            ),
+            "identity_resolution_cutoff_session": cutoff_session,
+            "backtest_identity_eligible": True,
+            "ticker_alias_id": stable_digest({"scenario": "genuine"}),
+            "position_continuity_status": "resolved_identity",
+            "identity_quality_liquidation_signal": False,
+        },
+        "confirmed_provider_contamination": {
+            "active_on_date": True,
+            "observed_composite_figi": "BBG00000000B",
+            "observed_share_class_figi": "BBG0000000SB",
+            "observed_cik_normalized": "0000000002",
+            "canonical_composite_figi": "BBG00000000A",
+            "canonical_share_class_figi": "BBG0000000SA",
+            "canonical_cik_normalized": "0000000001",
+            "asset_id": canonical_a,
+            "identity_resolution_status": "resolved_approved_override",
+            "identity_resolution_method": "approved_provider_contamination_override",
+            "identity_disposition": "confirmed_provider_contamination",
+            "identity_case_id": case_id,
+            "identity_case_available_session": "2026-07-14",
+            "source_identity_case_candidate_manifest_id": candidate_manifest_id,
+            "source_identity_case_candidate_manifest_sha256": candidate_manifest_sha256,
+            "identity_adjudication_id": contamination_adjudication,
+            "adjudication_available_session": "2026-07-15",
+            "source_identity_adjudication_release_available_session": (
+                registry_release_available_session
+            ),
+            "identity_resolution_cutoff_session": cutoff_session,
+            "backtest_identity_eligible": True,
+            "ticker_alias_id": stable_digest({"scenario": "contamination"}),
+            "position_continuity_status": "resolved_identity",
+            "identity_quality_liquidation_signal": False,
+        },
+        "pending_unresolved": {
+            "active_on_date": True,
+            "observed_composite_figi": "BBG00000000B",
+            "observed_share_class_figi": "BBG0000000SB",
+            "observed_cik_normalized": "0000000002",
+            "canonical_composite_figi": None,
+            "canonical_share_class_figi": None,
+            "canonical_cik_normalized": None,
+            "asset_id": None,
+            "identity_resolution_status": "unresolved",
+            "identity_resolution_method": "provider_figi_bounce_pending_unresolved",
+            "identity_disposition": "pending_unresolved",
+            "identity_case_id": case_id,
+            "identity_case_available_session": "2026-07-14",
+            "source_identity_case_candidate_manifest_id": candidate_manifest_id,
+            "source_identity_case_candidate_manifest_sha256": candidate_manifest_sha256,
+            "identity_adjudication_id": None,
+            "adjudication_available_session": None,
+            "source_identity_adjudication_release_available_session": (
+                registry_release_available_session
+            ),
+            "identity_resolution_cutoff_session": cutoff_session,
+            "backtest_identity_eligible": False,
+            "ticker_alias_id": None,
+            "position_continuity_status": (
+                "identity_uncertain_no_new_trade_no_forced_exit_run_incomplete"
+            ),
+            "identity_quality_liquidation_signal": False,
+        },
+        "adjudicated_unresolved_withdrawal": {
+            "active_on_date": True,
+            "observed_composite_figi": "BBG00000000B",
+            "observed_share_class_figi": "BBG0000000SB",
+            "observed_cik_normalized": "0000000002",
+            "canonical_composite_figi": None,
+            "canonical_share_class_figi": None,
+            "canonical_cik_normalized": None,
+            "asset_id": None,
+            "identity_resolution_status": "unresolved",
+            "identity_resolution_method": "provider_figi_bounce_adjudicated_unresolved",
+            "identity_disposition": "adjudicated_unresolved",
+            "identity_case_id": case_id,
+            "identity_case_available_session": "2026-07-14",
+            "source_identity_case_candidate_manifest_id": candidate_manifest_id,
+            "source_identity_case_candidate_manifest_sha256": candidate_manifest_sha256,
+            "identity_adjudication_id": withdrawn_adjudication,
+            "adjudication_available_session": "2026-07-18",
+            "source_identity_adjudication_release_available_session": "2026-07-20",
+            "identity_resolution_cutoff_session": "2026-07-20",
+            "backtest_identity_eligible": False,
+            "ticker_alias_id": None,
+            "position_continuity_status": (
+                "identity_uncertain_no_new_trade_no_forced_exit_run_incomplete"
+            ),
+            "identity_quality_liquidation_signal": False,
+        },
+        "confirmed_but_relationship_conflicted": {
+            "active_on_date": True,
+            "observed_composite_figi": "BBG00000000B",
+            "observed_share_class_figi": "BBG0000000SB",
+            "observed_cik_normalized": "0000000002",
+            "canonical_composite_figi": "BBG00000000A",
+            "canonical_share_class_figi": None,
+            "canonical_cik_normalized": None,
+            "asset_id": canonical_a,
+            "identity_resolution_status": "resolved_conflicted",
+            "identity_resolution_method": "approved_provider_contamination_override",
+            "identity_disposition": "confirmed_provider_contamination",
+            "identity_case_id": case_id,
+            "identity_case_available_session": "2026-07-14",
+            "source_identity_case_candidate_manifest_id": candidate_manifest_id,
+            "source_identity_case_candidate_manifest_sha256": candidate_manifest_sha256,
+            "identity_adjudication_id": contamination_adjudication,
+            "adjudication_available_session": "2026-07-15",
+            "source_identity_adjudication_release_available_session": (
+                registry_release_available_session
+            ),
+            "identity_resolution_cutoff_session": cutoff_session,
+            "backtest_identity_eligible": False,
+            "ticker_alias_id": None,
+            "position_continuity_status": (
+                "identity_uncertain_no_new_trade_no_forced_exit_run_incomplete"
+            ),
+            "identity_quality_liquidation_signal": False,
+        },
+    }
+
+    genuine = cases["confirmed_genuine_transition"]
+    assert genuine["observed_composite_figi"] == genuine["canonical_composite_figi"]
+    assert genuine["asset_id"] == canonical_b
+    assert genuine["identity_adjudication_id"] == genuine_adjudication
+    assert genuine["identity_resolution_method"] == "approved_genuine_transition"
+    assert genuine["ticker_alias_id"] is not None
+
+    contamination = cases["confirmed_provider_contamination"]
+    assert contamination["observed_composite_figi"] != contamination[
+        "canonical_composite_figi"
+    ]
+    assert contamination["observed_share_class_figi"] != contamination[
+        "canonical_share_class_figi"
+    ]
+    assert contamination["observed_cik_normalized"] != contamination[
+        "canonical_cik_normalized"
+    ]
+    assert contamination["asset_id"] == canonical_a
+    assert contamination["identity_adjudication_id"] == contamination_adjudication
+    assert contamination["ticker_alias_id"] is not None
+
+    unresolved = cases["pending_unresolved"]
+    assert unresolved["active_on_date"] is True
+    assert unresolved["observed_composite_figi"] == "BBG00000000B"
+    assert unresolved["canonical_composite_figi"] is None
+    assert unresolved["asset_id"] is None
+    assert unresolved["identity_adjudication_id"] is None
+    assert unresolved["backtest_identity_eligible"] is False
+    assert unresolved["ticker_alias_id"] is None
+    assert unresolved["identity_quality_liquidation_signal"] is False
+    assert "no_forced_exit" in unresolved["position_continuity_status"]
+
+    withdrawn = cases["adjudicated_unresolved_withdrawal"]
+    assert withdrawn["identity_adjudication_id"] == withdrawn_adjudication
+    assert withdrawn["identity_disposition"] == "adjudicated_unresolved"
+    assert withdrawn["asset_id"] is None
+    assert withdrawn["ticker_alias_id"] is None
+
+    conflicted = cases["confirmed_but_relationship_conflicted"]
+    assert conflicted["identity_disposition"] == "confirmed_provider_contamination"
+    assert conflicted["identity_resolution_status"] == "resolved_conflicted"
+    assert conflicted["asset_id"] == canonical_a
+    assert conflicted["ticker_alias_id"] is None
+    assert conflicted["backtest_identity_eligible"] is False
+
+    # Detection and registry publication are both cutoff-bound. Before the right-side A
+    # makes the case available, B follows ordinary direct-observation rules; after the
+    # case is known but before a published decision is available, it fails closed.
+    cutoff_vectors = {
+        "before_case_available": {
+            "cutoff": "2026-07-13",
+            "case_available": "2026-07-14",
+            "disposition": "observed_consistent",
+            "eligible_if_other_gates_pass": True,
+        },
+        "case_known_registry_not_available": {
+            "cutoff": "2026-07-15",
+            "case_available": "2026-07-14",
+            "adjudication_available": "2026-07-15",
+            "registry_release_available": "2026-07-16",
+            "disposition": "pending_unresolved",
+            "eligible_if_other_gates_pass": False,
+        },
+        "decision_effective": {
+            "cutoff": "2026-07-16",
+            "case_available": "2026-07-14",
+            "adjudication_available": "2026-07-15",
+            "registry_release_available": "2026-07-16",
+            "disposition": "confirmed_provider_contamination",
+            "eligible_if_other_gates_pass": True,
+        },
+    }
+    assert cutoff_vectors["before_case_available"]["cutoff"] < cutoff_vectors[
+        "before_case_available"
+    ]["case_available"]
+    assert cutoff_vectors["case_known_registry_not_available"]["cutoff"] < (
+        cutoff_vectors["case_known_registry_not_available"][
+            "registry_release_available"
+        ]
+    )
+    assert cutoff_vectors["case_known_registry_not_available"][
+        "eligible_if_other_gates_pass"
+    ] is False
+    assert cutoff_vectors["decision_effective"]["cutoff"] >= cutoff_vectors[
+        "decision_effective"
+    ]["registry_release_available"]
+
+    assert all(case["active_on_date"] is True for case in cases.values())
+    assert all(
+        case["identity_quality_liquidation_signal"] is False
+        for case in cases.values()
+    )
+    assert genuine_adjudication != contamination_adjudication
