@@ -11,7 +11,7 @@ requires-python = ">=3.12,<3.14"
 dependencies = [
   "boto3>=1.42,<2",
   "celery[redis]>=5.6,<5.7",
-  "exchange-calendars>=4.13,<4.14",
+  "exchange-calendars==4.13.2",
   "fastapi>=0.139,<0.140",
   "httpx2>=2.5,<3",
   "pandas>=3.0,<3.1",
@@ -59,6 +59,7 @@ ame-silver-assets-full-run-plan-approval = "ame_stocks_api.cli.silver_assets_ful
 ame-silver-assets-full = "ame_stocks_api.cli.silver_assets_full:main"
 ame-silver-assets-publish-plan = "ame_stocks_api.cli.silver_assets_publish_plan:main"
 ame-silver-assets-release-set = "ame_stocks_api.cli.silver_assets_release_set:main"
+ame-silver-identity-preview-request = "ame_stocks_api.cli.silver_identity_preview_request:main"
 ame-view-parquet = "ame_stocks_api.cli.parquet_view:main"
 
 [tool.pytest.ini_options]

@@ -366,3 +366,37 @@ detector preview并停在 `awaiting_review`。该 preview 只证明 S4 A→B→A
 也不声称 S5/S6/hierarchy support absent。corroboration selection、production candidate promotion、逐 case
 disposition/approval、四表 FullRunPlan 和 publish 都是后续独立审批点；不能沿用本次 schema/code approval
 启动任何真实 preview 或十年扫描。
+
+### 15.1 第一份 exact detector-preview request proposal
+
+第一份 source-bound preview 选择已冻结为一个高信号、仍然严格有界的 review-target scope：
+
+- XNYS sessions：`2022-02-01` 至 `2022-03-08`，连续 25 个交易日；
+- exact case-sensitive ticker allowlist（已排序）：`AAPL`、`AULT`、`AZPN`、`BOC`、
+  `BRK.B`、`CEG`、`CIBR`、`CMS`、`CR`、`DPW`、`FLOW`、`GPUS`、`KNTK`、`MSFT`、
+  `NILE`、`RCM`、`SBGI`、`SIRI`、`SPY`、`SWI`、`TA`、`TBLT`、`TNXP`、`VG`、`WW`；
+- 选择目的：覆盖已审查的 `TBLT`/`TNXP` 短期 Composite FIGI bounce、`CMS` CIK-only
+  negative control、多个高 churn strata、`DPW → NILE → AULT → GPUS` 生命周期链，以及
+  `AAPL`/`MSFT`/`SPY`/`BRK.B` 稳定对照；`BOC`/`CEG`/`KNTK` 只属于 S5 event-dated
+  controls，不代表 genuine transition 已被确认，也不得影响本次 S4-only detector 输出。
+
+未扫描 Parquet 的 exact pinned-release manifest preflight 为：
+
+| S4 source | Artifacts | Rows | Bytes |
+| --- | ---: | ---: | ---: |
+| `asset_observation_daily` | 25 | 735,884 | 86,988,096 |
+| `universe_source_daily` | 25 | 735,884 | 81,153,705 |
+| 合计 | 50 | 1,471,768 | 168,141,801 |
+
+两份 release manifest 的实际 SHA-256 分别与 S7 pin
+`f5fb26e75f44382caddf980e8fdf88a77903465b55bfd367f8d9029852848084` 和
+`6b2c6ca1b612c4c38ddc8e359c1402c177a4f19b0295604d42b78bcd5804596d` 一致。由此冻结
+resource caps：`selected_rows=625`、两张表各 `scanned_rows=735884`、
+`total_scanned_rows=1471768`、`source_artifacts=50`、`source_bytes=168141801`、
+`cases=100`、`batch_size=8192`。`cases=100` 是 review tripwire；若触发只能停止并重提计划，
+不能在运行中放宽。
+
+该 proposal 只授权生成 full-range immutable XNYS calendar、allowlist、plan 和独立
+approval-request。生成后仍必须展示完整 selection/caps 与 canonical literal 并停在
+`awaiting_literal_human_approval`；它本身不构成 approval，也不授权 detector、candidate、
+adjudication、Full 或 publish。
