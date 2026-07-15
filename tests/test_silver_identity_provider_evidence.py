@@ -90,6 +90,7 @@ def _paired_rows(
     ticker: str,
     figi: str,
     source_record_id: str,
+    active: bool = True,
 ) -> tuple[dict[str, object], dict[str, object]]:
     captured_at = datetime.combine(session, datetime.min.time(), tzinfo=UTC) + timedelta(hours=21)
     available_session, available_at = CALENDAR.first_open_after(captured_at)
@@ -109,8 +110,8 @@ def _paired_rows(
         {
             "session_year": session.year,
             "session_date": session,
-            "requested_active": True,
-            "provider_active": True,
+            "requested_active": active,
+            "provider_active": active,
             "ticker": ticker,
             "type_code": "CS",
             "name": "Fixture Corp",
@@ -140,7 +141,7 @@ def _paired_rows(
             "session_year": session.year,
             "session_date": session,
             "ticker": ticker,
-            "active_on_date": True,
+            "active_on_date": active,
             "type_code": asset["type_code"],
             "name": asset["name"],
             "market": asset["market"],
@@ -164,8 +165,8 @@ def _paired_rows(
             "source_page_sequence": 1,
             "source_row_ordinal": 1,
             "source_row_hash": row_hash,
-            "active_source_request_id": request_id,
-            "inactive_source_request_id": _digest("f"),
+            "active_source_request_id": request_id if active else _digest("f"),
+            "inactive_source_request_id": _digest("f") if active else request_id,
             "source_pair_id": _digest("1"),
             "version_group_id": _digest("2"),
         }
@@ -265,6 +266,11 @@ def _allow_test_capability(
     data_root: Path,
 ) -> None:
     monkeypatch.setattr(IdentitySourceBundle, "require_official", lambda self: None)
+    monkeypatch.setattr(
+        IdentitySourceBundle,
+        "require_approved_preview_scope",
+        lambda self, **kwargs: None,
+    )
     monkeypatch.setattr(IdentitySourceArtifact, "require_official", lambda self: None)
     monkeypatch.setattr(IdentitySourceBatch, "require_official", lambda self: None)
     monkeypatch.setattr(
@@ -555,6 +561,43 @@ def test_s4_usage_binds_every_case_role_to_exact_plan_spine(
             preview=preview,
             asset_observation=alien_attestation,
             universe_membership=alien_membership,
+            calendar=CALENDAR,
+        )
+
+
+def test_s4_usage_rejects_exact_inactive_parent_pair(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, _, preview, _, sessions, ids, _ = _preview_controls(tmp_path)
+    asset, universe = _paired_rows(
+        session=sessions[1],
+        ticker=TICKER,
+        figi=MIDDLE_FIGI,
+        source_record_id=ids[1],
+        active=False,
+    )
+    bundle = _bundle(tmp_path / "inactive", [asset], [universe])
+    _allow_test_capability(monkeypatch, tmp_path / "inactive")
+    asset_batch, universe_batch = _batches(bundle)
+    asset_attestation = attest_provider_row(
+        asset_batch,
+        row_index_in_batch=0,
+        calendar=CALENDAR,
+    )
+    universe_attestation = attest_provider_row(
+        universe_batch,
+        row_index_in_batch=0,
+        calendar=CALENDAR,
+    )
+
+    with pytest.raises(ProviderEvidenceError, match="requires active membership"):
+        build_s4_bounce_case_evidence_usage(
+            _case_object(preview),
+            plan=plan,
+            preview=preview,
+            asset_observation=asset_attestation,
+            universe_membership=universe_attestation,
             calendar=CALENDAR,
         )
 

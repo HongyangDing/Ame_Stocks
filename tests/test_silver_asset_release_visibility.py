@@ -9,6 +9,8 @@ from ame_stocks_api.silver import asset_release_set
 from ame_stocks_api.silver.contracts import (
     ApprovalDecision,
     ApprovalStage,
+    ArtifactRef,
+    ArtifactRole,
     BuildKind,
     SourceInventoryItem,
 )
@@ -235,6 +237,65 @@ def test_evidence_reader_accepts_s4_member_after_release_set_marker(
         ("release", _RELEASE_ID),
         ("membership", (tmp_path.resolve(), _RELEASE_ID)),
     ]
+
+
+def test_identity_preview_reader_physically_verifies_only_selected_outputs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    reader, release = _configured_reader(
+        monkeypatch,
+        tmp_path,
+        table="asset_observation_daily",
+    )
+    selected = ArtifactRef(
+        path="silver/assets/asset_observation_daily/selected.parquet",
+        sha256="9" * 64,
+        bytes=100,
+        row_count=2,
+        media_type="application/vnd.apache.parquet",
+        role=ArtifactRole.DATA,
+        table="asset_observation_daily",
+        schema_digest="a" * 64,
+    )
+    unselected = ArtifactRef(
+        path="silver/assets/asset_observation_daily/unselected.parquet",
+        sha256="8" * 64,
+        bytes=200,
+        row_count=3,
+        media_type="application/vnd.apache.parquet",
+        role=ArtifactRole.DATA,
+        table="asset_observation_daily",
+        schema_digest="a" * 64,
+    )
+    release.outputs = (selected, unselected)
+    build, _ = reader.store.load_build(release.table, release.build_id)
+    build.outputs = (selected, unselected)
+    monkeypatch.setattr(asset_release_set, "asset_release_requires_set", lambda table: True)
+    monkeypatch.setattr(
+        asset_release_set,
+        "_require_asset_release_set_control_membership",
+        lambda data_root, release_id: SimpleNamespace(
+            publication_scope=asset_release_set.ASSET_PUBLICATION_SCOPE,
+            backtest_identity_eligible=False,
+        ),
+    )
+    touched: list[str] = []
+    monkeypatch.setattr(
+        reader.store,
+        "verify_artifact",
+        lambda output, contract: touched.append(output.path) or tmp_path / output.path,
+    )
+
+    published, release_set, outputs = reader._inspect_selected_for_identity_preview(
+        _RELEASE_ID,
+        (selected.path,),
+    )
+
+    assert release_set is not None
+    assert outputs == (selected,)
+    assert published.data_paths == (tmp_path / selected.path,)
+    assert touched == [selected.path]
 
 
 def test_published_reader_does_not_require_set_for_earlier_silver_tables(

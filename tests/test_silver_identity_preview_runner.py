@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -81,6 +82,7 @@ def _paired_rows(
     session: date,
     figi: str,
     source_record_id: str,
+    active: bool = True,
 ) -> tuple[dict[str, object], dict[str, object]]:
     captured_at = datetime.combine(session, datetime.min.time(), tzinfo=UTC) + timedelta(hours=21)
     available_session, available_at = CALENDAR.first_open_after(captured_at)
@@ -105,8 +107,8 @@ def _paired_rows(
             "market": "stocks",
             "name": "Fixture Corp",
             "primary_exchange_mic": "XNYS",
-            "provider_active": True,
-            "requested_active": True,
+            "provider_active": active,
+            "requested_active": active,
             "session_date": session,
             "session_year": session.year,
             "share_class_figi": "BBG000000003",
@@ -128,13 +130,13 @@ def _paired_rows(
     universe = build(UNIVERSE_SOURCE_DAILY_CONTRACT.arrow_schema)
     universe.update(
         {
-            "active_on_date": True,
-            "active_source_request_id": request_id,
+            "active_on_date": active,
+            "active_source_request_id": request_id if active else _digest("f"),
             "cik": asset["cik"],
             "composite_figi": figi,
             "currency_name": asset["currency_name"],
             "delisted_at_utc": asset["delisted_at_utc"],
-            "inactive_source_request_id": _digest("f"),
+            "inactive_source_request_id": _digest("f") if active else request_id,
             "last_updated_at_utc": asset["last_updated_at_utc"],
             "locale": asset["locale"],
             "market": asset["market"],
@@ -313,6 +315,11 @@ def _authorize_fixture_bundle(
     bundle: IdentitySourceBundle,
 ) -> None:
     monkeypatch.setattr(IdentitySourceBundle, "require_official", lambda self: None)
+    monkeypatch.setattr(
+        IdentitySourceBundle,
+        "require_approved_preview_scope",
+        lambda self, **kwargs: None,
+    )
     monkeypatch.setattr(IdentitySourceArtifact, "require_official", lambda self: None)
     monkeypatch.setattr(IdentitySourceBatch, "require_official", lambda self: None)
     monkeypatch.setattr(
@@ -321,8 +328,9 @@ def _authorize_fixture_bundle(
         property(lambda self: root.resolve()),
     )
     monkeypatch.setattr(
-        "ame_stocks_api.silver.identity_preview_runner.open_identity_source_bundle",
-        lambda data_root: bundle,
+        "ame_stocks_api.silver.identity_preview_runner."
+        "open_approved_identity_preview_source_bundle",
+        lambda data_root, **kwargs: bundle,
     )
     monkeypatch.setattr(
         "ame_stocks_api.silver.identity_preview_runner._verify_git_checkout",
@@ -419,6 +427,39 @@ def test_source_bound_runner_stops_at_attested_review_and_is_idempotent(
         _run(tmp_path, plan, approval)
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("git_commit", "f" * 40),
+        ("start_session", date(2024, 1, 3)),
+        ("end_session", date(2024, 1, 3)),
+        ("ticker_count", 2),
+    ),
+)
+def test_existing_completion_cannot_change_repeated_plan_provenance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: object,
+) -> None:
+    plan, approval, sessions = _controls(tmp_path)
+    asset_rows, universe_rows = _rows(sessions)
+    bundle = _bundle(tmp_path, asset_rows, universe_rows)
+    _authorize_fixture_bundle(monkeypatch, tmp_path, bundle)
+    completion = _run(tmp_path, plan, approval)
+    forged = replace(completion, **{field: value})
+    completion_path = tmp_path / completion.relative_path
+    completion_path.chmod(0o600)
+    completion_path.write_bytes(forged.content)
+    completion_path.chmod(0o444)
+
+    with pytest.raises(
+        IdentityPreviewRunnerError,
+        match="completion crosses exact control artifacts",
+    ):
+        _run(tmp_path, plan, approval)
+
+
 def test_completion_is_not_written_after_authority_crosses_market_open(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -452,6 +493,62 @@ def test_source_bound_runner_rejects_parent_lineage_mismatch_before_output(
     plan, approval, sessions = _controls(tmp_path)
     asset_rows, universe_rows = _rows(sessions)
     asset_rows[1]["name"] = "Wrong Parent"
+    bundle = _bundle(tmp_path, asset_rows, universe_rows)
+    _authorize_fixture_bundle(monkeypatch, tmp_path, bundle)
+
+    with pytest.raises(IdentityPreviewRunnerError, match="S4 parent lineage mismatch"):
+        _run(tmp_path, plan, approval)
+
+    assert not (
+        tmp_path / detector_preview_completion_path(plan.plan_id, approval.approval_id)
+    ).exists()
+    assert not (tmp_path / "manifests/silver/identity-bounce-bounded-previews").exists()
+
+
+def test_source_bound_runner_accepts_inactive_pair_as_a_run_break(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, approval, sessions = _controls(tmp_path)
+    asset_rows, universe_rows = _rows(sessions)
+    inactive_asset, inactive_universe = _paired_rows(
+        session=sessions[1],
+        figi=MIDDLE_FIGI,
+        source_record_id=_digest("4"),
+        active=False,
+    )
+    asset_rows[1] = inactive_asset
+    universe_rows[1] = inactive_universe
+    bundle = _bundle(tmp_path, asset_rows, universe_rows)
+    _authorize_fixture_bundle(monkeypatch, tmp_path, bundle)
+
+    completion = _run(tmp_path, plan, approval)
+
+    assert completion.status == "awaiting_review"
+    assert completion.selected_observation_count == 3
+    assert completion.valid_active_observation_count == 2
+    assert completion.case_count == 0
+    assert completion.suspected_provider_figi_bounce_rows == 0
+    assert completion.case_evidence == ()
+
+
+@pytest.mark.parametrize(
+    "breaker",
+    ("requested_activity", "membership_activity", "request_route"),
+)
+def test_source_bound_runner_rejects_activity_or_request_route_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    breaker: str,
+) -> None:
+    plan, approval, sessions = _controls(tmp_path)
+    asset_rows, universe_rows = _rows(sessions)
+    if breaker == "requested_activity":
+        asset_rows[1]["requested_active"] = False
+    elif breaker == "membership_activity":
+        universe_rows[1]["active_on_date"] = False
+    else:
+        universe_rows[1]["active_source_request_id"] = _digest("9")
     bundle = _bundle(tmp_path, asset_rows, universe_rows)
     _authorize_fixture_bundle(monkeypatch, tmp_path, bundle)
 

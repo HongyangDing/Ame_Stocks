@@ -188,6 +188,23 @@ def _issue_runner_evidence_authority(
         raise ProviderEvidenceError("runner authority requires exact plan controls")
     if type(calendar) is not XNYSCalendarArtifact:
         raise ProviderEvidenceError("runner authority requires the exact calendar")
+    sessions = tuple(
+        item.session_date
+        for item in calendar.sessions
+        if plan.start_session <= item.session_date <= plan.end_session
+    )
+    try:
+        bundle.require_approved_preview_scope(
+            plan_id=plan.plan_id,
+            plan_sha256=plan.sha256,
+            approval_id=approval.approval_id,
+            approval_sha256=approval.sha256,
+            sessions=sessions,
+        )
+    except IdentitySourceError as exc:
+        raise ProviderEvidenceError(
+            "runner authority source capability crosses its approved preview"
+        ) from exc
     created = _utc_datetime(created_at_utc, "runner authority created_at_utc")
     issued_at = _utc_now()
     if created > issued_at or issued_at - created > timedelta(minutes=5):
@@ -2254,12 +2271,12 @@ def _derive_case_role(
     return "middle", ordinal, middle_sessions[ordinal], case.middle_observed_composite_figi
 
 
-def _validate_s4_pair(
+def _validate_s4_observation_parent_pair(
     asset: ProviderRowAttestation,
     universe: ProviderRowAttestation,
 ) -> None:
     if asset.dataset != "asset_observation_daily" or universe.dataset != "universe_source_daily":
-        raise ProviderEvidenceError("S4 bounce evidence requires asset plus universe rows")
+        raise ProviderEvidenceError("S4 parent validation requires asset plus universe rows")
     left = asset.full_row_snapshot
     right = universe.full_row_snapshot
     lineage_pairs = (
@@ -2287,22 +2304,51 @@ def _validate_s4_pair(
         "delisted_at_utc",
         "last_updated_at_utc",
     )
+    activity = left["provider_active"]
+    request_route_field = (
+        "active_source_request_id" if activity is True else "inactive_source_request_id"
+    )
     if (
         any(left[a] != right[b] for a, b in lineage_pairs)
         or any(left[field] != right[field] for field in common_fields)
-        or left["provider_active"] is not True
-        or right["active_on_date"] is not True
+        or type(activity) is not bool
+        or left["requested_active"] is not activity
+        or right["active_on_date"] is not activity
+        or right[request_route_field] != left["source_request_id"]
         or asset.source_record_id != universe.source_record_id
         or asset.source_request_id != universe.source_request_id
     ):
         raise ProviderEvidenceError("S4 universe row does not exactly pair to its asset parent")
 
 
+def _validate_s4_pair(
+    asset: ProviderRowAttestation,
+    universe: ProviderRowAttestation,
+) -> None:
+    """Require one exact active pair before it can support bounce-case evidence."""
+
+    _validate_s4_observation_parent_pair(asset, universe)
+    if (
+        asset.full_row_snapshot["provider_active"] is not True
+        or universe.full_row_snapshot["active_on_date"] is not True
+    ):
+        raise ProviderEvidenceError("S4 bounce evidence requires active membership")
+
+
+def validate_s4_observation_parent_pair(
+    asset: ProviderRowAttestation,
+    universe: ProviderRowAttestation,
+) -> None:
+    """Accept one exact active or inactive S4 observation/parent pair."""
+
+    _validate_s4_observation_parent_pair(asset, universe)
+
+
 def validate_s4_membership_parent_pair(
     asset: ProviderRowAttestation,
     universe: ProviderRowAttestation,
 ) -> None:
-    """Fail closed unless an S4 membership row exactly matches its selected parent."""
+    """Fail closed unless an active S4 membership matches its selected parent."""
 
     _validate_s4_pair(asset, universe)
 
@@ -2663,6 +2709,7 @@ __all__ = [
     "replay_provider_row_attestations_from_official_bundle",
     "s4_bounce_provider_evidence_manifest_path",
     "validate_s4_membership_parent_pair",
+    "validate_s4_observation_parent_pair",
     "verify_provider_row_attestation",
     "write_provider_evidence_manifest",
     "write_s4_bounce_provider_evidence_manifest",

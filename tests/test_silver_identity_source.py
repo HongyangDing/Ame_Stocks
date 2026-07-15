@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, date, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,6 +9,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+import ame_stocks_api.silver.identity_source as identity_source_module
 from ame_stocks_api.artifacts import sha256_file
 from ame_stocks_api.silver.asset_contract import (
     ASSET_OBSERVATION_DAILY_CONTRACT,
@@ -20,6 +22,7 @@ from ame_stocks_api.silver.identity_source import (
     IdentityPublishedSource,
     IdentitySourceBundle,
     IdentitySourceError,
+    open_approved_identity_preview_source_bundle,
 )
 
 
@@ -300,4 +303,71 @@ def test_physical_artifact_capability_cannot_cross_test_bundles(tmp_path) -> Non
                 "asset_observation_daily",
                 artifacts=(artifact,),
             )
+        )
+
+
+def test_approved_preview_source_factory_has_no_caller_scope_inputs() -> None:
+    assert tuple(inspect.signature(open_approved_identity_preview_source_bundle).parameters) == (
+        "data_root",
+        "plan_id",
+        "expected_plan_sha256",
+        "approval_id",
+        "expected_approval_sha256",
+    )
+
+
+def test_preview_capability_requires_exact_two_table_session_cartesian_product(
+    tmp_path: Path,
+) -> None:
+    session = date(2024, 1, 2)
+
+    def membership(table: str) -> tuple[str, str, str, ArtifactRef]:
+        pin = S7_SOURCE_PINS[table]
+        ref = ArtifactRef(
+            path=(
+                f"silver/schema=v1/fixture/{table}/build_id={pin.build_id}/data/"
+                f"session_year=2024/session_date={session.isoformat()}/part-00000.parquet"
+            ),
+            sha256="9" * 64,
+            bytes=100,
+            row_count=1,
+            media_type="application/vnd.apache.parquet",
+            role=ArtifactRole.DATA,
+            table=table,
+            schema_digest="8" * 64,
+        )
+        return (
+            pin.release_id,
+            f"manifests/silver/releases/release_id={pin.release_id}.json",
+            pin.release_manifest_sha256,
+            ref,
+        )
+
+    complete = {
+        (table, value[3].path): value
+        for table in ("asset_observation_daily", "universe_source_daily")
+        for value in (membership(table),)
+    }
+    capability = identity_source_module._IdentitySourceCapability(
+        official=True,
+        data_root=tmp_path.resolve(),
+        artifact_memberships=complete,
+        physical_scope=identity_source_module._PREVIEW_PHYSICAL_SCOPE,
+        authorized_sessions=(session,),
+        preview_control_binding=("1" * 64, "2" * 64, "3" * 64, "4" * 64),
+        _seal=identity_source_module._OFFICIAL_CAPABILITY_SEAL,
+    )
+    assert len(capability.artifact_memberships) == 2
+
+    incomplete = dict(complete)
+    incomplete.pop(next(key for key in incomplete if key[0] == "universe_source_daily"))
+    with pytest.raises(IdentitySourceError, match="exact daily scope"):
+        identity_source_module._IdentitySourceCapability(
+            official=True,
+            data_root=tmp_path.resolve(),
+            artifact_memberships=incomplete,
+            physical_scope=identity_source_module._PREVIEW_PHYSICAL_SCOPE,
+            authorized_sessions=(session,),
+            preview_control_binding=("1" * 64, "2" * 64, "3" * 64, "4" * 64),
+            _seal=identity_source_module._OFFICIAL_CAPABILITY_SEAL,
         )

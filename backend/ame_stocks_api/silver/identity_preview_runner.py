@@ -51,7 +51,7 @@ from ame_stocks_api.silver.identity_provider_evidence import (
     _write_s4_bounce_provider_evidence_manifest_from_official_bundle,
     attest_provider_rows,
     build_s4_bounce_case_evidence_usage,
-    validate_s4_membership_parent_pair,
+    validate_s4_observation_parent_pair,
 )
 from ame_stocks_api.silver.identity_source import (
     S7_S4_RELEASE_SET_ID,
@@ -60,7 +60,7 @@ from ame_stocks_api.silver.identity_source import (
     IdentitySourceArtifact,
     IdentitySourceBundle,
     IdentitySourceError,
-    open_identity_source_bundle,
+    open_approved_identity_preview_source_bundle,
 )
 from ame_stocks_api.silver.identity_streaming_preview import (
     BoundedIdentityPreviewArtifact,
@@ -606,8 +606,21 @@ def run_source_bound_identity_streaming_preview(
         raise IdentityPreviewRunnerError("completion slot is not a safe regular file")
 
     try:
-        bundle = open_identity_source_bundle(root)
+        bundle = open_approved_identity_preview_source_bundle(
+            root,
+            plan_id=controls.plan.plan_id,
+            expected_plan_sha256=controls.plan.sha256,
+            approval_id=controls.approval.approval_id,
+            expected_approval_sha256=controls.approval.sha256,
+        )
         bundle.require_official()
+        bundle.require_approved_preview_scope(
+            plan_id=controls.plan.plan_id,
+            plan_sha256=controls.plan.sha256,
+            approval_id=controls.approval.approval_id,
+            approval_sha256=controls.approval.sha256,
+            sessions=controls.sessions,
+        )
     except (IdentitySourceError, OSError) as exc:
         raise IdentityPreviewRunnerError("exact S7 source bundle cannot be opened") from exc
     try:
@@ -638,6 +651,8 @@ def run_source_bound_identity_streaming_preview(
         raise IdentityPreviewRunnerError("bounded physical S4 scan failed") from exc
     if created_at is None or created_at < controls.approval.approved_at_utc:
         raise IdentityPreviewRunnerError("preview finalization predates its exact approval")
+    cases = _preview_cases(preview)
+    case_attestations = _case_attestations(cases, pairs)
     result = _mapping(preview.document["result"], "bounded preview result")
     completion_available = _parse_date(
         _string(result, "preview_manifest_available_session"),
@@ -659,10 +674,8 @@ def run_source_bound_identity_streaming_preview(
     except IdentityStreamingPreviewError as exc:
         raise IdentityPreviewRunnerError("bounded preview artifact cannot be stored") from exc
 
-    cases = _preview_cases(preview)
     case_refs: list[PreviewCaseEvidenceRef] = []
     replay_session = _ProviderReplaySession(bundle=bundle, calendar=controls.calendar)
-    case_attestations = _case_attestations(cases, pairs)
     if case_attestations:
         replay_session.replay(case_attestations)
     for case in cases:
@@ -911,7 +924,8 @@ def _scan_preview(
         ),
     )
     ticker_scope = frozenset(controls.allowlist.tickers)
-    all_pairs: dict[str, tuple[ProviderRowAttestation, ProviderRowAttestation]] = {}
+    evidence_pairs: dict[str, tuple[ProviderRowAttestation, ProviderRowAttestation]] = {}
+    seen_source_ids: set[str] = set()
     ref_by_key = {(item.table, item.session_date): item for item in source_refs}
     for session, asset_artifact, universe_artifact in zip(
         controls.sessions,
@@ -947,7 +961,7 @@ def _scan_preview(
                     )
                 seen_tickers.add(ticker)
                 source_id = row["selected_source_record_id"]
-                if source_id in universe_attestations or source_id in all_pairs:
+                if source_id in universe_attestations or source_id in seen_source_ids:
                     raise IdentityPreviewRunnerError(
                         "universe scan reuses a selected source record"
                     )
@@ -990,10 +1004,12 @@ def _scan_preview(
         for source_id, universe in universe_attestations.items():
             asset = asset_attestations[source_id]
             try:
-                validate_s4_membership_parent_pair(asset, universe)
+                validate_s4_observation_parent_pair(asset, universe)
             except ProviderEvidenceError as exc:
                 raise IdentityPreviewRunnerError("S4 parent lineage mismatch") from exc
-            all_pairs[source_id] = (asset, universe)
+            seen_source_ids.add(source_id)
+            if universe.full_row_snapshot["active_on_date"] is True:
+                evidence_pairs[source_id] = (asset, universe)
         asset_ref = ref_by_key[("asset_observation_daily", session)]
         universe_ref = ref_by_key[("universe_source_daily", session)]
         engine.consume_session(
@@ -1015,7 +1031,7 @@ def _scan_preview(
         result = engine.finalize(
             preview_manifest_available_session=available_session,
         )
-        return build_bounded_identity_preview_artifact(result), all_pairs, finalized_at
+        return build_bounded_identity_preview_artifact(result), evidence_pairs, finalized_at
     except IdentityStreamingPreviewError as exc:
         raise IdentityPreviewRunnerError("bounded streaming detector failed") from exc
 
@@ -1121,6 +1137,11 @@ def _read_and_revalidate_completion(
         or completion.calendar_artifact_sha256 != controls.calendar.sha256
         or completion.ticker_allowlist_id != controls.allowlist.ticker_allowlist_id
         or completion.ticker_allowlist_sha256 != controls.allowlist.sha256
+        or completion.git_commit != controls.plan.git_commit
+        or completion.start_session != controls.plan.start_session
+        or completion.end_session != controls.plan.end_session
+        or completion.session_count != controls.plan.session_count
+        or completion.ticker_count != controls.plan.ticker_count
     ):
         raise IdentityPreviewRunnerError("completion crosses exact control artifacts")
     if completion.created_at_utc < controls.approval.approved_at_utc:
@@ -1142,8 +1163,21 @@ def _read_and_revalidate_completion(
         raise IdentityPreviewRunnerError("completion preview cannot be revalidated") from exc
     _validate_completion_preview(completion, preview)
     try:
-        bundle = open_identity_source_bundle(root)
+        bundle = open_approved_identity_preview_source_bundle(
+            root,
+            plan_id=controls.plan.plan_id,
+            expected_plan_sha256=controls.plan.sha256,
+            approval_id=controls.approval.approval_id,
+            expected_approval_sha256=controls.approval.sha256,
+        )
         bundle.require_official()
+        bundle.require_approved_preview_scope(
+            plan_id=controls.plan.plan_id,
+            plan_sha256=controls.plan.sha256,
+            approval_id=controls.approval.approval_id,
+            approval_sha256=controls.approval.sha256,
+            sessions=controls.sessions,
+        )
         asset_artifacts = bundle.daily_partition_artifacts(
             "asset_observation_daily", controls.sessions
         )

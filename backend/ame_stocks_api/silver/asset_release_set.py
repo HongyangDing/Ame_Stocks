@@ -1825,6 +1825,35 @@ def require_asset_release_set_membership(
 ) -> AssetReleaseSet:
     """Require one complete marker containing ``release_id`` and validate all members."""
 
+    root, match = _asset_release_set_membership_marker(data_root, release_id)
+    verified = _verify_release_set(root, *match)
+    _require_production_release_authority(root, verified)
+    return verified
+
+
+def _require_asset_release_set_control_membership(
+    data_root: Path,
+    release_id: str,
+) -> AssetReleaseSet:
+    """Authenticate the complete S4 control plane without reading member DATA.
+
+    This private boundary exists only for a caller that immediately verifies an exact,
+    capability-bound artifact subset.  The public evidence reader continues to use
+    :func:`require_asset_release_set_membership`, which physically verifies every member.
+    """
+
+    root, match = _asset_release_set_membership_marker(data_root, release_id)
+    verified = _verify_release_set_control_plane(root, *match)
+    _require_production_release_authority(root, verified)
+    return verified
+
+
+def _asset_release_set_membership_marker(
+    data_root: Path,
+    release_id: str,
+) -> tuple[Path, tuple[AssetReleaseSet, StoredDocument]]:
+    """Resolve exactly one immutable release-set marker containing ``release_id``."""
+
     _digest(release_id, "release ID")
     root = data_root.expanduser().resolve()
     base = root / "manifests" / "silver" / "release-sets" / "assets"
@@ -1857,9 +1886,7 @@ def require_asset_release_set_membership(
         raise SilverStoreError(
             "S4 release is not backed by exactly one complete release-set marker"
         )
-    verified = _verify_release_set(root, *matches[0])
-    _require_production_release_authority(root, verified)
-    return verified
+    return root, matches[0]
 
 
 def _require_production_release_authority(
@@ -1912,6 +1939,40 @@ def _verify_release_set(
     release_set: AssetReleaseSet,
     document: StoredDocument,
 ) -> AssetReleaseSet:
+    """Verify the complete control plane and every physical DATA member."""
+
+    return _verify_release_set_impl(
+        root,
+        release_set,
+        document,
+        verify_member_artifacts=True,
+    )
+
+
+def _verify_release_set_control_plane(
+    root: Path,
+    release_set: AssetReleaseSet,
+    document: StoredDocument,
+) -> AssetReleaseSet:
+    """Verify the complete immutable control plane, leaving DATA to a scoped verifier."""
+
+    return _verify_release_set_impl(
+        root,
+        release_set,
+        document,
+        verify_member_artifacts=False,
+    )
+
+
+def _verify_release_set_impl(
+    root: Path,
+    release_set: AssetReleaseSet,
+    document: StoredDocument,
+    *,
+    verify_member_artifacts: bool,
+) -> AssetReleaseSet:
+    if type(verify_member_artifacts) is not bool:
+        raise SilverStoreError("S4 release-set DATA verification mode is invalid")
     expected_marker_path = (
         "manifests/silver/release-sets/assets/"
         f"release_set_id={release_set.release_set_id}/manifest.json"
@@ -2143,8 +2204,9 @@ def _verify_release_set(
         _read_immutable_bytes(root, member.approval_path, member.approval_sha256)
         _read_immutable_bytes(root, member.release_path, member.release_sha256)
         store.validate_qa_gate(build, member.warning_result_ids, ())
-        for output in member.outputs:
-            store.verify_artifact(output, contract=contract)
+        if verify_member_artifacts:
+            for output in member.outputs:
+                store.verify_artifact(output, contract=contract)
     return release_set
 
 

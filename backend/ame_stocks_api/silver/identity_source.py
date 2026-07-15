@@ -21,7 +21,12 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from ame_stocks_api.artifacts import safe_relative_path, sha256_file
-from ame_stocks_api.silver.contracts import ArtifactRef, ArtifactRole, SilverContractError
+from ame_stocks_api.silver.contracts import (
+    ArtifactRef,
+    ArtifactRole,
+    ReleaseManifest,
+    SilverContractError,
+)
 from ame_stocks_api.silver.reader import (
     PublishedAssetEvidenceReader,
     PublishedRelease,
@@ -43,6 +48,9 @@ S7_S4_RELEASE_SET_MANIFEST_SHA256: Final = (
 _IDENTIFIER = re.compile(r"^[a-z][a-z0-9_]*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _SESSION_PARTITION = re.compile(r"(?:^|/)session_date=(\d{4}-\d{2}-\d{2})(?:/|$)")
+_FULL_PHYSICAL_SCOPE: Final = "full_six_release_physical_v1"
+_PREVIEW_PHYSICAL_SCOPE: Final = "approved_detector_preview_s4_daily_v1"
+_TEST_PHYSICAL_SCOPE: Final = "test_fixture_v1"
 
 
 class IdentitySourceError(SilverContractError):
@@ -63,6 +71,9 @@ class _IdentitySourceCapability:
         tuple[str, str],
         tuple[str, str, str, ArtifactRef],
     ]
+    physical_scope: str
+    authorized_sessions: tuple[date, ...]
+    preview_control_binding: tuple[str, str, str, str] | None
     _seal: object = field(repr=False)
 
     def __post_init__(self) -> None:
@@ -82,7 +93,8 @@ class _IdentitySourceCapability:
             for (table, path), value in memberships.items():
                 release_id, manifest_path, manifest_sha256, ref = value
                 if (
-                    not isinstance(ref, ArtifactRef)
+                    table not in S7_SOURCE_PINS
+                    or not isinstance(ref, ArtifactRef)
                     or ref.path != path
                     or ref.table != table
                     or ref.role is not ArtifactRole.DATA
@@ -97,12 +109,58 @@ class _IdentitySourceCapability:
             actual_counts = {
                 table: sum(key[0] == table for key in memberships) for table in S7_SOURCE_PINS
             }
-            if actual_counts != expected_counts:
-                raise IdentitySourceError(
-                    "official S7 source capability artifact membership is incomplete"
-                )
+            sessions = tuple(self.authorized_sessions)
+            if self.physical_scope == _FULL_PHYSICAL_SCOPE:
+                if (
+                    actual_counts != expected_counts
+                    or sessions
+                    or self.preview_control_binding is not None
+                ):
+                    raise IdentitySourceError(
+                        "full official S7 source capability membership is incomplete"
+                    )
+            elif self.physical_scope == _PREVIEW_PHYSICAL_SCOPE:
+                if (
+                    not sessions
+                    or tuple(sorted(set(sessions))) != sessions
+                    or self.preview_control_binding is None
+                    or len(self.preview_control_binding) != 4
+                    or any(
+                        not isinstance(item, str) or not _SHA256.fullmatch(item)
+                        for item in self.preview_control_binding
+                    )
+                ):
+                    raise IdentitySourceError(
+                        "bounded preview source capability controls are invalid"
+                    )
+                expected_keys: set[tuple[str, date]] = {
+                    (table, session)
+                    for table in ("asset_observation_daily", "universe_source_daily")
+                    for session in sessions
+                }
+                actual_keys: set[tuple[str, date]] = set()
+                for table, path in memberships:
+                    match = _SESSION_PARTITION.search(path)
+                    if match is None:
+                        raise IdentitySourceError(
+                            "bounded preview capability contains a non-daily artifact"
+                        )
+                    actual_keys.add((table, date.fromisoformat(match.group(1))))
+                if actual_keys != expected_keys or len(memberships) != len(expected_keys):
+                    raise IdentitySourceError(
+                        "bounded preview capability differs from its exact daily scope"
+                    )
+            else:
+                raise IdentitySourceError("official S7 source capability scope is invalid")
             object.__setattr__(self, "artifact_memberships", MappingProxyType(memberships))
-        elif self.data_root is not None or self.artifact_memberships:
+            object.__setattr__(self, "authorized_sessions", sessions)
+        elif (
+            self.data_root is not None
+            or self.artifact_memberships
+            or self.physical_scope != _TEST_PHYSICAL_SCOPE
+            or self.authorized_sessions
+            or self.preview_control_binding is not None
+        ):
             raise IdentitySourceError("test S7 source capability cannot carry official membership")
 
     def require_artifact_membership(
@@ -134,6 +192,27 @@ class _IdentitySourceCapability:
     def require_factory_issued(self) -> None:
         if self.official and self not in _FACTORY_ISSUED_OFFICIAL_CAPABILITIES:
             raise IdentitySourceError("official S7 capability was not issued by the source factory")
+
+    def require_approved_preview_scope(
+        self,
+        *,
+        plan_id: str,
+        plan_sha256: str,
+        approval_id: str,
+        approval_sha256: str,
+        sessions: Sequence[date],
+    ) -> None:
+        self.require_factory_issued()
+        if (
+            not self.official
+            or self.physical_scope != _PREVIEW_PHYSICAL_SCOPE
+            or self.preview_control_binding
+            != (plan_id, plan_sha256, approval_id, approval_sha256)
+            or self.authorized_sessions != tuple(sessions)
+        ):
+            raise IdentitySourceError(
+                "S7 source capability crosses its approved bounded preview scope"
+            )
 
 
 _FACTORY_ISSUED_OFFICIAL_CAPABILITIES: WeakSet[_IdentitySourceCapability] = WeakSet()
@@ -251,10 +330,23 @@ class IdentityPublishedSource:
     release_manifest_path: str
     release_manifest_sha256: str
     data_root: Path | None = None
+    physical_artifacts: tuple[tuple[ArtifactRef, Path], ...] | None = None
+
+    @property
+    def artifact_bindings(self) -> tuple[tuple[ArtifactRef, Path], ...]:
+        """Return only artifacts physically authorized by this source capability."""
+
+        if self.physical_artifacts is not None:
+            return tuple(self.physical_artifacts)
+        outputs = tuple(self.published.release.outputs)
+        paths = tuple(self.published.data_paths)
+        if len(outputs) != len(paths):
+            raise IdentitySourceError("S7 release artifact/path counts differ")
+        return tuple(zip(outputs, paths, strict=True))
 
     @property
     def data_paths(self) -> tuple[Path, ...]:
-        return self.published.data_paths
+        return tuple(path for _, path in self.artifact_bindings)
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,6 +449,9 @@ class IdentitySourceBundle:
                 official=False,
                 data_root=None,
                 artifact_memberships=MappingProxyType({}),
+                physical_scope=_TEST_PHYSICAL_SCOPE,
+                authorized_sessions=(),
+                preview_control_binding=None,
                 _seal=_TEST_CAPABILITY_SEAL,
             ),
         )
@@ -379,6 +474,25 @@ class IdentitySourceBundle:
         if not self.official:
             raise IdentitySourceError("test S7 source bundles cannot attest production rows")
         self._capability.require_factory_issued()
+
+    def require_approved_preview_scope(
+        self,
+        *,
+        plan_id: str,
+        plan_sha256: str,
+        approval_id: str,
+        approval_sha256: str,
+        sessions: Sequence[date],
+    ) -> None:
+        """Fail unless this bundle is bound to the exact approved preview controls."""
+
+        self._capability.require_approved_preview_scope(
+            plan_id=plan_id,
+            plan_sha256=plan_sha256,
+            approval_id=approval_id,
+            approval_sha256=approval_sha256,
+            sessions=sessions,
+        )
 
     @property
     def sources(self) -> Mapping[str, IdentityPublishedSource]:
@@ -412,12 +526,8 @@ class IdentitySourceBundle:
             source = self._sources[table]
         except KeyError as exc:
             raise IdentitySourceError(f"table is outside the S7 source binding: {table}") from exc
-        outputs = source.published.release.outputs
-        paths = source.data_paths
-        if len(outputs) != len(paths):
-            raise IdentitySourceError("S7 release artifact/path counts differ")
         artifacts: list[IdentitySourceArtifact] = []
-        for ref, path in zip(outputs, paths, strict=True):
+        for ref, path in source.artifact_bindings:
             if source.data_root is not None:
                 expected = safe_relative_path(source.data_root, ref.path)
                 if expected != path.resolve():
@@ -559,6 +669,325 @@ class IdentitySourceBundle:
                 )
 
 
+def open_approved_identity_preview_source_bundle(
+    data_root: Path,
+    *,
+    plan_id: str,
+    expected_plan_sha256: str,
+    approval_id: str,
+    expected_approval_sha256: str,
+) -> IdentitySourceBundle:
+    """Open only physical S4 partitions authorized by one exact preview approval.
+
+    All six release manifests, workflows, contracts, builds, approvals, and the complete
+    S4 release-set control plane remain authenticated.  Unselected DATA artifacts are
+    validated as immutable manifest metadata but are never resolved or read from disk.
+    """
+
+    if not isinstance(data_root, Path):
+        raise IdentitySourceError("approved preview data_root must be a Path")
+    for label, value in (
+        ("plan ID", plan_id),
+        ("plan SHA-256", expected_plan_sha256),
+        ("approval ID", approval_id),
+        ("approval SHA-256", expected_approval_sha256),
+    ):
+        if not isinstance(value, str) or not _SHA256.fullmatch(value):
+            raise IdentitySourceError(f"approved preview {label} is invalid")
+    root = data_root.expanduser().resolve()
+    if not root.is_dir() or root.is_symlink() or root != root.resolve():
+        raise IdentitySourceError("approved preview data_root is unavailable or unsafe")
+
+    # Local imports avoid a module cycle: preview_plan pins the constants above.
+    from ame_stocks_api.silver.calendar_artifact import (
+        XNYSCalendarArtifactError,
+        load_xnys_calendar_artifact,
+    )
+    from ame_stocks_api.silver.identity_preview_plan import (
+        IdentityPreviewPlanError,
+        IdentityPreviewPlanStore,
+    )
+    from ame_stocks_api.silver.store import SilverStoreError
+
+    try:
+        control_store = IdentityPreviewPlanStore(root)
+        plan, _ = control_store.load_plan(plan_id, expected_sha256=expected_plan_sha256)
+        approval, _ = control_store.load_approval(
+            approval_id,
+            expected_sha256=expected_approval_sha256,
+        )
+        calendar = load_xnys_calendar_artifact(
+            root,
+            calendar_artifact_id=plan.calendar_artifact_id,
+            expected_sha256=plan.calendar_artifact_sha256,
+        )
+        if approval.plan_id != plan.plan_id or approval.plan_sha256 != plan.sha256:
+            raise IdentitySourceError("approved preview controls cross plans")
+        sessions = tuple(
+            item.session_date
+            for item in calendar.sessions
+            if plan.start_session <= item.session_date <= plan.end_session
+        )
+        if (
+            len(sessions) != plan.session_count
+            or not sessions
+            or sessions[0] != plan.start_session
+            or sessions[-1] != plan.end_session
+        ):
+            raise IdentitySourceError("approved preview session spine does not reproduce")
+
+        release_set_path = (
+            "manifests/silver/release-sets/assets/"
+            f"release_set_id={S7_S4_RELEASE_SET_ID}/manifest.json"
+        )
+        physical_release_set_path = safe_relative_path(root, release_set_path)
+        if (
+            not physical_release_set_path.is_file()
+            or physical_release_set_path.is_symlink()
+            or sha256_file(physical_release_set_path)
+            != S7_S4_RELEASE_SET_MANIFEST_SHA256
+        ):
+            raise IdentitySourceError(
+                "S7 S4 release-set marker differs from the reviewed binding"
+            )
+
+        store = SilverStore(root)
+        selected_by_table: dict[str, tuple[ArtifactRef, ...]] = {}
+        for table in ("asset_observation_daily", "universe_source_daily"):
+            pin = S7_SOURCE_PINS[table]
+            release, document = store.load_release(pin.release_id)
+            _verify_release_pin_metadata(pin, release, document.path, document.sha256)
+            selected_by_table[table] = _select_daily_preview_outputs(
+                release,
+                table=table,
+                sessions=sessions,
+            )
+        _verify_preview_metadata_caps(plan.resource_caps, selected_by_table)
+
+        ordinary_reader = PublishedSilverReader(root)
+        s4_reader = PublishedAssetEvidenceReader(root)
+        sources: dict[str, IdentityPublishedSource] = {}
+        for table, pin in S7_SOURCE_PINS.items():
+            selected_outputs = selected_by_table.get(table, ())
+            selected_paths = tuple(sorted(item.path for item in selected_outputs))
+            if pin.evidence_only_s4:
+                evidence, verified_outputs = (
+                    s4_reader._inspect_selected_for_identity_preview(
+                        pin.release_id,
+                        selected_paths,
+                    )
+                )
+                published = PublishedRelease(
+                    release=evidence.release,
+                    contract=evidence.contract,
+                    build=evidence.build,
+                    data_paths=evidence.data_paths,
+                )
+            else:
+                published, release_set, verified_outputs = (
+                    ordinary_reader._inspect_selected_for_identity_preview(
+                        pin.release_id,
+                        selected_paths,
+                    )
+                )
+                if release_set is not None:
+                    raise IdentitySourceError(
+                        f"non-S4 preview source unexpectedly requires a release set: {table}"
+                    )
+            if tuple(verified_outputs) != tuple(
+                sorted(selected_outputs, key=lambda item: item.path)
+            ):
+                raise IdentitySourceError(
+                    f"physically verified preview artifacts differ for {table}"
+                )
+            release, document = store.load_release(pin.release_id)
+            if release.to_dict() != published.release.to_dict():
+                raise IdentitySourceError(f"S7 release was inconsistent on reread: {table}")
+            _verify_pin(pin, published, document.path, document.sha256)
+            _verify_declared_identity_source(pin, published)
+            physical_artifacts = tuple(
+                zip(verified_outputs, published.data_paths, strict=True)
+            )
+            sources[table] = IdentityPublishedSource(
+                pin=pin,
+                published=published,
+                release_manifest_path=document.path,
+                release_manifest_sha256=document.sha256,
+                data_root=root,
+                physical_artifacts=physical_artifacts,
+            )
+        return _build_official_identity_preview_source_bundle(
+            root,
+            sources,
+            plan_id=plan.plan_id,
+            plan_sha256=plan.sha256,
+            approval_id=approval.approval_id,
+            approval_sha256=approval.sha256,
+            sessions=sessions,
+        )
+    except IdentitySourceError:
+        raise
+    except (
+        IdentityPreviewPlanError,
+        XNYSCalendarArtifactError,
+        SilverStoreError,
+        OSError,
+    ) as exc:
+        raise IdentitySourceError("approved preview source bundle cannot be opened") from exc
+
+
+def _select_daily_preview_outputs(
+    release: ReleaseManifest,
+    *,
+    table: str,
+    sessions: tuple[date, ...],
+) -> tuple[ArtifactRef, ...]:
+    requested = frozenset(sessions)
+    by_session: dict[date, ArtifactRef] = {}
+    for output in release.outputs:
+        match = _SESSION_PARTITION.search(output.path)
+        if match is None:
+            raise IdentitySourceError(f"daily S7 release contains non-session DATA: {table}")
+        session = date.fromisoformat(match.group(1))
+        if session not in requested:
+            continue
+        if session in by_session:
+            raise IdentitySourceError(f"daily S7 release duplicates a preview session: {table}")
+        by_session[session] = output
+    missing = tuple(session for session in sessions if session not in by_session)
+    if missing:
+        raise IdentitySourceError(f"daily S7 release misses preview sessions: {table}")
+    return tuple(by_session[session] for session in sessions)
+
+
+def _verify_preview_metadata_caps(
+    caps: object,
+    selected_by_table: Mapping[str, tuple[ArtifactRef, ...]],
+) -> None:
+    asset = selected_by_table["asset_observation_daily"]
+    universe = selected_by_table["universe_source_daily"]
+    asset_rows = sum(int(item.row_count or 0) for item in asset)
+    universe_rows = sum(int(item.row_count or 0) for item in universe)
+    total_rows = asset_rows + universe_rows
+    total_artifacts = len(asset) + len(universe)
+    total_bytes = sum(item.bytes for item in (*asset, *universe))
+    checks = (
+        (asset_rows, getattr(caps, "asset_parent_scanned_row_cap", -1), "asset rows"),
+        (universe_rows, getattr(caps, "universe_scanned_row_cap", -1), "universe rows"),
+        (total_rows, getattr(caps, "total_scanned_row_cap", -1), "total rows"),
+        (total_artifacts, getattr(caps, "source_artifact_cap", -1), "artifacts"),
+        (total_bytes, getattr(caps, "source_bytes_cap", -1), "bytes"),
+    )
+    for observed, limit, label in checks:
+        if type(limit) is not int or limit <= 0 or observed > limit:
+            raise IdentitySourceError(f"approved preview metadata exceeds its {label} cap")
+
+
+def _build_official_identity_preview_source_bundle(
+    data_root: Path,
+    sources: Mapping[str, IdentityPublishedSource],
+    *,
+    plan_id: str,
+    plan_sha256: str,
+    approval_id: str,
+    approval_sha256: str,
+    sessions: tuple[date, ...],
+) -> IdentitySourceBundle:
+    root = data_root.expanduser().resolve()
+    _verify_official_identity_preview_sources(root, sources, sessions=sessions)
+    memberships = {
+        (table, ref.path): (
+            source.pin.release_id,
+            source.release_manifest_path,
+            source.release_manifest_sha256,
+            ref,
+        )
+        for table, source in sources.items()
+        for ref, _ in source.artifact_bindings
+    }
+    capability = _IdentitySourceCapability(
+        official=True,
+        data_root=root,
+        artifact_memberships=MappingProxyType(memberships),
+        physical_scope=_PREVIEW_PHYSICAL_SCOPE,
+        authorized_sessions=sessions,
+        preview_control_binding=(plan_id, plan_sha256, approval_id, approval_sha256),
+        _seal=_OFFICIAL_CAPABILITY_SEAL,
+    )
+    bundle = IdentitySourceBundle(sources, _capability=capability)
+    _FACTORY_ISSUED_OFFICIAL_CAPABILITIES.add(capability)
+    return bundle
+
+
+def _verify_official_identity_preview_sources(
+    root: Path,
+    sources: Mapping[str, IdentityPublishedSource],
+    *,
+    sessions: tuple[date, ...],
+) -> None:
+    if not root.is_dir() or root.is_symlink() or root != root.resolve():
+        raise IdentitySourceError("official preview data_root is unavailable or unsafe")
+    if set(sources) != set(S7_SOURCE_PINS):
+        raise IdentitySourceError("official preview source set is not the exact six tables")
+    store = SilverStore(root)
+    expected_daily_keys = {
+        (table, session)
+        for table in ("asset_observation_daily", "universe_source_daily")
+        for session in sessions
+    }
+    actual_daily_keys: set[tuple[str, date]] = set()
+    for table, pin in S7_SOURCE_PINS.items():
+        source = sources[table]
+        if source.pin != pin or source.data_root != root:
+            raise IdentitySourceError(f"official preview source binding differs for {table}")
+        release, document = store.load_release(pin.release_id)
+        if (
+            release.to_dict() != source.published.release.to_dict()
+            or document.path != source.release_manifest_path
+            or document.sha256 != source.release_manifest_sha256
+        ):
+            raise IdentitySourceError(f"official preview release changed for {table}")
+        _verify_pin(pin, source.published, document.path, document.sha256)
+        _verify_declared_identity_source(pin, source.published)
+        for ref, path in source.artifact_bindings:
+            match = _SESSION_PARTITION.search(ref.path)
+            if match is None:
+                raise IdentitySourceError("preview physical scope contains non-daily DATA")
+            actual_daily_keys.add((table, date.fromisoformat(match.group(1))))
+            expected_path = safe_relative_path(root, ref.path)
+            if path != expected_path or not path.is_file() or path.is_symlink():
+                raise IdentitySourceError("preview physical artifact path changed")
+    if actual_daily_keys != expected_daily_keys:
+        raise IdentitySourceError("preview physical sources differ from approved sessions")
+
+
+def _verify_declared_identity_source(
+    pin: IdentitySourcePin,
+    published: PublishedRelease,
+) -> None:
+    release = published.release
+    contract = published.contract
+    if (
+        contract.table != pin.table
+        or contract.domain != release.domain
+        or contract.schema_version != release.schema_version
+        or contract.contract_id != release.contract_id
+    ):
+        raise IdentitySourceError(f"S7 declared contract binding differs for {pin.table}")
+    outputs = tuple(release.outputs)
+    if len({item.path for item in outputs}) != len(outputs):
+        raise IdentitySourceError(f"S7 declared DATA paths duplicate for {pin.table}")
+    if any(
+        item.role is not ArtifactRole.DATA
+        or item.media_type != "application/vnd.apache.parquet"
+        or item.table != pin.table
+        or item.schema_digest != contract.schema_digest
+        or item.row_count is None
+        for item in outputs
+    ):
+        raise IdentitySourceError(f"S7 declared DATA metadata differs for {pin.table}")
+
+
 def open_identity_source_bundle(data_root: Path) -> IdentitySourceBundle:
     """Open only the reviewed S7 six-release bundle; latest-release lookup is impossible."""
 
@@ -617,12 +1046,15 @@ def _build_official_identity_source_bundle(
             ref,
         )
         for table, source in sources.items()
-        for ref in source.published.release.outputs
+        for ref, _ in source.artifact_bindings
     }
     capability = _IdentitySourceCapability(
         official=True,
         data_root=root,
         artifact_memberships=MappingProxyType(memberships),
+        physical_scope=_FULL_PHYSICAL_SCOPE,
+        authorized_sessions=(),
+        preview_control_binding=None,
         _seal=_OFFICIAL_CAPABILITY_SEAL,
     )
     bundle = IdentitySourceBundle(
@@ -711,7 +1143,22 @@ def _verify_pin(
     manifest_path: str,
     manifest_sha256: str,
 ) -> None:
-    release = published.release
+    _verify_release_pin_metadata(
+        pin,
+        published.release,
+        manifest_path,
+        manifest_sha256,
+    )
+    if not manifest_path:
+        raise IdentitySourceError(f"S7 release has no auditable manifest for {pin.table}")
+
+
+def _verify_release_pin_metadata(
+    pin: IdentitySourcePin,
+    release: ReleaseManifest,
+    manifest_path: str,
+    manifest_sha256: str,
+) -> None:
     if (
         release.table != pin.table
         or release.release_id != pin.release_id
@@ -723,10 +1170,6 @@ def _verify_pin(
         raise IdentitySourceError(f"S7 artifact count mismatch for {pin.table}")
     if sum(output.row_count or 0 for output in release.outputs) != pin.row_count:
         raise IdentitySourceError(f"S7 row count mismatch for {pin.table}")
-    if not manifest_path or not published.data_paths:
-        raise IdentitySourceError(f"S7 release has no auditable manifest/data for {pin.table}")
-    if not all(path.is_file() for path in published.data_paths):
-        raise IdentitySourceError(f"S7 verified source disappeared for {pin.table}")
 
 
 __all__ = [
@@ -740,5 +1183,6 @@ __all__ = [
     "IdentitySourceBundle",
     "IdentitySourceError",
     "IdentitySourcePin",
+    "open_approved_identity_preview_source_bundle",
     "open_identity_source_bundle",
 ]

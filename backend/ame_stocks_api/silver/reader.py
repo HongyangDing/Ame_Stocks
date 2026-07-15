@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -86,6 +86,95 @@ class PublishedSilverReader:
                 self.store.root,
                 release.release_id,
             )
+        controlled_release, contract, build = self._inspect_control_chain(
+            release_id,
+            loaded_release=(release, release_document),
+        )
+        if controlled_release != release:
+            raise SilverStoreError("release changed while its publication was verified")
+        data_paths = tuple(
+            self.store.verify_artifact(output, contract=contract) for output in release.outputs
+        )
+        return (
+            PublishedRelease(
+                release=release,
+                contract=contract,
+                build=build,
+                data_paths=data_paths,
+            ),
+            release_set,
+        )
+
+    def _inspect_selected_for_identity_preview(
+        self,
+        release_id: str,
+        artifact_paths: Sequence[str],
+    ) -> tuple[PublishedRelease, AssetReleaseSet | None, tuple[ArtifactRef, ...]]:
+        """Authenticate one release but physically verify only an exact DATA subset.
+
+        This is deliberately private and is used only to mint the source capability for
+        an approved bounded S7 preview.  It never grants ordinary published-data access.
+        """
+
+        selected_paths = tuple(artifact_paths)
+        if (
+            any(not isinstance(path, str) or not path for path in selected_paths)
+            or tuple(sorted(set(selected_paths))) != selected_paths
+        ):
+            raise SilverStoreError(
+                "identity preview artifact paths must be sorted, unique, nonempty strings"
+            )
+        release, contract, build = self._inspect_control_chain(release_id)
+        from ame_stocks_api.silver.asset_release_set import (
+            _require_asset_release_set_control_membership,
+            asset_release_requires_set,
+        )
+
+        release_set = None
+        if asset_release_requires_set(release.table):
+            release_set = _require_asset_release_set_control_membership(
+                self.store.root,
+                release.release_id,
+            )
+        outputs_by_path = {output.path: output for output in release.outputs}
+        if len(outputs_by_path) != len(release.outputs):
+            raise SilverStoreError("release contains duplicate DATA artifact paths")
+        try:
+            selected_outputs = tuple(outputs_by_path[path] for path in selected_paths)
+        except KeyError as exc:
+            raise SilverStoreError(
+                "identity preview selected an artifact outside the exact release"
+            ) from exc
+        data_paths = tuple(
+            self.store.verify_artifact(output, contract=contract)
+            for output in selected_outputs
+        )
+        return (
+            PublishedRelease(
+                release=release,
+                contract=contract,
+                build=build,
+                data_paths=data_paths,
+            ),
+            release_set,
+            selected_outputs,
+        )
+
+    def _inspect_control_chain(
+        self,
+        release_id: str,
+        *,
+        loaded_release: tuple[ReleaseManifest, StoredDocument] | None = None,
+    ) -> tuple[ReleaseManifest, TableContract, BuildManifest]:
+        """Verify publication metadata and approvals without touching release DATA."""
+
+        release, release_document = (
+            self.store.load_release(release_id)
+            if loaded_release is None
+            else loaded_release
+        )
+        if release.release_id != release_id:
+            raise SilverStoreError("loaded release differs from its requested identity")
         snapshot = self.store.verify_workflow_trust_chain(release.workflow_id)
         events = self.store.workflow_events(release.workflow_id)
         published = events[-1]
@@ -157,18 +246,7 @@ class PublishedSilverReader:
         )
         if self._artifact_set(release.outputs) != self._artifact_set(expected_outputs):
             raise SilverStoreError("release data artifacts differ from the approved build")
-        data_paths = tuple(
-            self.store.verify_artifact(output, contract=contract) for output in release.outputs
-        )
-        return (
-            PublishedRelease(
-                release=release,
-                contract=contract,
-                build=build,
-                data_paths=data_paths,
-            ),
-            release_set,
-        )
+        return release, contract, build
 
     def data_files(self, release_id: str) -> tuple[Path, ...]:
         """Return verified data paths; build IDs and arbitrary paths are not accepted."""
@@ -220,4 +298,42 @@ class PublishedAssetEvidenceReader:
             data_paths=published.data_paths,
             publication_scope=release_set.publication_scope,
             backtest_identity_eligible=False,
+        )
+
+    def _inspect_selected_for_identity_preview(
+        self,
+        release_id: str,
+        artifact_paths: Sequence[str],
+    ) -> tuple[PublishedAssetEvidence, tuple[ArtifactRef, ...]]:
+        """Return only physically verified artifacts selected by the bounded S7 factory."""
+
+        from ame_stocks_api.silver.asset_release_set import ASSET_PUBLICATION_SCOPE
+
+        published, release_set, selected_outputs = (
+            self._reader._inspect_selected_for_identity_preview(
+                release_id,
+                artifact_paths,
+            )
+        )
+        if release_set is None:
+            raise SilverStoreError(
+                "PublishedAssetEvidenceReader accepts only protected S4 asset releases"
+            )
+        if (
+            release_set.publication_scope != ASSET_PUBLICATION_SCOPE
+            or release_set.backtest_identity_eligible is not False
+        ):
+            raise SilverStoreError(
+                "S4 release-set marker does not preserve the evidence-only identity boundary"
+            )
+        return (
+            PublishedAssetEvidence(
+                release=published.release,
+                contract=published.contract,
+                build=published.build,
+                data_paths=published.data_paths,
+                publication_scope=release_set.publication_scope,
+                backtest_identity_eligible=False,
+            ),
+            selected_outputs,
         )
