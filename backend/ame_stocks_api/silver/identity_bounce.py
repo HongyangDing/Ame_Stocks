@@ -30,6 +30,7 @@ from ame_stocks_api.silver.availability import (
     SilverAvailabilityError,
     require_first_xnys_open_session,
 )
+from ame_stocks_api.silver.identity_source import S7_SIX_RELEASE_BINDING_ID
 
 DETECTOR_RULE_VERSION: Final = "s7_provider_figi_bounce_detector_v1"
 CASE_ID_RULE_VERSION: Final = "s7_provider_figi_bounce_case_id_v1"
@@ -643,7 +644,13 @@ def write_identity_case_candidate_manifest(
     data_root: Path,
     manifest: IdentityCaseCandidateManifest,
 ) -> dict[str, object]:
-    """Publish a candidate manifest immutably and return its artifact receipt."""
+    """Publish only non-production fixtures until promotion provenance is implemented."""
+
+    if manifest.six_release_binding_id == S7_SIX_RELEASE_BINDING_ID:
+        raise IdentityBounceError(
+            "production candidate writing remains hard-gated pending separately approved "
+            "corroboration and promotion provenance"
+        )
 
     root = data_root.expanduser().resolve()
     relative = identity_case_candidate_manifest_path(manifest.candidate_manifest_id)
@@ -682,6 +689,11 @@ def read_identity_case_candidate_manifest(
     if not isinstance(raw, dict):
         raise IdentityBounceError("identity-case candidate manifest must be a JSON object")
     _validate_candidate_manifest_document(raw, content)
+    if raw.get("six_release_binding_id") == S7_SIX_RELEASE_BINDING_ID:
+        raise IdentityBounceError(
+            "production candidate reading remains hard-gated pending separately approved "
+            "corroboration and promotion provenance"
+        )
     return IdentityCaseCandidateManifest(
         candidate_manifest_id=candidate_manifest_id,
         sha256=expected_sha256,

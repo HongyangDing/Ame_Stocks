@@ -23,7 +23,6 @@ from ame_stocks_api.silver.identity_bounce import (
     SourceSession,
     build_identity_case_candidate_manifest,
     detect_provider_figi_bounces,
-    write_identity_case_candidate_manifest,
 )
 from ame_stocks_api.silver.identity_resolution import (
     IdentityResolutionBinding,
@@ -366,10 +365,12 @@ def test_unattested_production_candidate_cannot_enter_control_store(tmp_path) ->
         detection,
         created_at_utc=datetime(2024, 1, 4, 22, 0, tzinfo=UTC),
     )
-    manifest_receipt = write_identity_case_candidate_manifest(tmp_path, manifest)
+    manifest_path = tmp_path / manifest.relative_path
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_bytes(manifest.content)
     candidate = CandidateManifestBinding(
         manifest_id=manifest.candidate_manifest_id,
-        manifest_sha256=str(manifest_receipt["sha256"]),
+        manifest_sha256=manifest.sha256,
         path=manifest.relative_path,
     )
     case = detection.cases[0]
@@ -416,7 +417,7 @@ def test_unattested_production_candidate_cannot_enter_control_store(tmp_path) ->
         proposals=(proposal,),
     )
     store = IdentityAdjudicationStore(tmp_path)
-    with pytest.raises(IdentityAdjudicationError, match="source-bundle verification"):
+    with pytest.raises(IdentityAdjudicationError, match="candidate manifest ID/SHA trust chain"):
         store.store_plan(plan)
 
 

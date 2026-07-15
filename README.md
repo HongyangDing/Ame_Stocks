@@ -34,14 +34,21 @@ now at **Silver Phase 2 with S1–S6 published; S7 production ingress is fail-cl
   permanent identity, ticker validity intervals, and a backtestable universe still require S7;
 - S7 has completed its read-only combined-source profile; five revised contracts are approved and
   packaged for one protected `identity_adjudication` registry plus four cutoff-bound derived tables.
-  Implemented control primitives include exact six-release readers, a discovery-only in-memory
-  FIGI-bounce detector capped at 250,000 observations, immutable candidate/external-evidence/calendar
-  artifacts, append-only human adjudication, exact registry snapshots, and cutoff fixtures. Synthetic
-  tests cover genuine transition, confirmed contamination, unresolved/withdrawn and conflict states.
-  A generic caller cannot promote a candidate carrying the production binding: the control store
-  requires source-bundle verification that the current fixture detector cannot mint. No real S7
-  detector scan, four-table materialization, preview, full run, or release has run. The next code step
-  is a source-bound streaming preview runner and verified provider-evidence selection, not a data run;
+  The bounded detector preview control path is now implemented: a factory-issued, exact-release-
+  membership-bound source capability, exact ticker/session plan and resource caps, a stored request event plus literal-bound v2
+  approval, a streaming S4 detector, physical Parquet row attestations for both membership and its asset
+  parent, and an immutable `awaiting_review` completion. The preview hard ceilings are 25 sessions,
+  250 tickers, 6,250 selected rows, 2.1 million scanned rows, 80 artifacts, and 512 MiB. Its attestation
+  scope is explicitly S4-only; S5/S6/hierarchy corroboration remains `not_evaluated` and
+  `support_absence_verified=false`, so the preview cannot claim that corroborating evidence is absent.
+  Evidence writes require an ephemeral runner authority bound to the exact controls and post-scan
+  finalization time; standalone source-attested build/write/read APIs are closed, and completion
+  rechecks the XNYS availability boundary with a one-minute safety margin.
+  Production-binding candidate read/write is separately hard-gated until corroboration and promotion
+  provenance are designed and approved.
+  Synthetic tests cover source tampering, parent-lineage mismatch, cap enforcement, idempotency, and
+  the existing disposition/cutoff fixtures. No real S7 plan, approval, detector preview, candidate,
+  adjudication, four-table materialization, full run, or release has run;
 
 The final strict full audit is
 `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/bronze/full-2026-07-12-v9.json`
@@ -99,10 +106,13 @@ documented in
 [docs/silver-s5-ticker-events-schema-review.md](docs/silver-s5-ticker-events-schema-review.md). The
 published S6 evidence contract, lifecycle coverage, QA/quarantine results, and release are documented
 in [docs/silver-s6-ticker-overview-schema-review.md](docs/silver-s6-ticker-overview-schema-review.md).
-The current hard stop is S7 production provenance: the five revised contracts are approved and the
-bounded control primitives exist, but no source-attested streaming detector, production membership
-resolver, preview, full build, or release is authorized. The exact input binding,
-observed/canonical split, adjudication rules, contract digests, and approval wording are in
+The current hard stop is an exact S7 detector-preview plan: the revised contracts and source-bound
+S4 streaming preview runner exist, but no real ticker allowlist, session range, request event, literal
+approval, detector output, production membership resolver, full build, or release is authorized.
+The runner cannot accept caller-supplied rows, paths, checksums, bundles, or evidence; even a successful
+run stops at `awaiting_review` and cannot enter candidate/adjudication/backtest/publication paths.
+The exact input binding, observed/canonical split, adjudication rules, contract digests, and approval
+wording are in
 [docs/silver-s7-identity-resolution-schema-review.md](docs/silver-s7-identity-resolution-schema-review.md).
 For S4, the approved schemas are loaded by
 [asset_contract.py](backend/ame_stocks_api/silver/asset_contract.py); the manifest-bound reader and

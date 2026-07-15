@@ -161,7 +161,13 @@ def _candidate_binding(
         detection,
         created_at_utc=datetime(2024, 1, 5, 22, 0, tzinfo=UTC),
     )
-    receipt = write_identity_case_candidate_manifest(root, manifest)
+    if six_release_binding_id == S7_SIX_RELEASE_BINDING_ID:
+        path = root / manifest.relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(manifest.content)
+        receipt = {"sha256": manifest.sha256}
+    else:
+        receipt = write_identity_case_candidate_manifest(root, manifest)
     return CandidateManifestBinding(
         manifest_id=manifest.candidate_manifest_id,
         manifest_sha256=str(receipt["sha256"]),
@@ -365,7 +371,7 @@ def test_unattested_production_candidate_cannot_write_or_load_empty_registry(
         "release_available_session": date(2024, 1, 9),
     }
 
-    with pytest.raises(IdentityAdjudicationError, match="source-bundle verification"):
+    with pytest.raises(IdentityAdjudicationError, match="candidate manifest ID/SHA trust chain"):
         store.write_registry_release((), **release_args)
 
     forged_release = IdentityAdjudicationRegistryRelease(
@@ -394,7 +400,7 @@ def test_unattested_production_candidate_cannot_write_or_load_empty_registry(
         ).encode("utf-8")
         + b"\n"
     )
-    with pytest.raises(IdentityAdjudicationError, match="source-bundle verification"):
+    with pytest.raises(IdentityAdjudicationError, match="candidate manifest ID/SHA trust chain"):
         store.load_registry_release(forged_release.release_id)
 
 
@@ -431,7 +437,7 @@ def test_registry_load_rejects_candidate_release_binding_mismatch(tmp_path: Path
         + b"\n"
     )
 
-    with pytest.raises(IdentityAdjudicationError, match="six-release bindings differ"):
+    with pytest.raises(IdentityAdjudicationError, match="candidate manifest ID/SHA trust chain"):
         store.load_registry_release(mismatched_release.release_id)
 
 

@@ -29,6 +29,7 @@ A = "BBG00000000A"
 B = "BBG00000000B"
 C = "BBG00000000C"
 BINDING = "49f3d20725f2609b43d6736df78993b2975c9f1b71947af93190dc0658366c64"
+NON_PRODUCTION_BINDING = "1" * 64
 
 
 def _sessions(count: int, *, start: date = date(2024, 1, 2)) -> tuple[SourceSession, ...]:
@@ -276,7 +277,7 @@ def test_candidate_manifest_is_content_addressed_bounded_and_immutable(
     detection = detect_provider_figi_bounces(
         sessions,
         (*one, *three, *six),
-        six_release_binding_id=BINDING,
+        six_release_binding_id=NON_PRODUCTION_BINDING,
         candidate_manifest_available_session=date(2024, 1, 16),
     )
     created = datetime(2024, 1, 12, 21, 0, tzinfo=UTC)
@@ -332,7 +333,7 @@ def test_candidate_manifest_is_content_addressed_bounded_and_immutable(
     assert loaded.content == first.content
     assert loaded.document == first.document
     assert loaded.candidate_manifest_available_session == date(2024, 1, 16)
-    assert loaded.six_release_binding_id == BINDING
+    assert loaded.six_release_binding_id == NON_PRODUCTION_BINDING
     assert tuple(item.to_manifest_dict() for item in loaded.cases) == tuple(
         item.to_manifest_dict() for item in detection.cases
     )
@@ -342,6 +343,38 @@ def test_candidate_manifest_is_content_addressed_bounded_and_immutable(
     path.write_bytes(b"{}\n")
     with pytest.raises(ArtifactError, match="refusing to overwrite immutable artifact"):
         write_identity_case_candidate_manifest(tmp_path, first)
+
+
+def test_production_candidate_ingress_remains_hard_gated(tmp_path: Path) -> None:
+    sessions = _sessions(3)
+    detection = detect_provider_figi_bounces(
+        sessions,
+        _observations(sessions, ticker="BLOCK", figis=(A, B, A), prefix="block"),
+        six_release_binding_id=BINDING,
+        candidate_manifest_available_session=date(2024, 1, 16),
+    )
+    manifest = build_identity_case_candidate_manifest(
+        detection,
+        created_at_utc=datetime(2024, 1, 12, 21, tzinfo=UTC),
+    )
+
+    with pytest.raises(
+        IdentityBounceError, match="production candidate writing remains hard-gated"
+    ):
+        write_identity_case_candidate_manifest(tmp_path, manifest)
+    assert not (tmp_path / manifest.relative_path).exists()
+
+    path = tmp_path / manifest.relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(manifest.content)
+    with pytest.raises(
+        IdentityBounceError, match="production candidate reading remains hard-gated"
+    ):
+        read_identity_case_candidate_manifest(
+            tmp_path,
+            candidate_manifest_id=manifest.candidate_manifest_id,
+            expected_sha256=manifest.sha256,
+        )
 
 
 def test_detector_rejects_ignored_or_ambiguous_input() -> None:
