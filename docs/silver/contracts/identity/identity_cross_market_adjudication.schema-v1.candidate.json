@@ -1,0 +1,613 @@
+{
+  "columns": [
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 of the immutable decision payload under s7_cross_market_adjudication_id_v1.",
+      "name": "cross_market_adjudication_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Stable append-only series ID derived from cross_market_subject_id; canonical target, interval, and source-row revisions remain in one series.",
+      "name": "cross_market_series_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Positive contiguous decision version within the series.",
+      "name": "decision_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Immediate predecessor ID; null exactly for version 1.",
+      "name": "supersedes_cross_market_adjudication_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Stable digest of provider, market, locale, ticker, Share Class, and observed foreign Composite; decision revisions cannot change subject.",
+      "name": "cross_market_subject_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Version-specific digest of subject, disposition, nullable canonical target, validity, source release, candidate manifest, and exact source-row scope.",
+      "name": "cross_market_scope_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider namespace; massive for the reviewed groups.",
+      "name": "provider_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider market; stocks for the reviewed groups.",
+      "name": "provider_market",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider locale; fixed us for this registry.",
+      "name": "provider_locale",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact case-sensitive provider ticker; no global aliasing or normalization.",
+      "name": "observed_ticker",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Externally corroborated Share Class FIGI shared by the foreign and canonical US Composite FIGIs.",
+      "name": "share_class_figi",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider-observed non-US Composite FIGI retained unchanged in source and derived observed columns.",
+      "name": "observed_foreign_composite_figi",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Frozen identifier-authority market code for the observed foreign Composite; never US.",
+      "name": "observed_composite_market_code",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Independently evidenced US Composite target for confirmed contamination; null for cross_market_adjudicated_unresolved.",
+      "name": "canonical_us_composite_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "US for confirmed contamination; null for cross_market_adjudicated_unresolved.",
+      "name": "canonical_composite_market_code",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Deterministic asset ID for the canonical target; null for cross_market_adjudicated_unresolved.",
+      "name": "canonical_asset_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First S4 session eligible for exact foreign-observation matching.",
+      "name": "valid_from_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Last inclusive S4 session eligible for exact foreign-observation matching.",
+      "name": "valid_through_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of exact S4 source records in this immutable scope.",
+      "name": "scoped_source_record_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Digest of sorted unique exact S4 source_record_ids.",
+      "name": "scoped_source_record_set_digest",
+      "nullable": false
+    },
+    {
+      "arrow_type": "json_string",
+      "description": "Canonical JSON array of sorted unique exact S4 source_record_ids.",
+      "name": "scoped_source_record_ids_json",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of preserved bounce cases linked as lineage; may be zero for long-lived non-bounce contamination.",
+      "name": "related_identity_case_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "json_string",
+      "description": "Canonical JSON array of preserved identity_case_ids; no case is rewritten.",
+      "name": "related_identity_case_ids_json",
+      "nullable": false
+    },
+    {
+      "arrow_type": "json_string",
+      "description": "Canonical JSON object assigning contaminated_middle_episode or inverse_middle_is_canonical_us to each linked case.",
+      "name": "related_identity_case_roles_json",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact domain confirmed_provider_contamination or cross_market_adjudicated_unresolved; genuine transitions remain in the episode registry.",
+      "name": "identity_disposition",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "True only for confirmed contamination; false for a withdrawal to unresolved and for correct inverse US observations.",
+      "name": "canonical_override",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "canonical_research_identity_only for confirmed contamination or none_unresolved for withdrawal.",
+      "name": "identity_effect",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed none; identity quality never changes membership.",
+      "name": "membership_effect",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed none; contamination is not inactive or delisted.",
+      "name": "active_status_effect",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false; the registry cannot force liquidation.",
+      "name": "identity_quality_liquidation_signal",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Reviewed machine-readable decision reason.",
+      "name": "reason_code",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Reviewed human-readable reason without outcome or backtest evidence.",
+      "name": "reason_detail",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed approved in a published registry; proposals never enter DATA.",
+      "name": "approval_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Immutable literal-approval request event ID.",
+      "name": "approval_request_event_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of exact request-event bytes.",
+      "name": "approval_request_event_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Immutable row-specific literal human approval receipt ID.",
+      "name": "approval_receipt_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Content-addressed relative path to the exact approval receipt.",
+      "name": "approval_receipt_path",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of exact approval receipt bytes.",
+      "name": "approval_receipt_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact approved reviewer identity from the receipt.",
+      "name": "approved_by",
+      "nullable": false
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "UTC approval timestamp from the immutable receipt.",
+      "name": "approved_at_utc",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session on which the exact approval was available.",
+      "name": "approval_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Maximum of candidate, evidence, and approval availability.",
+      "name": "adjudication_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact fixed S4/S5/S6 six-release binding ID.",
+      "name": "source_six_release_binding_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S4 release-set ID used by every scoped source row.",
+      "name": "source_s4_release_set_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact preserved bounce-case candidate manifest ID; may contain related and unrelated cases.",
+      "name": "source_identity_case_candidate_manifest_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of exact preserved bounce-case candidate manifest bytes.",
+      "name": "source_identity_case_candidate_manifest_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact full-sequence market-consistency candidate manifest ID.",
+      "name": "source_identity_market_consistency_candidate_manifest_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of exact full-sequence market-consistency candidate manifest bytes.",
+      "name": "source_identity_market_consistency_candidate_manifest_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session on which all linked candidate scope was available.",
+      "name": "candidate_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Immutable external-evidence manifest ID binding raw OpenFIGI and official action-date bytes.",
+      "name": "source_external_evidence_manifest_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of exact external-evidence manifest bytes.",
+      "name": "source_external_evidence_manifest_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session on which all frozen external evidence was available.",
+      "name": "external_evidence_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Digest of exact response pointers, hierarchy assertions, and official action-date assertions used by the decision.",
+      "name": "evidence_claim_digest",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed s7_openfigi_cross_market_relationship_v1.",
+      "name": "market_classification_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed s7_cross_market_exact_scope_match_v1; global FIGI replacement is prohibited.",
+      "name": "scope_match_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed s7_cross_market_adjudication_id_v1.",
+      "name": "cross_market_adjudication_id_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false; returns, factors, and backtests cannot adjudicate identity.",
+      "name": "outcome_or_backtest_evidence_used",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact immutable XNYS calendar artifact ID.",
+      "name": "availability_calendar_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of exact calendar artifact bytes.",
+      "name": "availability_calendar_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed max_candidate_evidence_approval_first_xnys_open_v1.",
+      "name": "availability_rule",
+      "nullable": false
+    }
+  ],
+  "contract_id": "ae91c7b1bfc27bde82e5f5a39afdc5a3c2c9929d075486cb081836b6798e14e8",
+  "contract_schema_version": 1,
+  "description": "Protected append-only registry of approved provider/locale/ticker/Share-Class cross-market identity decisions. Stable subjects may revise canonical target, interval, source rows, or withdraw to unresolved without rewriting history. It retains raw observed FIGIs and cannot affect foreign-locale records, active status, membership, or liquidation.",
+  "domain": "identity",
+  "grain": "One immutable approved decision version for one exact cross-market scope; nine reviewed tickers would produce nine series, not nineteen bounce-case decisions.",
+  "partition_by": [],
+  "primary_key": [
+    "cross_market_adjudication_id"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "schema_exact",
+      "description": "Output fields, order, Arrow types, and nullability exactly match this contract.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "append_only_registry_mutation_rows",
+      "description": "Published rows cannot be updated or deleted; revisions append a successor.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "cross_market_version_chain_invalid_rows",
+      "description": "Versions start at one, are contiguous, reference the immediate predecessor, and may change only version-specific decision scope.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "cross_market_subject_id_recomputation_mismatch_rows",
+      "description": "Every stable subject ID reproduces from provider, market, locale, ticker, Share Class, and observed foreign Composite.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "cross_market_scope_id_recomputation_mismatch_rows",
+      "description": "Every version-specific scope ID reproduces from subject, disposition, nullable canonical target, interval, candidate, release, and source rows.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "cross_market_series_id_recomputation_mismatch_rows",
+      "description": "Every series ID reproduces from its stable subject ID.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "cross_market_adjudication_id_recomputation_mismatch_rows",
+      "description": "Every decision ID reproduces from its immutable logical payload.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "provider_locale_scope_invalid_rows",
+      "description": "Registry rows require the exact approved provider, stocks market, and us locale.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "figi_or_market_code_invalid_rows",
+      "description": "Both Composite FIGIs, the shared Share Class FIGI, and US/non-US market codes must be valid.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "canonical_target_evidence_invalid_rows",
+      "description": "Confirmed contamination requires evidenced same-Share-Class US/foreign targets; unresolved withdrawal requires null canonical fields.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "scope_interval_invalid_rows",
+      "description": "Validity bounds must be ordered and contain every scoped source record.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "scope_source_record_digest_invalid_rows",
+      "description": "Exact source-record count, sorted JSON, and digest must reconcile.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_release_binding_invalid_rows",
+      "description": "Every scoped row and control artifact must use the exact approved S4 and six-release bindings.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "market_consistency_candidate_binding_invalid_rows",
+      "description": "The exact full-sequence candidate ID, SHA, cases, reasons, and availability must validate.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "external_evidence_manifest_binding_invalid_rows",
+      "description": "Every raw request/response/page path, byte count, SHA, assertion pointer, and availability must replay.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "related_identity_case_role_invalid_rows",
+      "description": "Linked cases remain unchanged and may only carry contaminated-middle or inverse-US roles.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "cross_market_approval_binding_invalid_rows",
+      "description": "Request event and receipt must bind this exact version and human approval.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "cross_market_availability_invalid_rows",
+      "description": "Adjudication availability must equal the maximum of candidate, evidence, and approval availability.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "cross_market_scope_overlap_rows",
+      "description": "After terminal-head selection per stable subject, no source record may match two effective subjects at one cutoff.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "unapproved_cross_market_registry_rows",
+      "description": "Only approved rows may enter a published registry.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "canonical_effect_matrix_invalid_rows",
+      "description": "Confirmed contamination requires canonical override=true and a US target; adjudicated unresolved requires null target, override=false, and no identity effect.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_quality_membership_mutation_rows",
+      "description": "Cross-market identity quality cannot alter active/inactive or membership.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_quality_forced_liquidation_signal_rows",
+      "description": "Cross-market identity quality cannot trigger forced liquidation.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "outcome_or_backtest_evidence_rows",
+      "description": "Outcome or backtest evidence is prohibited.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    }
+  ],
+  "schema_version": 1,
+  "sort_by": [
+    "provider_id",
+    "provider_locale",
+    "observed_ticker",
+    "share_class_figi",
+    "valid_from_session",
+    "decision_version"
+  ],
+  "source_datasets": [
+    "asset_observation_daily",
+    "asset_observation_version",
+    "universe_source_daily",
+    "ticker_event_request_status",
+    "ticker_change_event",
+    "ticker_overview_safe",
+    "identity_case_candidate_manifest",
+    "identity_market_consistency_candidate_manifest",
+    "identity_cross_market_external_evidence_manifest",
+    "identity_cross_market_adjudication_plan"
+  ],
+  "table": "identity_cross_market_adjudication"
+}

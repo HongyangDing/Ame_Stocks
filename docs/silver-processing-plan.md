@@ -10,19 +10,14 @@ Bronze 已具备进入 Silver 的条件。最终 Bronze v9 已证明冻结范围
 编号 S1–S34 中，S7、S14、S15 是跨数据集派生审批点；其余 31 项与 31 个 Bronze family
 一一对应。
 
-截至 2026-07-15，S1–S6 已分别发布；S7 的只读 combined-source profile 已完成，旧四表 proposal
-因 provider-FIGI bounce 风险撤回。新的一份受保护 `identity_adjudication` registry 加四份派生表共五份
-schema 已获批准。除原有 fixture/control primitives 外，source-bound bounded detector preview 代码也已
-实现：exact 六表 source factory、精确 ticker/session plan、资源 caps、不可变 request event、逐字 literal
-绑定的 v2 approval、按 session 流式读取 S4、membership/asset-parent 双行物理 attestation、逐 case evidence
-和 `awaiting_review` completion。existing completion 必须重跑同一物理 detector 后才能复用；生产 binding
-的 candidate read/write ingress 仍硬关闭。source-attested evidence 只能由 runner 的临时 authority 写入，
-authority 绑定 exact controls 与物理扫描结束时刻；standalone build/write/read 均拒绝，最终 completion 写入前
-还会重算 XNYS availability boundary 并保留 1 分钟安全窗口。该 preview 尚未评估 S5/S6/hierarchy corroboration，明确记录
-`support_absence_verified=false`，不能把未评估误写成“证据不存在”。当前为
-`source_bound_preview_code_ready / production_ingress_blocked / awaiting exact preview plan`，尚未创建或
-批准真实 plan，也未运行真实 detector、四表 transform、preview 或 release。不能
-描述成“全部 Silver 数据已处理”：
+截至 2026-07-16，S1–S6 已分别发布；S7 已完成一次 exact approved bounded S4 detector preview并停在
+`awaiting_review`：19 cases、89 suspected rows、50 artifacts、1,471,768 physically attested rows。外部复核
+确认其中 9 个 ticker 是 Massive US-locale 记录混入同 Share Class 的 non-US Composite：79 行 foreign
+observation，另 10 行是 inverse case 中正确的 US observation。当前 schema 修订保留 19 case 和全部 raw
+lineage，新增独立 `identity_cross_market_adjudication` registry、full-sequence market-consistency QA，以及
+不可变 OpenFIGI/SEC/issuer evidence；原 `identity_adjudication` 继续处理 episode transition。六份新 candidate
+contracts 等待重新审批。当前没有生成这 19 个 case 的 adjudication plan，也没有运行 market-consistency
+scan、四表 transform、FullRunPlan、PublishPlan 或 S7 release。不能描述成“全部 Silver 数据已处理”：
 
 - S1 exchanges、S2 ticker types 和 S3 condition codes 已正式发布；
 - S4 Assets 的十年 full scope 已按三个精确 `FullRunPlan` 完成并作为一个原子 release set 发布；
@@ -521,20 +516,17 @@ quarantine issue 只在 full/publish 审批中按 ID 接受。169 条仍是 `pen
 - QA：30,570/30,739 identity match；169 行隔离/人工复核；`list_date <= query_date`；SIC/list
   date coverage；不得把 safe SIC 描述成完整 PIT industry。
 
-### S7 — `identity_adjudication` + `asset_master` / `ticker_alias` / `issuer_master` / `universe_daily`
+### S7 — 两类 adjudication registries + `asset_master` / `ticker_alias` / `issuer_master` / `universe_daily`
 
-**状态（2026-07-15）：`schema approved / source-bound preview code ready / production ingress blocked /
-awaiting exact preview plan`。** 只读 combined-source profile、五份批准 contracts 和 fail-closed 控制组件已完成，详见
-[`silver-s7-identity-resolution-schema-review.md`](silver-s7-identity-resolution-schema-review.md)。
-当前没有真实 S7 plan/request/approval、detector/candidate/adjudication、四表 materialization、preview、
-FullRunPlan 或 release。旧四份 ID/SHA 已撤回；generic detector 会物化输入，只允许最多 250,000
-observations，且不能生成正式 source verification。新的 runner 只能读取 exact plan/approval 指向的
-S4 daily artifacts，硬上限为 25 sessions、250 tickers、6,250 selected rows、2.1M scanned rows、80
-artifacts 和 512 MiB compressed source bytes；调用方不能注入 rows/bundle/path/SHA。成功也只生成
-`awaiting_review` preview、S4 physical evidence 和 completion，不能生成 candidate。下一步先提出 exact
-ticker allowlist、session range、caps 和 request event，展示 canonical approval literal；获得逐字批准后
-才可执行一次 bounded preview。S5/S6/hierarchy corroboration selection、adjudication registry 内容、四表
-preview、Full 和 publish 仍需后续分别设计与审批。本次 code approval 不能启动任何真实 preview 或十年扫描。
+**状态（2026-07-16）：`detector preview awaiting_review / cross-market schema candidates awaiting
+reapproval / no adjudication plan / no Full or Publish`。** 既有 bounded preview、19 case 和 source-attested
+evidence 保持不变。最新设计、9 个 group、immutable external evidence、六份 candidate contracts 与 hashes
+见 [`silver-s7-identity-resolution-schema-review.md`](silver-s7-identity-resolution-schema-review.md)。
+`identity_adjudication` 继续处理 genuine episode transition；新增
+`identity_cross_market_adjudication` 以 provider+market+locale+ticker+Share Class+foreign/canonical Composite+
+date+source release+source record 的 exact scope 处理 cross-market contamination。当前没有创建
+market-consistency candidate、任何 adjudication plan/approval/registry release、四表 materialization、
+FullRunPlan 或 PublishPlan。
 
 S7 必须在 S4–S6 分别验收后单独审批：
 
@@ -542,6 +534,10 @@ S7 必须在 S4–S6 分别验收后单独审批：
 - 确定性检测短期 `A → B → A`，但 detector 只报警，不能自动 canonicalize；
 - `identity_adjudication` 先作为 episode-scoped、append-only、显式批准且可追加
   `adjudicated_unresolved` 撤回版本的受保护 registry 单独发布；
+- `identity_cross_market_adjudication` 作为独立 group-scoped registry；canonical target 可由不可变外部
+  evidence 独立确定，不能强制等于 bounce outer，且真实 foreign locale 永不命中 US scope；
+- full-sequence market-consistency detector 必须发现长期不 bounce 的 non-US Composite，并报告
+  classification reference coverage；unknown 不能冒充 verified clean；
 - 永久分离 provider-observed 与 canonical research 的 Composite FIGI、Share-class FIGI 和 CIK hierarchy，
   禁止多数/最近值静默覆盖，也禁止 FIGI 裁决绕过其他 relationship conflict；
 - Massive 无法确认的 case 可使用监管、交易所、FINRA、公司公告或 reviewed identifier reference，但
@@ -876,20 +872,18 @@ quarantine 并等待人工 review；Medium/Low 保留标志，不能从分母中
 
 ## 15. 推荐的下一步
 
-S0–S6 已分别通过独立审批并完成；S7 combined-source profile、五份 schema approval、bounded primitives
-与 source-bound S4 detector-preview code 已完成，但 production ingress 仍被代码硬阻断。当前下一步只建议：
+S0–S6 已分别通过独立审批并完成；S7 bounded detector preview 已完成并停在 review，cross-market 缺陷的
+修订方案已经形成，但六份 candidate contracts 尚未重新批准。当前下一步只建议：
 
-1. 提出一份 exact case-sensitive ticker allowlist、最多 25 个 XNYS sessions 和只会收紧 hard ceilings 的
-   resource caps，并固化 content-addressed plan；
-2. 固化独立 approval-request event，展示绑定 request ID/SHA、plan ID/SHA、caps digest 和 authorized action
-   的 canonical literal；只有用户逐字回传后才生成 v2 approval；
-3. 获批后执行一次 source-bound S4 detector preview并停在 `awaiting_review`，展示物理 source artifacts、
-   行数/bytes、A→B→A cases、S4 parent lineage 和 QA；不生成 production candidate；
-4. preview review 后再单独设计并批准 S5/S6/hierarchy corroboration selection；在此之前所有 support reason
-   都是 `not_evaluated`，不得声称 absent；
-5. corroboration review 通过后，才另行提 production candidate promotion 与逐 case disposition/approval；
-6. 先显式 review/approve exact adjudication registry snapshot，再让四张派生表消费；后续四表仍严格按
-   bounded preview → review → 单独批准 full/publish 推进，不沿用 S6 的连续完成授权。
+1. review/approve schema review 第 11 节六份 exact Contract ID / Candidate SHA，以及 external evidence
+   manifest ID/SHA；
+2. schema approval 不授权运行数据任务；之后另行设计 full-sequence market-consistency candidate plan，固定
+   Composite market-classification reference、coverage、exact release binding 和 resource caps；
+3. 固化独立 request event 与 canonical literal，只有逐字批准后才能运行该 scan并停在 review；
+4. review 79/10 的当前解释及未来额外 full-sequence findings，之后才可另行提出 9 个 group 的 exact
+   adjudication plan；19 个 bounce case 只作为 preserved lineage，不逐案静默改写；
+5. 先显式批准两个 exact registry snapshots，再让四张派生表按 bounded preview → review → 单独批准
+   Full/Publish 推进。
 
 当 S4–S15（身份、公司行动、三套行情、复权和收益）完成并发布后，price-derived Barra 和
 普通日频因子即可开始；S16–S34 可以继续逐项扩充，不应阻塞第一批价格型因子。

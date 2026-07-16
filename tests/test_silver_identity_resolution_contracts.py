@@ -14,6 +14,9 @@ from ame_stocks_api.silver.identity_resolution_contract import (
     IDENTITY_ADJUDICATION_CONTRACT,
     IDENTITY_ADJUDICATION_CONTRACT_ID,
     IDENTITY_ADJUDICATION_RESOURCE_SHA256,
+    IDENTITY_CROSS_MARKET_ADJUDICATION_CONTRACT,
+    IDENTITY_CROSS_MARKET_ADJUDICATION_CONTRACT_ID,
+    IDENTITY_CROSS_MARKET_ADJUDICATION_RESOURCE_SHA256,
     ISSUER_MASTER_CONTRACT,
     ISSUER_MASTER_CONTRACT_ID,
     ISSUER_MASTER_RESOURCE_SHA256,
@@ -35,6 +38,11 @@ _CANDIDATES = {
     "identity_adjudication": (
         _ROOT / "docs/silver/contracts/identity/identity_adjudication.schema-v1.candidate.json"
     ),
+    "identity_cross_market_adjudication": (
+        _ROOT
+        / "docs/silver/contracts/identity/"
+        "identity_cross_market_adjudication.schema-v1.candidate.json"
+    ),
     "asset_master": _ROOT / "docs/silver/contracts/identity/asset_master.schema-v1.candidate.json",
     "ticker_alias": _ROOT / "docs/silver/contracts/identity/ticker_alias.schema-v1.candidate.json",
     "issuer_master": (
@@ -46,6 +54,7 @@ _CANDIDATES = {
 }
 _CONTRACTS = {
     "identity_adjudication": IDENTITY_ADJUDICATION_CONTRACT,
+    "identity_cross_market_adjudication": IDENTITY_CROSS_MARKET_ADJUDICATION_CONTRACT,
     "asset_master": ASSET_MASTER_CONTRACT,
     "ticker_alias": TICKER_ALIAS_CONTRACT,
     "issuer_master": ISSUER_MASTER_CONTRACT,
@@ -53,6 +62,9 @@ _CONTRACTS = {
 }
 _EXPECTED_IDS = {
     "identity_adjudication": IDENTITY_ADJUDICATION_CONTRACT_ID,
+    "identity_cross_market_adjudication": (
+        IDENTITY_CROSS_MARKET_ADJUDICATION_CONTRACT_ID
+    ),
     "asset_master": ASSET_MASTER_CONTRACT_ID,
     "ticker_alias": TICKER_ALIAS_CONTRACT_ID,
     "issuer_master": ISSUER_MASTER_CONTRACT_ID,
@@ -60,6 +72,9 @@ _EXPECTED_IDS = {
 }
 _EXPECTED_RESOURCE_SHA256 = {
     "identity_adjudication": IDENTITY_ADJUDICATION_RESOURCE_SHA256,
+    "identity_cross_market_adjudication": (
+        IDENTITY_CROSS_MARKET_ADJUDICATION_RESOURCE_SHA256
+    ),
     "asset_master": ASSET_MASTER_RESOURCE_SHA256,
     "ticker_alias": TICKER_ALIAS_RESOURCE_SHA256,
     "issuer_master": ISSUER_MASTER_RESOURCE_SHA256,
@@ -67,14 +82,17 @@ _EXPECTED_RESOURCE_SHA256 = {
 }
 _EXPECTED_SCHEMA_DIGESTS = {
     "identity_adjudication": "e5082a8611bedb6913f79da506f1f5cc19c94507b9e27d04edfb88566033575f",
-    "asset_master": "827ce87a698faa903c35b93f8957f807a83caedf4936736f351adc881fa4cdc0",
-    "ticker_alias": "dd79463bc022a49b65c441f3baf98a3455c06ab563bbccf22ae100ab5c787e95",
-    "issuer_master": "638f66cdb812ed657844e26c91ea7e1dcda4b27aa7ea4aedd75e94b0353c8bd9",
-    "universe_daily": "e22cddaa57c7836f49bc21633a521f795751e473b22b4f3215b13d2e74c83b68",
+    "identity_cross_market_adjudication": (
+        "96fe9108cd246919a9a00855d04d9f4057c439b6043d4d67178beb1c32d7a0fe"
+    ),
+    "asset_master": "5ef86bbe8e3e0219e795ed9f8c5c9eca35ebc7b16ff21a903901765b3e7d53d3",
+    "ticker_alias": "2f857bc07319426e48494901571a570b1abf622c16c9e429ab8185c08af2d743",
+    "issuer_master": "dac9dbe43450cf094c8170d8e88db1742fb035052df9d1b78b7ced02cc4282d2",
+    "universe_daily": "80902539df5dc822dc43a88cf7325b16f4fdc2c4c6786c78ea93434116e6e25a",
 }
 
 
-def test_approved_s7_resources_are_byte_identical_to_candidates() -> None:
+def test_pinned_s7_resources_are_byte_identical_to_candidates() -> None:
     for table, candidate_path in _CANDIDATES.items():
         candidate_payload = candidate_path.read_bytes()
         resource_payload = (_RESOURCE_ROOT / f"{table}.schema-v1.json").read_bytes()
@@ -94,10 +112,11 @@ def test_s7_loader_freezes_exact_contract_ids_schema_digests_and_shapes() -> Non
         for table, contract in _CONTRACTS.items()
     } == {
         "identity_adjudication": ("identity", 51, 19),
-        "asset_master": ("identity", 40, 34),
-        "ticker_alias": ("identity", 44, 44),
-        "issuer_master": ("identity", 30, 33),
-        "universe_daily": ("reference", 48, 47),
+        "identity_cross_market_adjudication": ("identity", 60, 24),
+        "asset_master": ("identity", 46, 37),
+        "ticker_alias": ("identity", 54, 49),
+        "issuer_master": ("identity", 35, 35),
+        "universe_daily": ("reference", 59, 55),
     }
     assert all(
         TableContract.from_dict(contract.to_dict()) == contract for contract in _CONTRACTS.values()
@@ -107,6 +126,7 @@ def test_s7_loader_freezes_exact_contract_ids_schema_digests_and_shapes() -> Non
 def test_s7_contract_registries_are_complete_ordered_and_immutable() -> None:
     assert tuple(S7_CONTRACTS) == (
         "identity_adjudication",
+        "identity_cross_market_adjudication",
         "asset_master",
         "ticker_alias",
         "issuer_master",
@@ -114,7 +134,10 @@ def test_s7_contract_registries_are_complete_ordered_and_immutable() -> None:
     )
     assert dict(S7_CONTRACTS) == _CONTRACTS
     assert dict(S7_ADJUDICATION_CONTRACTS) == {
-        "identity_adjudication": IDENTITY_ADJUDICATION_CONTRACT
+        "identity_adjudication": IDENTITY_ADJUDICATION_CONTRACT,
+        "identity_cross_market_adjudication": (
+            IDENTITY_CROSS_MARKET_ADJUDICATION_CONTRACT
+        ),
     }
     assert dict(S7_DERIVED_CONTRACTS) == {
         table: _CONTRACTS[table]

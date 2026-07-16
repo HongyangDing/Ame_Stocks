@@ -1,0 +1,17 @@
+HTTP/1.1 200 Connection established
+
+HTTP/2 200 
+content-type: text/plain
+x-frame-options: SAMEORIGIN
+x-amz-id-2: C0ruwEiD+Z/0ga+d1wE0zi2ZdAu/ndQ62g60BnOoBKf1ta3pu60hCAtl0Ld87x12HMwlWgezsJI=
+x-amz-request-id: WGP8KE2JF3DRHB7A
+x-amz-replication-status: COMPLETED
+last-modified: Mon, 25 Apr 2022 21:12:37 GMT
+etag: "03fe509099e94f60f31a35fb4aa7af45-gzip"
+x-amz-meta-mode: 33188
+x-amz-version-id: pYGILtlw.hVh6MpPJCMSXbGdl0RRXqlb
+x-content-type-options: nosniff
+x-xss-protection: 1; mode=block
+date: Thu, 16 Jul 2026 15:35:15 GMT
+strict-transport-security: max-age=31536000 ; includeSubDomains ; preload
+

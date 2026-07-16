@@ -1,0 +1,13 @@
+HTTP/1.1 200 Connection established
+
+HTTP/2 200 
+content-type: text/html; charset=utf-8
+date: Thu, 16 Jul 2026 15:35:14 GMT
+server: Microsoft-IIS/10.0
+strict-transport-security: max-age=31536000; includeSubDomains
+x-content-type-options: nosniff
+content-security-policy: upgrade-insecure-requests; block-all-mixed-content; form-action https: https://cust-auth-qa.spxflow.com https://cust-auth.spxflow.com https://spxflow.qbank.se https://api.languagewire.com; base-uri https:
+x-powered-by: ASP.NET
+x-cdn: Imperva
+x-iinfo: 48-99788934-99788990 NNNY CT(64 128 0) RT(1784216115040 186) q(0 0 0 -1) r(0 1) U12
+

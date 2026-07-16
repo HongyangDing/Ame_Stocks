@@ -22,6 +22,11 @@ CANDIDATE_PATHS = {
         ROOT
         / "docs/silver/contracts/identity/identity_adjudication.schema-v1.candidate.json"
     ),
+    "identity_cross_market_adjudication": (
+        ROOT
+        / "docs/silver/contracts/identity/"
+        "identity_cross_market_adjudication.schema-v1.candidate.json"
+    ),
     "asset_master": (
         ROOT / "docs/silver/contracts/identity/asset_master.schema-v1.candidate.json"
     ),
@@ -37,24 +42,33 @@ CANDIDATE_PATHS = {
 }
 EXPECTED_CONTRACT_IDS = {
     "identity_adjudication": "6423cc01b952498cc78d55e93a349d7afe408bd30003e4f7be59f211102f2d5e",
-    "asset_master": "adbba0d86bd9681e034b0ffda3e380da40b6fc92d280942d856d416a1b53f868",
-    "ticker_alias": "384d1e5acf2181f929e29c5e3a5369a796f0ee42cdde7740b7ca3bdfdf8faf3b",
-    "issuer_master": "4951c0ab96fdd91b961cf4234185607e858856fb1b1ad4279b2e84d41fb2eb58",
-    "universe_daily": "0555e785b4fb5f9df8832d37f8c08cf5fc487e8573993cf39ae3ffba4ccc45b0",
+    "identity_cross_market_adjudication": (
+        "ae91c7b1bfc27bde82e5f5a39afdc5a3c2c9929d075486cb081836b6798e14e8"
+    ),
+    "asset_master": "959c5f7bf464eed59fd32a7008349f60ebcfd3cf9e892c9c3d7f00080eae2149",
+    "ticker_alias": "39dbf6ef89ed4c2d466fa0be2e47d2840a90f1a97f6a47670af05df3e15513ce",
+    "issuer_master": "2faa8d4d2e10e4a065b10b9ae851e53ac517db7e69af4fd59d5f6edc677aa408",
+    "universe_daily": "38cd59c4e4b04de8444ba99ed93e6fd8c7a78aec24f01205d7df7494bcfd33d3",
 }
 EXPECTED_SCHEMA_DIGESTS = {
     "identity_adjudication": "e5082a8611bedb6913f79da506f1f5cc19c94507b9e27d04edfb88566033575f",
-    "asset_master": "827ce87a698faa903c35b93f8957f807a83caedf4936736f351adc881fa4cdc0",
-    "ticker_alias": "dd79463bc022a49b65c441f3baf98a3455c06ab563bbccf22ae100ab5c787e95",
-    "issuer_master": "638f66cdb812ed657844e26c91ea7e1dcda4b27aa7ea4aedd75e94b0353c8bd9",
-    "universe_daily": "e22cddaa57c7836f49bc21633a521f795751e473b22b4f3215b13d2e74c83b68",
+    "identity_cross_market_adjudication": (
+        "96fe9108cd246919a9a00855d04d9f4057c439b6043d4d67178beb1c32d7a0fe"
+    ),
+    "asset_master": "5ef86bbe8e3e0219e795ed9f8c5c9eca35ebc7b16ff21a903901765b3e7d53d3",
+    "ticker_alias": "2f857bc07319426e48494901571a570b1abf622c16c9e429ab8185c08af2d743",
+    "issuer_master": "dac9dbe43450cf094c8170d8e88db1742fb035052df9d1b78b7ced02cc4282d2",
+    "universe_daily": "80902539df5dc822dc43a88cf7325b16f4fdc2c4c6786c78ea93434116e6e25a",
 }
 EXPECTED_FILE_SHA256 = {
     "identity_adjudication": "eb5e9d1746ad2014d7b0e4a9a56ffa29e4f36cf1e1d18d348634a058f0d22231",
-    "asset_master": "0a6dd9cb244e60723eeff625b6d82b42fc6fe882fbe0660532807054a4f717f2",
-    "ticker_alias": "8ef120892c5748ca51fc1242d143372237c1b5d9b92ac9f4f2585aea48fd5afe",
-    "issuer_master": "6f326ae11885affb5bac37500c2006bdc845f2205d7388e2043b5504d0fb0ec8",
-    "universe_daily": "fe8d5760384322419eb28a0f8b3af6f45d52c1cbba18bc5226578fa471766701",
+    "identity_cross_market_adjudication": (
+        "a7308e22c07e8243a8587bfc7eab7ae45b2f232fe9bba310d084916d722f56d0"
+    ),
+    "asset_master": "bfb31004df41c4556e71beb379bb36e07063f36298d329c887be48c005b02fa5",
+    "ticker_alias": "8bf758af5c358c79477ff40177aab5f3b7c8d26f7f0882e261f7d844a66a1f95",
+    "issuer_master": "adee0a5457ac32356a0ec9b9a28c692fcebdacc4ba9cccedd1237e8c66b722b7",
+    "universe_daily": "c0923508dafa0d56de4be6b8ff43187a581627dd1d64e964cf5f506f5ce8ea0b",
 }
 
 EXPECTED_SIX_UPSTREAM = (
@@ -71,10 +85,19 @@ EXPECTED_ADJUDICATION_UPSTREAM = (
     "identity_external_evidence_manifest",
     "identity_adjudication_plan",
 )
+EXPECTED_CROSS_MARKET_ADJUDICATION_UPSTREAM = (
+    *EXPECTED_SIX_UPSTREAM,
+    "identity_case_candidate_manifest",
+    "identity_market_consistency_candidate_manifest",
+    "identity_cross_market_external_evidence_manifest",
+    "identity_cross_market_adjudication_plan",
+)
 EXPECTED_DERIVED_UPSTREAM = (
     *EXPECTED_SIX_UPSTREAM,
     "identity_case_candidate_manifest",
     "identity_adjudication",
+    "identity_market_consistency_candidate_manifest",
+    "identity_cross_market_adjudication",
 )
 EXPECTED_BINDING_COLUMNS = {
     "identity_resolution_cutoff_session",
@@ -86,6 +109,10 @@ EXPECTED_BINDING_COLUMNS = {
     "source_identity_case_candidate_manifest_sha256",
     "source_identity_adjudication_release_id",
     "source_identity_adjudication_release_available_session",
+    "source_identity_market_consistency_candidate_manifest_id",
+    "source_identity_market_consistency_candidate_manifest_sha256",
+    "source_identity_cross_market_adjudication_release_id",
+    "source_identity_cross_market_adjudication_release_available_session",
 }
 
 
@@ -330,6 +357,11 @@ def test_s7_candidate_contracts_are_valid_and_digest_frozen() -> None:
         for name, contract in contracts.items()
     } == {
         "identity_adjudication": ("identity", "identity_adjudication", 1),
+        "identity_cross_market_adjudication": (
+            "identity",
+            "identity_cross_market_adjudication",
+            1,
+        ),
         "asset_master": ("identity", "asset_master", 1),
         "ticker_alias": ("identity", "ticker_alias", 1),
         "issuer_master": ("identity", "issuer_master", 1),
@@ -340,13 +372,17 @@ def test_s7_candidate_contracts_are_valid_and_digest_frozen() -> None:
         for name, contract in contracts.items()
     } == {
         "identity_adjudication": (51, 19),
-        "asset_master": (40, 34),
-        "ticker_alias": (44, 44),
-        "issuer_master": (30, 33),
-        "universe_daily": (48, 47),
+        "identity_cross_market_adjudication": (60, 24),
+        "asset_master": (46, 37),
+        "ticker_alias": (54, 49),
+        "issuer_master": (35, 35),
+        "universe_daily": (59, 55),
     }
     assert contracts["identity_adjudication"].source_datasets == (
         EXPECTED_ADJUDICATION_UPSTREAM
+    )
+    assert contracts["identity_cross_market_adjudication"].source_datasets == (
+        EXPECTED_CROSS_MARKET_ADJUDICATION_UPSTREAM
     )
     assert all(
         contracts[name].source_datasets == EXPECTED_DERIVED_UPSTREAM
@@ -356,10 +392,14 @@ def test_s7_candidate_contracts_are_valid_and_digest_frozen() -> None:
         {column.name for column in contract.columns if not column.nullable}
         >= EXPECTED_BINDING_COLUMNS
         for name, contract in contracts.items()
-        if name != "identity_adjudication"
+        if name
+        not in {"identity_adjudication", "identity_cross_market_adjudication"}
     )
     assert "identity_adjudication" not in contracts[
         "identity_adjudication"
+    ].source_datasets
+    assert "identity_cross_market_adjudication" not in contracts[
+        "identity_cross_market_adjudication"
     ].source_datasets
     assert all(
         {"asset_master", "ticker_alias", "issuer_master", "universe_daily"}.isdisjoint(
@@ -520,31 +560,43 @@ def test_s7_deterministic_identity_fixed_vectors() -> None:
 
     alias_payload = {
         "namespace": "ame_stocks.identity.ticker_alias",
-        "rule_version": "ame_stocks_ticker_alias_id_from_observed_and_canonical_interval_v2",
+        "rule_version": "ame_stocks_ticker_alias_id_from_observed_and_canonical_interval_v3",
         "adjudication_available_session": None,
         "asset_id": asset_id,
         "canonical_cik_normalized": "0000320193",
         "canonical_composite_figi": "BBG000B9XRY4",
+        "canonical_composite_market_code": "US",
         "canonical_share_class_figi": "BBG001S5N8V8",
+        "cross_market_adjudication_available_session": None,
+        "cross_market_adjudication_id": None,
+        "cross_market_scope_id": None,
         "identity_adjudication_id": None,
         "identity_case_available_session": None,
         "identity_case_id": None,
+        "identity_case_resolution_role": None,
         "identity_disposition": "observed_consistent",
         "identity_resolution_cutoff_session": "2026-07-15",
         "issuer_id": issuer_id,
         "observed_cik_normalized": "0000320193",
         "observed_composite_figi": "BBG000B9XRY4",
+        "observed_composite_market_code": "US",
         "observed_share_class_figi": "BBG001S5N8V8",
         "share_class_id": share_class_id,
         "source_identity_adjudication_release_available_session": "2026-07-15",
         "source_identity_adjudication_release_id": "e" * 64,
         "source_identity_case_candidate_manifest_id": "f" * 64,
         "source_identity_case_candidate_manifest_sha256": "1" * 64,
+        "source_identity_cross_market_adjudication_release_available_session": (
+            "2026-07-15"
+        ),
+        "source_identity_cross_market_adjudication_release_id": "2" * 64,
+        "source_identity_market_consistency_candidate_manifest_id": "3" * 64,
+        "source_identity_market_consistency_candidate_manifest_sha256": "4" * 64,
         "ticker": "AAPL",
         "valid_from_session": "2024-01-02",
     }
     assert stable_digest(alias_payload) == (
-        "2eaf3bafc14ec395bfa86facd69e1a63ee75d3a86f494fbdb14df49b4dfd33a7"
+        "8b66d0321988dbbe089d0b50ee69e6228c818db7bcf9b507b166c8dd252ee043"
     )
     alias_payload["canonical_cik_normalized"] = None
     alias_payload["canonical_share_class_figi"] = None
@@ -553,7 +605,7 @@ def test_s7_deterministic_identity_fixed_vectors() -> None:
     alias_payload["observed_cik_normalized"] = None
     alias_payload["observed_share_class_figi"] = None
     assert stable_digest(alias_payload) == (
-        "59012901b6b9ff4fcc5a46c8c34c5e7d37646d44fede6a6dfda3c0381d37e0f5"
+        "8e1ddf720c957dea524b7aa8c2ac295f06fb2f7413e8fed3528a810bfcda84f4"
     )
 
 
@@ -572,7 +624,10 @@ def test_asset_master_uses_composite_asset_and_share_class_parent_layers() -> No
     assert columns["identity_adjudication_count"].nullable is False
     assert columns["genuine_transition_adjudication_count"].nullable is False
     assert columns["provider_contamination_adjudication_count"].nullable is False
-    assert columns["first_direct_observed_session"].nullable is False
+    assert columns["cross_market_override_evidence_row_count"].nullable is False
+    assert columns["cross_market_adjudication_count"].nullable is False
+    assert columns["first_direct_observed_session"].nullable is True
+    assert columns["last_direct_observed_session"].nullable is True
     assert columns["first_canonical_membership_session"].nullable is True
     assert columns["identity_resolution_cutoff_session"].nullable is False
     assert columns[
@@ -611,6 +666,12 @@ def test_asset_master_uses_composite_asset_and_share_class_parent_layers() -> No
     assert rules["approved_adjudication_bypassed_conflict_rows"].severity is (
         QASeverity.CRITICAL
     )
+    assert rules["unapproved_cross_market_created_asset_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["cross_market_target_evidence_invalid_rows"].severity is (
+        QASeverity.CRITICAL
+    )
     assert rules["identity_resolution_cutoff_invalid_rows"].severity is (
         QASeverity.CRITICAL
     )
@@ -624,7 +685,7 @@ def test_asset_master_uses_composite_asset_and_share_class_parent_layers() -> No
     assert "ticker_event_request_status" in rules[
         "evidence_count_recomputation_mismatch_rows"
     ].description
-    assert "adjudication availability" in rules[
+    assert "cross-market" in rules[
         "identity_evidence_availability_recomputation_mismatch_rows"
     ].description
 
@@ -679,6 +740,46 @@ def test_identity_adjudication_is_protected_append_only_upstream_registry() -> N
     )
 
 
+def test_cross_market_adjudication_is_exact_scope_and_cannot_mutate_membership() -> None:
+    contract = load_contract("identity_cross_market_adjudication")
+    columns = {column.name: column for column in contract.columns}
+    rules = {rule.check_id: rule for rule in contract.qa_rules}
+
+    assert contract.primary_key == ("cross_market_adjudication_id",)
+    assert contract.source_datasets == EXPECTED_CROSS_MARKET_ADJUDICATION_UPSTREAM
+    for name in (
+        "provider_id",
+        "provider_locale",
+        "observed_ticker",
+        "share_class_figi",
+        "observed_foreign_composite_figi",
+        "cross_market_subject_id",
+        "valid_from_session",
+        "valid_through_session",
+        "scoped_source_record_ids_json",
+        "source_s4_release_set_id",
+        "source_external_evidence_manifest_id",
+        "approval_receipt_id",
+        "adjudication_available_session",
+        "identity_quality_liquidation_signal",
+    ):
+        assert columns[name].nullable is False
+    assert columns["canonical_us_composite_figi"].nullable is True
+    assert columns["canonical_composite_market_code"].nullable is True
+    assert columns["canonical_asset_id"].nullable is True
+    assert rules["cross_market_subject_id_recomputation_mismatch_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    for check_id in (
+        "cross_market_scope_overlap_rows",
+        "canonical_target_evidence_invalid_rows",
+        "cross_market_approval_binding_invalid_rows",
+        "identity_quality_membership_mutation_rows",
+        "identity_quality_forced_liquidation_signal_rows",
+    ):
+        assert rules[check_id].severity is QASeverity.CRITICAL
+
+
 def test_ticker_alias_is_observed_half_open_interval_evidence() -> None:
     contract = load_contract("ticker_alias")
     columns = {column.name: column for column in contract.columns}
@@ -699,6 +800,9 @@ def test_ticker_alias_is_observed_half_open_interval_evidence() -> None:
     assert columns["canonical_cik_normalized"].nullable is True
     assert columns["identity_disposition"].nullable is False
     assert columns["identity_adjudication_id"].nullable is True
+    assert columns["cross_market_scope_id"].nullable is True
+    assert columns["cross_market_adjudication_id"].nullable is True
+    assert columns["identity_case_resolution_role"].nullable is True
     assert columns["identity_case_available_session"].nullable is True
     assert columns["identity_resolution_cutoff_session"].nullable is False
     assert columns["share_class_id"].nullable is True
@@ -734,6 +838,15 @@ def test_ticker_alias_is_observed_half_open_interval_evidence() -> None:
     assert rules["unapproved_canonical_identity_override_rows"].severity is (
         QASeverity.CRITICAL
     )
+    assert rules["unapproved_cross_market_composite_alias_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["cross_market_override_foreign_locale_leak_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules["correct_us_observation_overridden_rows"].severity is (
+        QASeverity.CRITICAL
+    )
     assert rules["unresolved_suspected_episode_alias_rows"].severity is (
         QASeverity.CRITICAL
     )
@@ -749,7 +862,7 @@ def test_ticker_alias_is_observed_half_open_interval_evidence() -> None:
     assert rules["cutoff_bound_registry_selection_invalid_rows"].severity is (
         QASeverity.CRITICAL
     )
-    assert "adjudication_available_session" in rules[
+    assert "both registry releases" in rules[
         "identity_evidence_availability_recomputation_mismatch_rows"
     ].description
 
@@ -765,6 +878,7 @@ def test_issuer_master_keeps_cik_out_of_asset_resolution() -> None:
     assert "not labeled a legal issuer name" in columns["reference_name"].description
     assert columns["sic_code_current_reference"].nullable is True
     assert columns["excluded_contamination_evidence_row_count"].nullable is False
+    assert columns["excluded_cross_market_contamination_evidence_row_count"].nullable is False
     assert columns["identity_resolution_cutoff_session"].nullable is False
     assert columns[
         "source_identity_adjudication_release_available_session"
@@ -795,7 +909,7 @@ def test_issuer_master_keeps_cik_out_of_asset_resolution() -> None:
     assert "request-status rows" in rules[
         "evidence_count_recomputation_mismatch_rows"
     ].description
-    assert "accepted-source availability" in rules[
+    assert "cross-market decision" in rules[
         "reference_availability_recomputation_mismatch_rows"
     ].description
     assert rules["adjudication_changed_issuer_identity_rows"].severity is (
@@ -810,6 +924,9 @@ def test_issuer_master_keeps_cik_out_of_asset_resolution() -> None:
     assert rules[
         "contamination_exclusion_count_recomputation_mismatch_rows"
     ].severity is QASeverity.CRITICAL
+    assert rules["cross_market_contaminated_issuer_evidence_leak_rows"].severity is (
+        QASeverity.CRITICAL
+    )
 
 
 def test_universe_daily_is_active_left_preserving_and_fail_closed() -> None:
@@ -834,6 +951,10 @@ def test_universe_daily_is_active_left_preserving_and_fail_closed() -> None:
     assert columns["identity_case_id"].nullable is True
     assert columns["identity_case_available_session"].nullable is True
     assert columns["identity_adjudication_id"].nullable is True
+    assert columns["cross_market_scope_id"].nullable is True
+    assert columns["cross_market_adjudication_id"].nullable is True
+    assert columns["cross_market_classification_status"].nullable is False
+    assert columns["identity_case_resolution_role"].nullable is True
     assert columns["adjudication_available_session"].nullable is True
     assert columns["identity_resolution_cutoff_session"].nullable is False
     assert columns["position_continuity_status"].nullable is False
@@ -856,7 +977,7 @@ def test_universe_daily_is_active_left_preserving_and_fail_closed() -> None:
     assert rules["foreign_asset_eligibility_mismatch_rows"].severity is (
         QASeverity.CRITICAL
     )
-    assert "resolved_strong and resolved_approved_override rows" in rules[
+    assert "approved cross-market row" in rules[
         "resolved_row_incomplete_rows"
     ].description
     assert rules["active_common_stock_without_eligible_identity_rows"].severity is (
@@ -877,6 +998,19 @@ def test_universe_daily_is_active_left_preserving_and_fail_closed() -> None:
     assert rules["suspected_provider_contamination_eligible_rows"].severity is (
         QASeverity.CRITICAL
     )
+    assert rules["us_locale_non_us_composite_figi_rows"].severity is QASeverity.HIGH
+    assert rules["us_locale_non_us_composite_figi_rows"].failure_status is (
+        QAStatus.WARNING
+    )
+    assert rules["unapproved_cross_market_composite_eligible_rows"].severity is (
+        QASeverity.CRITICAL
+    )
+    assert rules[
+        "inverse_bounce_misclassified_as_genuine_transition_rows"
+    ].severity is QASeverity.CRITICAL
+    assert rules["cross_market_override_outside_us_locale_rows"].severity is (
+        QASeverity.CRITICAL
+    )
     assert rules["contaminated_hierarchy_evidence_leak_rows"].severity is (
         QASeverity.CRITICAL
     )
@@ -895,7 +1029,7 @@ def test_universe_daily_is_active_left_preserving_and_fail_closed() -> None:
     assert rules["identity_quality_forced_liquidation_signal_rows"].severity is (
         QASeverity.CRITICAL
     )
-    assert "adjudication_available_session" in rules[
+    assert "both registry releases" in rules[
         "identity_evidence_availability_recomputation_mismatch_rows"
     ].description
 

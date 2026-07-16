@@ -14,7 +14,7 @@
     },
     {
       "arrow_type": "string",
-      "description": "Exact domain direct_observed_only or direct_observed_with_approved_provider_contamination_override. No asset may receive a provider-contamination override unless its canonical target has eligible, non-conflicted direct S4 evidence outside the suspected episode; S6-only reference evidence cannot anchor an override target.",
+      "description": "Exact domain direct_observed_composite, approved_episode_adjudication, or approved_cross_market_external_anchor; a bounce outer value alone is not an anchor.",
       "name": "canonical_identity_basis",
       "nullable": false
     },
@@ -50,7 +50,7 @@
     },
     {
       "arrow_type": "string",
-      "description": "Exact v1 domain resolved_strong_s4, resolved_strong_s4_with_approved_override, or reference_only_s6. Only the two resolved_strong states can be backtest identity eligible; an override never creates an unanchored asset.",
+      "description": "Exact asset-level state derived from direct, episode-adjudicated, or cross-market-adjudicated evidence; unresolved findings cannot create an eligible asset.",
       "name": "identity_resolution_status",
       "nullable": false
     },
@@ -68,15 +68,15 @@
     },
     {
       "arrow_type": "date32",
-      "description": "Earliest accepted direct observation carrying canonical_composite_figi: an S4 selected membership session, or the earliest S6 lifecycle observation only when reference-only. Unadjudicated suspected-bounce rows and observed-different contamination rows are excluded.",
+      "description": "Earliest accepted direct observation carrying canonical_composite_figi: an S4 selected membership session, or the earliest S6 lifecycle observation only when reference-only. Unadjudicated suspected-bounce rows and observed-different contamination rows are excluded. Nullable only for an externally anchored canonical target with no direct clean S4 observation.",
       "name": "first_direct_observed_session",
-      "nullable": false
+      "nullable": true
     },
     {
       "arrow_type": "date32",
-      "description": "Latest accepted direct observation carrying canonical_composite_figi: an S4 selected membership session, or the latest S6 lifecycle observation only when reference-only. Unadjudicated suspected-bounce rows and observed-different contamination rows are excluded.",
+      "description": "Latest accepted direct observation carrying canonical_composite_figi: an S4 selected membership session, or the latest S6 lifecycle observation only when reference-only. Unadjudicated suspected-bounce rows and observed-different contamination rows are excluded. Nullable only for an externally anchored canonical target with no direct clean S4 observation.",
       "name": "last_direct_observed_session",
-      "nullable": false
+      "nullable": true
     },
     {
       "arrow_type": "date32",
@@ -134,6 +134,18 @@
     },
     {
       "arrow_type": "int64",
+      "description": "Count of exact provider-locale rows mapped through approved cross-market scopes.",
+      "name": "cross_market_override_evidence_row_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of distinct effective cross-market adjudication decisions contributing to this asset.",
+      "name": "cross_market_adjudication_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
       "description": "Count of all distinct effective approved identity_adjudication IDs used by this asset, equal to genuine_transition_adjudication_count plus provider_contamination_adjudication_count.",
       "name": "identity_adjudication_count",
       "nullable": false
@@ -176,7 +188,7 @@
     },
     {
       "arrow_type": "date32",
-      "description": "Maximum availability over the transitive accepted-source evidence closure, every detector case manifest item used to include or exclude rows, every effective identity adjudication used for fields/counts/hierarchy/eligibility/conflicts, and source_identity_adjudication_release_available_session. S5 request-status-only coverage is excluded; late adjudication remains retrospective and is not a historical signal.",
+      "description": "Maximum availability of accepted direct evidence, case/episode adjudication, market-consistency candidate, cross-market decision, and both exact registry releases.",
       "name": "identity_evidence_available_session",
       "nullable": false
     },
@@ -188,7 +200,7 @@
     },
     {
       "arrow_type": "string",
-      "description": "Fixed s7_asset_resolution_with_adjudication_v2 evidence precedence, episode-scoped canonicalization, conflict disposition, and temporal rule version.",
+      "description": "Fixed s7_asset_master_resolution_with_episode_and_cross_market_adjudication_v3.",
       "name": "resolution_rule_version",
       "nullable": false
     },
@@ -239,13 +251,37 @@
       "description": "Availability session of the exact source_identity_adjudication_release_id, independently verified from its trusted release chain. It must not exceed identity_resolution_cutoff_session.",
       "name": "source_identity_adjudication_release_available_session",
       "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact full-sequence market-consistency candidate manifest ID.",
+      "name": "source_identity_market_consistency_candidate_manifest_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of exact market-consistency candidate manifest bytes.",
+      "name": "source_identity_market_consistency_candidate_manifest_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact published cross-market adjudication release ID.",
+      "name": "source_identity_cross_market_adjudication_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session on which the exact cross-market registry release was available.",
+      "name": "source_identity_cross_market_adjudication_release_available_session",
+      "nullable": false
     }
   ],
-  "contract_id": "adbba0d86bd9681e034b0ffda3e380da40b6fc92d280942d856d416a1b53f868",
+  "contract_id": "959c5f7bf464eed59fd32a7008349f60ebcfd3cf9e892c9c3d7f00080eae2149",
   "contract_schema_version": 1,
-  "description": "Canonical research identities anchored by validated Composite FIGI evidence in S4/S6. Provider observations are never rewritten: a different observed FIGI may map to a canonical asset only through an approved episode-scoped identity adjudication, while unresolved bounce episodes create no canonical asset link. S5 events, CIK, ticker, name, ticker root, and Share-class FIGI alone cannot create or merge an asset.",
+  "description": "Canonical research identities anchored by validated Composite FIGI evidence in S4/S6. Provider observations are never rewritten: a different observed FIGI may map to a canonical asset only through an approved episode-scoped identity adjudication, while unresolved bounce episodes create no canonical asset link. S5 events, CIK, ticker, name, ticker root, and Share-class FIGI alone cannot create or merge an asset. Cross-market canonical targets may be independently anchored by an approved immutable external identifier assertion rather than by a bounce outer value.",
   "domain": "identity",
-  "grain": "One immutable canonical U.S. tradable-security research identity per Composite FIGI independently anchored by accepted S4 or S6 evidence.",
+  "grain": "One immutable canonical U.S. tradable-security research identity per Composite FIGI directly or approved-cross-market anchored by accepted S4 or S6 evidence.",
   "partition_by": [],
   "primary_key": [
     "asset_id"
@@ -334,7 +370,7 @@
     },
     {
       "check_id": "state_domain_invalid_rows",
-      "description": "canonical_identity_basis must be direct_observed_only or direct_observed_with_approved_provider_contamination_override; share_class_resolution_status must be unique_share_class, temporal_multiple_share_classes, missing_share_class, or conflicted_share_class; identity_resolution_status must be resolved_strong_s4, resolved_strong_s4_with_approved_override, or reference_only_s6; asset_status is active_identity; mapping scope and rule fields must equal their named literals including s7_asset_resolution_with_adjudication_v2.",
+      "description": "Asset state and canonical basis must stay within direct, approved episode, approved cross-market, conflict, or supersession domains.",
       "failure_status": "failed",
       "limit": 0.0,
       "metric": "numerator",
@@ -343,7 +379,7 @@
     },
     {
       "check_id": "state_matrix_invalid_rows",
-      "description": "Canonical share-class state excludes contamination-only hierarchy evidence. resolved_strong_s4 needs admitted direct evidence and zero contamination overrides; it may have approved genuine-transition decisions. resolved_strong_s4_with_approved_override needs independent direct evidence plus positive override rows/provider-contamination count. reference_only_s6 has no S4 direct rows or canonical membership span, zero adjudication counts, and positive candidate evidence. identity_adjudication_count equals the genuine plus contamination counts. direct_observed_only has zero contamination overrides; approved-override basis has positive overrides and observed_composite_figi_count>=2. Canonical membership dates are jointly non-null exactly for S4-backed rows. Every row is active_identity with null superseded_by_asset_id. Either strong state is eligible only when every relationship conflict is cleared.",
+      "description": "Direct and two approved adjudication paths must satisfy their exact count, anchor, eligibility, availability, and canonical-target matrices; pending or withdrawn mappings create no eligible asset.",
       "failure_status": "failed",
       "limit": 0.0,
       "metric": "numerator",
@@ -370,7 +406,7 @@
     },
     {
       "check_id": "identity_evidence_availability_recomputation_mismatch_rows",
-      "description": "identity_evidence_available_session must equal the maximum over the accepted-source closure, detector-case availability, every effective genuine/provider-contamination adjudication availability used to include or exclude evidence, and the exact registry release availability. No decision after identity_resolution_cutoff_session may affect the row; unattached S5 events, S5 request status, and sibling outputs remain excluded.",
+      "description": "identity_evidence_available_session must include episode and cross-market candidate, decision, approval, and registry-release availability.",
       "failure_status": "failed",
       "limit": 0.0,
       "metric": "numerator",
@@ -556,6 +592,33 @@
       "metric": "numerator",
       "operator": "eq",
       "severity": "high"
+    },
+    {
+      "check_id": "cross_market_evidence_count_recomputation_mismatch_rows",
+      "description": "Cross-market evidence rows and distinct effective decision counts must reproduce from exact matched source rows.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "unapproved_cross_market_created_asset_rows",
+      "description": "No unapproved known non-US observation may create or anchor a canonical asset.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "cross_market_target_evidence_invalid_rows",
+      "description": "Every externally anchored canonical US Composite target must replay immutable same-Share-Class market evidence.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
     }
   ],
   "schema_version": 1,
@@ -570,7 +633,9 @@
     "ticker_change_event",
     "ticker_overview_safe",
     "identity_case_candidate_manifest",
-    "identity_adjudication"
+    "identity_adjudication",
+    "identity_market_consistency_candidate_manifest",
+    "identity_cross_market_adjudication"
   ],
   "table": "asset_master"
 }

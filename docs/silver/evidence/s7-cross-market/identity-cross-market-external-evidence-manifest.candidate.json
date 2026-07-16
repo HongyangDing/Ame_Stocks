@@ -1,0 +1,948 @@
+{
+  "artifacts": [
+    {
+      "bytes": 59576,
+      "captured_at_utc": "2026-07-16T15:33:51.426138Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "text/html",
+      "path": "docs/silver/evidence/s7-cross-market/azpn-2022-05-16-8k.html",
+      "publication_basis": "edgar_acceptance_datetime",
+      "publication_precision": "second",
+      "sha256": "b74a9ae1dab426dcbb2ab55d013183cc16970f129abeb829fbea954871acfa05",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": "2022-05-16T21:34:48Z",
+      "source_published_raw": "20220516213448",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/929940/000114036122019468/ny20004077x9_8k.htm"
+    },
+    {
+      "bytes": 639,
+      "captured_at_utc": "2026-07-16T15:35:15.378325Z",
+      "content_scope": "allowlisted_response_headers_without_cookie_or_credentials",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-cross-market/azpn-2022-05-16-sec-submission.headers.txt",
+      "publication_basis": "edgar_acceptance_datetime",
+      "publication_precision": "second",
+      "sha256": "86233b5f30c06218913728c8a22c429ab79b9fc0e844596ed0b223504a3994f9",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": "2022-05-16T21:34:48Z",
+      "source_published_raw": "20220516213448",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/929940/000114036122019468/0001140361-22-019468.txt"
+    },
+    {
+      "bytes": 304687,
+      "captured_at_utc": "2026-07-16T15:35:16.121723Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-cross-market/azpn-2022-05-16-sec-submission.txt",
+      "publication_basis": "edgar_acceptance_datetime",
+      "publication_precision": "second",
+      "sha256": "182090c0a3b8446e6b21e4b600fab0a34ce83f8557d8b9be9795ea64d90e2488",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": "2022-05-16T21:34:48Z",
+      "source_published_raw": "20220516213448",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/929940/000114036122019468/0001140361-22-019468.txt"
+    },
+    {
+      "bytes": 43520,
+      "captured_at_utc": "2026-07-16T15:33:51.259203Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "text/html",
+      "path": "docs/silver/evidence/s7-cross-market/cr-2022-02-28-8k.html",
+      "publication_basis": "edgar_acceptance_datetime",
+      "publication_precision": "second",
+      "sha256": "dcd60ae73a7e83e632d4b8628b2721c9b9d3b1bf57854e530b5685abd5ded134",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": "2022-02-28T18:57:39Z",
+      "source_published_raw": "20220228185739",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/25445/000119312522058745/d287787d8k.htm"
+    },
+    {
+      "bytes": 639,
+      "captured_at_utc": "2026-07-16T15:35:15.223556Z",
+      "content_scope": "allowlisted_response_headers_without_cookie_or_credentials",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-cross-market/cr-2022-02-28-sec-submission.headers.txt",
+      "publication_basis": "edgar_acceptance_datetime",
+      "publication_precision": "second",
+      "sha256": "6ec3cf28ed2b59361a7c35f9900a2a7db95aa24860e5c581e1898267248b6c93",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": "2022-02-28T18:57:39Z",
+      "source_published_raw": "20220228185739",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/25445/000119312522058745/0001193125-22-058745.txt"
+    },
+    {
+      "bytes": 213787,
+      "captured_at_utc": "2026-07-16T15:35:15.781158Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-cross-market/cr-2022-02-28-sec-submission.txt",
+      "publication_basis": "edgar_acceptance_datetime",
+      "publication_precision": "second",
+      "sha256": "ef9b9ffd8da953b0c0f66d90404fb26c7d4dd5003edb2c1f7210d28a05dac0ac",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": "2022-02-28T18:57:39Z",
+      "source_published_raw": "20220228185739",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/25445/000119312522058745/0001193125-22-058745.txt"
+    },
+    {
+      "bytes": 710903,
+      "captured_at_utc": "2026-07-16T15:33:52.739943Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "application/pdf",
+      "path": "docs/silver/evidence/s7-cross-market/figi-allocation-rules.pdf",
+      "publication_basis": "document_version_page",
+      "publication_precision": "month",
+      "sha256": "b9f12e02140ca1d82e724c108f7bd304adefe97cb860eb9319ce603ed9d621a2",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": null,
+      "source_published_raw": "August 2025",
+      "source_url": "https://www.openfigi.com/docs/figi-allocation-rules.pdf"
+    },
+    {
+      "bytes": 618,
+      "captured_at_utc": "2026-07-16T15:46:57.693606Z",
+      "content_scope": "allowlisted_response_headers_without_cookie_or_credentials",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-cross-market/flow-2022-04-05-issuer.headers.txt",
+      "publication_basis": "issuer_page_document_date",
+      "publication_precision": "date",
+      "sha256": "7e70a48619539f464b54cd7d00c8396ed62fdd39c3d992f563a0f0115efa3481",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": null,
+      "source_published_raw": "April 5, 2022",
+      "source_url": "https://www.spxflow.com/news-releases/lone-star-completes-acquisition-of-spx-flow/"
+    },
+    {
+      "bytes": 83581,
+      "captured_at_utc": "2026-07-16T15:35:15.650334Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "text/html",
+      "path": "docs/silver/evidence/s7-cross-market/flow-2022-04-05-issuer.html",
+      "publication_basis": "issuer_page_document_date",
+      "publication_precision": "date",
+      "sha256": "f7ce81cccf83a74f8eed2e11e8a7fb351c1c97614c3b8e628c715c6e70e113c7",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": null,
+      "source_published_raw": "April 5, 2022",
+      "source_url": "https://www.spxflow.com/news-releases/lone-star-completes-acquisition-of-spx-flow/"
+    },
+    {
+      "bytes": 243311,
+      "captured_at_utc": "2026-07-16T15:33:51.941510Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "text/html",
+      "path": "docs/silver/evidence/s7-cross-market/openfigi-api-documentation.html",
+      "publication_basis": "not_exposed_by_source",
+      "publication_precision": "unknown",
+      "sha256": "5d15743045f83595a1eb1fe853279017e1820bd309c6cbcb1ea8379e1568dcd5",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": null,
+      "source_published_raw": null,
+      "source_url": "https://www.openfigi.com/api/documentation"
+    },
+    {
+      "bytes": 1162,
+      "captured_at_utc": "2026-07-16T15:33:10.881224Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "application/json",
+      "path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.request.json",
+      "publication_basis": "not_exposed_by_source",
+      "publication_precision": "unknown",
+      "sha256": "fe6ba0c1eb7e3648cdc4aea76ad6d56f84821184865a21471f8927ab5f85aef7",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": null,
+      "source_published_raw": null,
+      "source_url": "https://api.openfigi.com/v3/mapping"
+    },
+    {
+      "bytes": 1156,
+      "captured_at_utc": "2026-07-16T15:34:50.190136Z",
+      "content_scope": "allowlisted_response_headers_without_cookie_or_credentials",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.response.headers.txt",
+      "publication_basis": "not_exposed_by_source",
+      "publication_precision": "unknown",
+      "sha256": "beb66ede0b311fc3e2132b3b16eb63ab61e696201147f3bb15187e9902702ce2",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": null,
+      "source_published_raw": null,
+      "source_url": "https://api.openfigi.com/v3/mapping"
+    },
+    {
+      "bytes": 68273,
+      "captured_at_utc": "2026-07-16T15:34:50.502483Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "application/json",
+      "path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.response.json",
+      "publication_basis": "not_exposed_by_source",
+      "publication_precision": "unknown",
+      "sha256": "210896ee1c1330725ed235da3a7f5f796119d7850e7854d69336609c1db7299d",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": null,
+      "source_published_raw": null,
+      "source_url": "https://api.openfigi.com/v3/mapping"
+    },
+    {
+      "bytes": 930,
+      "captured_at_utc": "2026-07-16T15:33:10.973256Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "application/json",
+      "path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-02.request.json",
+      "publication_basis": "not_exposed_by_source",
+      "publication_precision": "unknown",
+      "sha256": "25053c807d240045be80c07fba79d7763de35d6843fdb3028042c777471a4a3d",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": null,
+      "source_published_raw": null,
+      "source_url": "https://api.openfigi.com/v3/mapping"
+    },
+    {
+      "bytes": 1156,
+      "captured_at_utc": "2026-07-16T15:34:50.293339Z",
+      "content_scope": "allowlisted_response_headers_without_cookie_or_credentials",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-02.response.headers.txt",
+      "publication_basis": "not_exposed_by_source",
+      "publication_precision": "unknown",
+      "sha256": "b21da9b6e74060a3229c7b33e197b437d982dce5055a34503b264207d62b8fcf",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": null,
+      "source_published_raw": null,
+      "source_url": "https://api.openfigi.com/v3/mapping"
+    },
+    {
+      "bytes": 48325,
+      "captured_at_utc": "2026-07-16T15:34:50.489894Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "application/json",
+      "path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-02.response.json",
+      "publication_basis": "not_exposed_by_source",
+      "publication_precision": "unknown",
+      "sha256": "8af6fa33f80eaa89c3736a2dd4e0610bf8c2f6a9700005a8f5e3b601694fdabf",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": null,
+      "source_published_raw": null,
+      "source_url": "https://api.openfigi.com/v3/mapping"
+    },
+    {
+      "bytes": 1118,
+      "captured_at_utc": "2026-07-16T15:30:27.626514Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "application/json",
+      "path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.request.json",
+      "publication_basis": "not_exposed_by_source",
+      "publication_precision": "unknown",
+      "sha256": "a476b7ffa4cae602c43a4ccf14d8724af84f2dc8bda3ae3a1d00616eac26aed4",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": null,
+      "source_published_raw": null,
+      "source_url": "https://api.openfigi.com/v3/mapping"
+    },
+    {
+      "bytes": 1157,
+      "captured_at_utc": "2026-07-16T15:34:50.412128Z",
+      "content_scope": "allowlisted_response_headers_without_cookie_or_credentials",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.response.headers.txt",
+      "publication_basis": "not_exposed_by_source",
+      "publication_precision": "unknown",
+      "sha256": "04aae4797d5279541e4b0d22073fee0dd96bd5a98916618bfcb9a8f7a852d5dd",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": null,
+      "source_published_raw": null,
+      "source_url": "https://api.openfigi.com/v3/mapping"
+    },
+    {
+      "bytes": 351766,
+      "captured_at_utc": "2026-07-16T15:34:51.461287Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "application/json",
+      "path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.response.json",
+      "publication_basis": "not_exposed_by_source",
+      "publication_precision": "unknown",
+      "sha256": "2176433377f1d01688211e16dca63a6834bca63503ba19bffaf915f09aea03c3",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": null,
+      "source_published_raw": null,
+      "source_url": "https://api.openfigi.com/v3/mapping"
+    },
+    {
+      "bytes": 24711,
+      "captured_at_utc": "2026-07-16T15:33:51.894076Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "text/html",
+      "path": "docs/silver/evidence/s7-cross-market/tblt-2022-04-22-ex99-1.html",
+      "publication_basis": "exhibit_document_date",
+      "publication_precision": "date",
+      "sha256": "ba51bf4de8b4c06abd5cb5686aaa3c99eb777c023d9fa474ef32c9e847eec6a0",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": null,
+      "source_published_raw": "April 22, 2022",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1668370/000157587222000317/cm055_ex99-1.htm"
+    },
+    {
+      "bytes": 619,
+      "captured_at_utc": "2026-07-16T15:35:15.199808Z",
+      "content_scope": "allowlisted_response_headers_without_cookie_or_credentials",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-cross-market/tblt-2022-04-22-sec-submission.headers.txt",
+      "publication_basis": "edgar_acceptance_datetime",
+      "publication_precision": "second",
+      "sha256": "0998cf7f425406f3ce564f178a1ae31f5f5749a9f9910579177d49fe35af186a",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": "2022-04-25T17:11:41Z",
+      "source_published_raw": "20220425171141",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1668370/000157587222000317/0001575872-22-000317.txt"
+    },
+    {
+      "bytes": 1181193,
+      "captured_at_utc": "2026-07-16T15:35:16.382177Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-cross-market/tblt-2022-04-22-sec-submission.txt",
+      "publication_basis": "edgar_acceptance_datetime",
+      "publication_precision": "second",
+      "sha256": "f7c4d4574c73a2f6f6ad46d3bf235779fd5e7fd49fa103326b616ffa951bfdac",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": "2022-04-25T17:11:41Z",
+      "source_published_raw": "20220425171141",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1668370/000157587222000317/0001575872-22-000317.txt"
+    },
+    {
+      "bytes": 11578,
+      "captured_at_utc": "2026-07-16T15:33:51.167564Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "text/html",
+      "path": "docs/silver/evidence/s7-cross-market/tnxp-2022-05-16-ex99-01.html",
+      "publication_basis": "exhibit_document_date",
+      "publication_precision": "date",
+      "sha256": "5189273e43cbd5efb09a136a0bf1da3c5515f3b09a4cdce9090053976a339b58",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": null,
+      "source_published_raw": "May 16, 2022",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1430306/000138713122006187/ex99-01.htm"
+    },
+    {
+      "bytes": 639,
+      "captured_at_utc": "2026-07-16T15:35:15.212587Z",
+      "content_scope": "allowlisted_response_headers_without_cookie_or_credentials",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-cross-market/tnxp-2022-05-16-sec-submission.headers.txt",
+      "publication_basis": "edgar_acceptance_datetime",
+      "publication_precision": "second",
+      "sha256": "0ff689a968764109eb8d177d64e1af14ab43d949dd32c4cf165a210045d2feeb",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": "2022-05-16T13:00:40Z",
+      "source_published_raw": "20220516130040",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1430306/000138713122006187/0001387131-22-006187.txt"
+    },
+    {
+      "bytes": 1460184,
+      "captured_at_utc": "2026-07-16T15:35:16.649063Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-cross-market/tnxp-2022-05-16-sec-submission.txt",
+      "publication_basis": "edgar_acceptance_datetime",
+      "publication_precision": "second",
+      "sha256": "e0e7c5ca0f66614c0bcc858977782f58ec03eb278a8dbc49682d1dbab394316a",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": "2022-05-16T13:00:40Z",
+      "source_published_raw": "20220516130040",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1430306/000138713122006187/0001387131-22-006187.txt"
+    }
+  ],
+  "availability": {
+    "available_session": "2026-07-17",
+    "rule": "first_xnys_open_strictly_after_actual_capture_v1"
+  },
+  "company_action_timing_assertions": [
+    {
+      "assertion": "Transactions were consummated on 2022-05-16, outside the detector window.",
+      "source_paths": [
+        "docs/silver/evidence/s7-cross-market/azpn-2022-05-16-8k.html",
+        "docs/silver/evidence/s7-cross-market/azpn-2022-05-16-sec-submission.txt"
+      ],
+      "source_published_at_utc": "2022-05-16T21:34:48Z",
+      "ticker": "AZPN"
+    },
+    {
+      "assertion": "The reorganization agreement was entered on 2022-02-28, remained subject to conditions, and the filing identifies CIK 0000025445.",
+      "source_paths": [
+        "docs/silver/evidence/s7-cross-market/cr-2022-02-28-8k.html",
+        "docs/silver/evidence/s7-cross-market/cr-2022-02-28-sec-submission.txt"
+      ],
+      "source_published_at_utc": "2022-02-28T18:57:39Z",
+      "ticker": "CR"
+    },
+    {
+      "assertion": "The issuer announced acquisition closing on 2022-04-05, outside the detector window.",
+      "publication_precision": "date",
+      "source_paths": [
+        "docs/silver/evidence/s7-cross-market/flow-2022-04-05-issuer.html"
+      ],
+      "source_published_date": "2022-04-05",
+      "ticker": "FLOW"
+    },
+    {
+      "assertion": "The reverse split became effective for trading on 2022-04-25, outside the detector window.",
+      "source_paths": [
+        "docs/silver/evidence/s7-cross-market/tblt-2022-04-22-ex99-1.html",
+        "docs/silver/evidence/s7-cross-market/tblt-2022-04-22-sec-submission.txt"
+      ],
+      "source_published_at_utc": "2022-04-25T17:11:41Z",
+      "ticker": "TBLT"
+    },
+    {
+      "assertion": "The reverse split became effective for trading on 2022-05-17, outside the detector window.",
+      "source_paths": [
+        "docs/silver/evidence/s7-cross-market/tnxp-2022-05-16-ex99-01.html",
+        "docs/silver/evidence/s7-cross-market/tnxp-2022-05-16-sec-submission.txt"
+      ],
+      "source_published_at_utc": "2022-05-16T13:00:40Z",
+      "ticker": "TNXP"
+    }
+  ],
+  "detector_preview_binding": {
+    "completion_id": "7a1e2386e18428aecf50a9ce322eaaf6b3035307b4a704939584288f131c6b9d",
+    "identity_case_count": 19,
+    "preview_id": "306543f5fc1d30f868482392aaafdc781daf9f36f30d3f12504024c10f865c70",
+    "preview_rewritten": false,
+    "suspected_row_count": 89
+  },
+  "groups": [
+    {
+      "canonical_composite_market_code": "US",
+      "canonical_us_composite_figi": "BBG000DFMXT3",
+      "current_preview_foreign_observation_rows": 15,
+      "current_preview_inverse_us_observation_rows": 2,
+      "future_adjudication_status": "not_planned_not_approved",
+      "observed_foreign_composite_figi": "BBG000KRLLH9",
+      "observed_foreign_market_code": "GR",
+      "provider_id": "massive",
+      "provider_locale": "us",
+      "provider_market": "stocks",
+      "related_case_binding": {
+        "exact_case_ids_deferred": true,
+        "expected_case_count": 3,
+        "preserved_detector_preview_id": "306543f5fc1d30f868482392aaafdc781daf9f36f30d3f12504024c10f865c70",
+        "roles": [
+          "contaminated_middle_episode",
+          "inverse_middle_is_canonical_us"
+        ]
+      },
+      "share_class_figi": "BBG001S87NT0",
+      "ticker": "AZPN",
+      "valid_from_session": "2022-02-09",
+      "valid_through_session": "2022-03-02"
+    },
+    {
+      "canonical_composite_market_code": "US",
+      "canonical_us_composite_figi": "BBG000BG7423",
+      "current_preview_foreign_observation_rows": 15,
+      "current_preview_inverse_us_observation_rows": 2,
+      "future_adjudication_status": "not_planned_not_approved",
+      "observed_foreign_composite_figi": "BBG00CTGPFW0",
+      "observed_foreign_market_code": "EO",
+      "provider_id": "massive",
+      "provider_locale": "us",
+      "provider_market": "stocks",
+      "related_case_binding": {
+        "exact_case_ids_deferred": true,
+        "expected_case_count": 3,
+        "preserved_detector_preview_id": "306543f5fc1d30f868482392aaafdc781daf9f36f30d3f12504024c10f865c70",
+        "roles": [
+          "contaminated_middle_episode",
+          "inverse_middle_is_canonical_us"
+        ]
+      },
+      "share_class_figi": "BBG001S5Q3X4",
+      "ticker": "CR",
+      "valid_from_session": "2022-02-09",
+      "valid_through_session": "2022-03-02"
+    },
+    {
+      "canonical_composite_market_code": "US",
+      "canonical_us_composite_figi": "BBG007FL7ZD2",
+      "current_preview_foreign_observation_rows": 15,
+      "current_preview_inverse_us_observation_rows": 2,
+      "future_adjudication_status": "not_planned_not_approved",
+      "observed_foreign_composite_figi": "BBG00K03RX51",
+      "observed_foreign_market_code": "EO",
+      "provider_id": "massive",
+      "provider_locale": "us",
+      "provider_market": "stocks",
+      "related_case_binding": {
+        "exact_case_ids_deferred": true,
+        "expected_case_count": 3,
+        "preserved_detector_preview_id": "306543f5fc1d30f868482392aaafdc781daf9f36f30d3f12504024c10f865c70",
+        "roles": [
+          "contaminated_middle_episode",
+          "inverse_middle_is_canonical_us"
+        ]
+      },
+      "share_class_figi": "BBG007FL7ZF0",
+      "ticker": "FLOW",
+      "valid_from_session": "2022-02-09",
+      "valid_through_session": "2022-03-02"
+    },
+    {
+      "canonical_composite_market_code": "US",
+      "canonical_us_composite_figi": "BBG000F2XXP2",
+      "current_preview_foreign_observation_rows": 1,
+      "current_preview_inverse_us_observation_rows": 0,
+      "future_adjudication_status": "not_planned_not_approved",
+      "observed_foreign_composite_figi": "BBG000C3K505",
+      "observed_foreign_market_code": "GR",
+      "provider_id": "massive",
+      "provider_locale": "us",
+      "provider_market": "stocks",
+      "related_case_binding": {
+        "exact_case_ids_deferred": true,
+        "expected_case_count": 1,
+        "preserved_detector_preview_id": "306543f5fc1d30f868482392aaafdc781daf9f36f30d3f12504024c10f865c70",
+        "roles": [
+          "contaminated_middle_episode"
+        ]
+      },
+      "share_class_figi": "BBG001S7W602",
+      "ticker": "SBGI",
+      "valid_from_session": "2022-02-08",
+      "valid_through_session": "2022-02-08"
+    },
+    {
+      "canonical_composite_market_code": "US",
+      "canonical_us_composite_figi": "BBG000BT0093",
+      "current_preview_foreign_observation_rows": 1,
+      "current_preview_inverse_us_observation_rows": 0,
+      "future_adjudication_status": "not_planned_not_approved",
+      "observed_foreign_composite_figi": "BBG000BGPKZ1",
+      "observed_foreign_market_code": "GR",
+      "provider_id": "massive",
+      "provider_locale": "us",
+      "provider_market": "stocks",
+      "related_case_binding": {
+        "exact_case_ids_deferred": true,
+        "expected_case_count": 1,
+        "preserved_detector_preview_id": "306543f5fc1d30f868482392aaafdc781daf9f36f30d3f12504024c10f865c70",
+        "roles": [
+          "contaminated_middle_episode"
+        ]
+      },
+      "share_class_figi": "BBG001S70ZY6",
+      "ticker": "SIRI",
+      "valid_from_session": "2022-02-08",
+      "valid_through_session": "2022-02-08"
+    },
+    {
+      "canonical_composite_market_code": "US",
+      "canonical_us_composite_figi": "BBG000F71CC6",
+      "current_preview_foreign_observation_rows": 1,
+      "current_preview_inverse_us_observation_rows": 0,
+      "future_adjudication_status": "not_planned_not_approved",
+      "observed_foreign_composite_figi": "BBG000CVD896",
+      "observed_foreign_market_code": "GR",
+      "provider_id": "massive",
+      "provider_locale": "us",
+      "provider_market": "stocks",
+      "related_case_binding": {
+        "exact_case_ids_deferred": true,
+        "expected_case_count": 1,
+        "preserved_detector_preview_id": "306543f5fc1d30f868482392aaafdc781daf9f36f30d3f12504024c10f865c70",
+        "roles": [
+          "contaminated_middle_episode"
+        ]
+      },
+      "share_class_figi": "BBG001SHR063",
+      "ticker": "TA",
+      "valid_from_session": "2022-02-08",
+      "valid_through_session": "2022-02-08"
+    },
+    {
+      "canonical_composite_market_code": "US",
+      "canonical_us_composite_figi": "BBG00LDFP150",
+      "current_preview_foreign_observation_rows": 15,
+      "current_preview_inverse_us_observation_rows": 2,
+      "future_adjudication_status": "not_planned_not_approved",
+      "observed_foreign_composite_figi": "BBG00YGNW2D3",
+      "observed_foreign_market_code": "EO",
+      "provider_id": "massive",
+      "provider_locale": "us",
+      "provider_market": "stocks",
+      "related_case_binding": {
+        "exact_case_ids_deferred": true,
+        "expected_case_count": 3,
+        "preserved_detector_preview_id": "306543f5fc1d30f868482392aaafdc781daf9f36f30d3f12504024c10f865c70",
+        "roles": [
+          "contaminated_middle_episode",
+          "inverse_middle_is_canonical_us"
+        ]
+      },
+      "share_class_figi": "BBG00LDFP1X9",
+      "ticker": "TBLT",
+      "valid_from_session": "2022-02-09",
+      "valid_through_session": "2022-03-02"
+    },
+    {
+      "canonical_composite_market_code": "US",
+      "canonical_us_composite_figi": "BBG000LG8XM5",
+      "current_preview_foreign_observation_rows": 15,
+      "current_preview_inverse_us_observation_rows": 2,
+      "future_adjudication_status": "not_planned_not_approved",
+      "observed_foreign_composite_figi": "BBG00R4FG9L2",
+      "observed_foreign_market_code": "EP",
+      "provider_id": "massive",
+      "provider_locale": "us",
+      "provider_market": "stocks",
+      "related_case_binding": {
+        "exact_case_ids_deferred": true,
+        "expected_case_count": 3,
+        "preserved_detector_preview_id": "306543f5fc1d30f868482392aaafdc781daf9f36f30d3f12504024c10f865c70",
+        "roles": [
+          "contaminated_middle_episode",
+          "inverse_middle_is_canonical_us"
+        ]
+      },
+      "share_class_figi": "BBG001T49NZ9",
+      "ticker": "TNXP",
+      "valid_from_session": "2022-02-09",
+      "valid_through_session": "2022-03-02"
+    },
+    {
+      "canonical_composite_market_code": "US",
+      "canonical_us_composite_figi": "BBG000DY6735",
+      "current_preview_foreign_observation_rows": 1,
+      "current_preview_inverse_us_observation_rows": 0,
+      "future_adjudication_status": "not_planned_not_approved",
+      "observed_foreign_composite_figi": "BBG000D08924",
+      "observed_foreign_market_code": "GR",
+      "provider_id": "massive",
+      "provider_locale": "us",
+      "provider_market": "stocks",
+      "related_case_binding": {
+        "exact_case_ids_deferred": true,
+        "expected_case_count": 1,
+        "preserved_detector_preview_id": "306543f5fc1d30f868482392aaafdc781daf9f36f30d3f12504024c10f865c70",
+        "roles": [
+          "contaminated_middle_episode"
+        ]
+      },
+      "share_class_figi": "BBG001SFWZR1",
+      "ticker": "WW",
+      "valid_from_session": "2022-02-08",
+      "valid_through_session": "2022-02-08"
+    }
+  ],
+  "limitations": [
+    "OpenFIGI is a current snapshot and does not by itself establish 2022 provider state.",
+    "Current OpenFIGI name and ticker fields are excluded from historical identity assertions.",
+    "Market codes establish cross-market hierarchy only when combined with the official Composite and Share Class definitions and pinned Massive locale lineage.",
+    "The 79/10 counts describe the bounded detector preview; a future full-sequence scan may find additional rows and requires a separately approved candidate manifest.",
+    "No group in this manifest is an approved adjudication or executable override."
+  ],
+  "manifest_id": "2ae779168e3e56887a5b0ae557bb928b6006c1b96392fe1606c201e1649ff848",
+  "manifest_schema_version": 1,
+  "manifest_status": "candidate_not_approved",
+  "manifest_type": "identity_cross_market_external_evidence",
+  "mapping_assertions": [
+    {
+      "canonical_composite": {
+        "expected_composite_figi": "BBG000DFMXT3",
+        "expected_market_code": "US",
+        "expected_share_class_figi": "BBG001S87NT0",
+        "request_job_index": 0,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.response.json",
+        "row_selection": "any row with exact compositeFIGI and matching nonnull shareClassFIGI; prefer figi==compositeFIGI when present"
+      },
+      "foreign_composite": {
+        "expected_composite_figi": "BBG000KRLLH9",
+        "expected_market_code": "GR",
+        "expected_share_class_figi": "BBG001S87NT0",
+        "request_job_index": 1,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.response.json",
+        "row_selection": "any row with exact compositeFIGI and matching nonnull shareClassFIGI; self-row is not required"
+      },
+      "share_class_reverse_projection": {
+        "expected_composite_figis": [
+          "BBG000DFMXT3",
+          "BBG000KRLLH9"
+        ],
+        "request_job_index": 0,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.response.json"
+      },
+      "ticker": "AZPN",
+      "verification_rule_version": "s7_openfigi_cross_market_relationship_v1"
+    },
+    {
+      "canonical_composite": {
+        "expected_composite_figi": "BBG000BG7423",
+        "expected_market_code": "US",
+        "expected_share_class_figi": "BBG001S5Q3X4",
+        "request_job_index": 2,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.response.json",
+        "row_selection": "any row with exact compositeFIGI and matching nonnull shareClassFIGI; prefer figi==compositeFIGI when present"
+      },
+      "foreign_composite": {
+        "expected_composite_figi": "BBG00CTGPFW0",
+        "expected_market_code": "EO",
+        "expected_share_class_figi": "BBG001S5Q3X4",
+        "request_job_index": 3,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.response.json",
+        "row_selection": "any row with exact compositeFIGI and matching nonnull shareClassFIGI; self-row is not required"
+      },
+      "share_class_reverse_projection": {
+        "expected_composite_figis": [
+          "BBG000BG7423",
+          "BBG00CTGPFW0"
+        ],
+        "request_job_index": 1,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.response.json"
+      },
+      "ticker": "CR",
+      "verification_rule_version": "s7_openfigi_cross_market_relationship_v1"
+    },
+    {
+      "canonical_composite": {
+        "expected_composite_figi": "BBG007FL7ZD2",
+        "expected_market_code": "US",
+        "expected_share_class_figi": "BBG007FL7ZF0",
+        "request_job_index": 4,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.response.json",
+        "row_selection": "any row with exact compositeFIGI and matching nonnull shareClassFIGI; prefer figi==compositeFIGI when present"
+      },
+      "foreign_composite": {
+        "expected_composite_figi": "BBG00K03RX51",
+        "expected_market_code": "EO",
+        "expected_share_class_figi": "BBG007FL7ZF0",
+        "request_job_index": 5,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.response.json",
+        "row_selection": "any row with exact compositeFIGI and matching nonnull shareClassFIGI; self-row is not required"
+      },
+      "share_class_reverse_projection": {
+        "expected_composite_figis": [
+          "BBG007FL7ZD2",
+          "BBG00K03RX51"
+        ],
+        "request_job_index": 2,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.response.json"
+      },
+      "ticker": "FLOW",
+      "verification_rule_version": "s7_openfigi_cross_market_relationship_v1"
+    },
+    {
+      "canonical_composite": {
+        "expected_composite_figi": "BBG000F2XXP2",
+        "expected_market_code": "US",
+        "expected_share_class_figi": "BBG001S7W602",
+        "request_job_index": 6,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.response.json",
+        "row_selection": "any row with exact compositeFIGI and matching nonnull shareClassFIGI; prefer figi==compositeFIGI when present"
+      },
+      "foreign_composite": {
+        "expected_composite_figi": "BBG000C3K505",
+        "expected_market_code": "GR",
+        "expected_share_class_figi": "BBG001S7W602",
+        "request_job_index": 7,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.response.json",
+        "row_selection": "any row with exact compositeFIGI and matching nonnull shareClassFIGI; self-row is not required"
+      },
+      "share_class_reverse_projection": {
+        "expected_composite_figis": [
+          "BBG000F2XXP2",
+          "BBG000C3K505"
+        ],
+        "request_job_index": 3,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.response.json"
+      },
+      "ticker": "SBGI",
+      "verification_rule_version": "s7_openfigi_cross_market_relationship_v1"
+    },
+    {
+      "canonical_composite": {
+        "expected_composite_figi": "BBG000BT0093",
+        "expected_market_code": "US",
+        "expected_share_class_figi": "BBG001S70ZY6",
+        "request_job_index": 8,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.response.json",
+        "row_selection": "any row with exact compositeFIGI and matching nonnull shareClassFIGI; prefer figi==compositeFIGI when present"
+      },
+      "foreign_composite": {
+        "expected_composite_figi": "BBG000BGPKZ1",
+        "expected_market_code": "GR",
+        "expected_share_class_figi": "BBG001S70ZY6",
+        "request_job_index": 9,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-01.response.json",
+        "row_selection": "any row with exact compositeFIGI and matching nonnull shareClassFIGI; self-row is not required"
+      },
+      "share_class_reverse_projection": {
+        "expected_composite_figis": [
+          "BBG000BT0093",
+          "BBG000BGPKZ1"
+        ],
+        "request_job_index": 4,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.response.json"
+      },
+      "ticker": "SIRI",
+      "verification_rule_version": "s7_openfigi_cross_market_relationship_v1"
+    },
+    {
+      "canonical_composite": {
+        "expected_composite_figi": "BBG000F71CC6",
+        "expected_market_code": "US",
+        "expected_share_class_figi": "BBG001SHR063",
+        "request_job_index": 0,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-02.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-02.response.json",
+        "row_selection": "any row with exact compositeFIGI and matching nonnull shareClassFIGI; prefer figi==compositeFIGI when present"
+      },
+      "foreign_composite": {
+        "expected_composite_figi": "BBG000CVD896",
+        "expected_market_code": "GR",
+        "expected_share_class_figi": "BBG001SHR063",
+        "request_job_index": 1,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-02.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-02.response.json",
+        "row_selection": "any row with exact compositeFIGI and matching nonnull shareClassFIGI; self-row is not required"
+      },
+      "share_class_reverse_projection": {
+        "expected_composite_figis": [
+          "BBG000F71CC6",
+          "BBG000CVD896"
+        ],
+        "request_job_index": 5,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.response.json"
+      },
+      "ticker": "TA",
+      "verification_rule_version": "s7_openfigi_cross_market_relationship_v1"
+    },
+    {
+      "canonical_composite": {
+        "expected_composite_figi": "BBG00LDFP150",
+        "expected_market_code": "US",
+        "expected_share_class_figi": "BBG00LDFP1X9",
+        "request_job_index": 2,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-02.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-02.response.json",
+        "row_selection": "any row with exact compositeFIGI and matching nonnull shareClassFIGI; prefer figi==compositeFIGI when present"
+      },
+      "foreign_composite": {
+        "expected_composite_figi": "BBG00YGNW2D3",
+        "expected_market_code": "EO",
+        "expected_share_class_figi": "BBG00LDFP1X9",
+        "request_job_index": 3,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-02.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-02.response.json",
+        "row_selection": "any row with exact compositeFIGI and matching nonnull shareClassFIGI; self-row is not required"
+      },
+      "share_class_reverse_projection": {
+        "expected_composite_figis": [
+          "BBG00LDFP150",
+          "BBG00YGNW2D3"
+        ],
+        "request_job_index": 6,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.response.json"
+      },
+      "ticker": "TBLT",
+      "verification_rule_version": "s7_openfigi_cross_market_relationship_v1"
+    },
+    {
+      "canonical_composite": {
+        "expected_composite_figi": "BBG000LG8XM5",
+        "expected_market_code": "US",
+        "expected_share_class_figi": "BBG001T49NZ9",
+        "request_job_index": 4,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-02.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-02.response.json",
+        "row_selection": "any row with exact compositeFIGI and matching nonnull shareClassFIGI; prefer figi==compositeFIGI when present"
+      },
+      "foreign_composite": {
+        "expected_composite_figi": "BBG00R4FG9L2",
+        "expected_market_code": "EP",
+        "expected_share_class_figi": "BBG001T49NZ9",
+        "request_job_index": 5,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-02.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-02.response.json",
+        "row_selection": "any row with exact compositeFIGI and matching nonnull shareClassFIGI; self-row is not required"
+      },
+      "share_class_reverse_projection": {
+        "expected_composite_figis": [
+          "BBG000LG8XM5",
+          "BBG00R4FG9L2"
+        ],
+        "request_job_index": 7,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.response.json"
+      },
+      "ticker": "TNXP",
+      "verification_rule_version": "s7_openfigi_cross_market_relationship_v1"
+    },
+    {
+      "canonical_composite": {
+        "expected_composite_figi": "BBG000DY6735",
+        "expected_market_code": "US",
+        "expected_share_class_figi": "BBG001SFWZR1",
+        "request_job_index": 6,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-02.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-02.response.json",
+        "row_selection": "any row with exact compositeFIGI and matching nonnull shareClassFIGI; prefer figi==compositeFIGI when present"
+      },
+      "foreign_composite": {
+        "expected_composite_figi": "BBG000D08924",
+        "expected_market_code": "GR",
+        "expected_share_class_figi": "BBG001SFWZR1",
+        "request_job_index": 7,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-02.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-composite-mapping-02.response.json",
+        "row_selection": "any row with exact compositeFIGI and matching nonnull shareClassFIGI; self-row is not required"
+      },
+      "share_class_reverse_projection": {
+        "expected_composite_figis": [
+          "BBG000DY6735",
+          "BBG000D08924"
+        ],
+        "request_job_index": 8,
+        "request_path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.request.json",
+        "response_path": "docs/silver/evidence/s7-cross-market/openfigi-share-class-mapping.response.json"
+      },
+      "ticker": "WW",
+      "verification_rule_version": "s7_openfigi_cross_market_relationship_v1"
+    }
+  ],
+  "openfigi_definition_assertions": [
+    {
+      "assertion": "Composite FIGI aggregates trading-venue FIGIs within one country or market.",
+      "source_path": "docs/silver/evidence/s7-cross-market/figi-allocation-rules.pdf"
+    },
+    {
+      "assertion": "Share Class FIGI links Composite FIGIs for the same share class globally across countries.",
+      "source_path": "docs/silver/evidence/s7-cross-market/figi-allocation-rules.pdf"
+    },
+    {
+      "assertion": "includeUnlistedEquities=true is part of every frozen mapping job.",
+      "source_path": "docs/silver/evidence/s7-cross-market/openfigi-api-documentation.html"
+    }
+  ],
+  "review_summary": {
+    "confirmed_non_us_observation_rows": 79,
+    "correct_us_inverse_observation_rows": 10,
+    "group_count": 9,
+    "identity_case_count": 19
+  },
+  "source_six_release_binding_id": "49f3d20725f2609b43d6736df78993b2975c9f1b71947af93190dc0658366c64"
+}

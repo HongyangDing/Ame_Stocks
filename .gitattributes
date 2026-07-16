@@ -1,0 +1,9 @@
+# Immutable external evidence is stored byte-for-byte.  Keep Git from
+# normalizing or whitespace-checking upstream payloads while leaving the
+# review README and candidate manifest as ordinary text.
+docs/silver/evidence/s7-cross-market/*.html binary
+docs/silver/evidence/s7-cross-market/*.headers.txt binary
+docs/silver/evidence/s7-cross-market/*-submission.txt binary
+docs/silver/evidence/s7-cross-market/openfigi-*.request.json binary
+docs/silver/evidence/s7-cross-market/openfigi-*.response.json binary
+docs/silver/evidence/s7-cross-market/*.pdf binary

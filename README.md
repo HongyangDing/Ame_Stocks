@@ -32,23 +32,14 @@ now at **Silver Phase 2 with S1–S6 published; S7 production ingress is fail-cl
   `backtest_identity_eligible=false`;
 - S6 published 30,570 retrospective Overview evidence rows plus 169 pending High quarantine rows;
   permanent identity, ticker validity intervals, and a backtestable universe still require S7;
-- S7 has completed its read-only combined-source profile; five revised contracts are approved and
-  packaged for one protected `identity_adjudication` registry plus four cutoff-bound derived tables.
-  The bounded detector preview control path is now implemented: a factory-issued, exact-release-
-  membership-bound source capability, exact ticker/session plan and resource caps, a stored request event plus literal-bound v2
-  approval, a streaming S4 detector, physical Parquet row attestations for both membership and its asset
-  parent, and an immutable `awaiting_review` completion. The preview hard ceilings are 25 sessions,
-  250 tickers, 6,250 selected rows, 2.1 million scanned rows, 80 artifacts, and 512 MiB. Its attestation
-  scope is explicitly S4-only; S5/S6/hierarchy corroboration remains `not_evaluated` and
-  `support_absence_verified=false`, so the preview cannot claim that corroborating evidence is absent.
-  Evidence writes require an ephemeral runner authority bound to the exact controls and post-scan
-  finalization time; standalone source-attested build/write/read APIs are closed, and completion
-  rechecks the XNYS availability boundary with a one-minute safety margin.
-  Production-binding candidate read/write is separately hard-gated until corroboration and promotion
-  provenance are designed and approved.
-  Synthetic tests cover source tampering, parent-lineage mismatch, cap enforcement, idempotency, and
-  the existing disposition/cutoff fixtures. No real S7 plan, approval, detector preview, candidate,
-  adjudication, four-table materialization, full run, or release has run;
+- S7 completed one approved bounded S4 detector preview and stopped at `awaiting_review`: 19 cases,
+  89 suspected rows, 50 source artifacts, and 1,471,768 physically attested rows. External review then
+  confirmed that nine tickers contain same-Share-Class non-US Composite FIGIs in Massive US-locale
+  records: 79 rows are foreign observations and 10 are correct inverse-case US observations. The
+  revised proposal preserves all 19 cases and raw FIGI lineage, adds a separate exact-scope
+  `identity_cross_market_adjudication` registry, full-sequence market-consistency QA, and immutable
+  OpenFIGI/SEC/issuer evidence. Six contract candidates now await reapproval. No adjudication plan,
+  market-consistency scan, four-table materialization, FullRunPlan, PublishPlan, or S7 release has run;
 
 The final strict full audit is
 `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/bronze/full-2026-07-12-v9.json`

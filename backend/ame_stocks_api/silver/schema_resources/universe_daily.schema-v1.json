@@ -86,6 +86,12 @@
     },
     {
       "arrow_type": "string",
+      "description": "Frozen market code for the observed Composite when classification evidence is available.",
+      "name": "observed_composite_market_code",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
       "description": "Deterministic diagnostic asset hash from observed_composite_figi; null when no valid observed Composite exists and not necessarily an asset_master FK for contaminated or unresolved observations.",
       "name": "observed_asset_id",
       "nullable": true
@@ -98,31 +104,37 @@
     },
     {
       "arrow_type": "string",
+      "description": "Market code for canonical Composite; US for approved cross-market overrides.",
+      "name": "canonical_composite_market_code",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
       "description": "Exact provider-observed S4 Share-class FIGI when present. It remains immutable raw hierarchy evidence and may differ from or be unusable for the canonical asset during a contaminated episode.",
       "name": "observed_share_class_figi",
       "nullable": true
     },
     {
       "arrow_type": "string",
-      "description": "Exact domain resolved_strong, resolved_approved_override, resolved_conflicted, candidate, unresolved, or conflicted_unresolved. Every active membership remains in DATA; identity quality never changes membership status.",
+      "description": "Exact domain resolved_strong, resolved_approved_override, resolved_conflicted, or unresolved across direct, inverse-US, episode, and cross-market paths.",
       "name": "identity_resolution_status",
       "nullable": false
     },
     {
       "arrow_type": "string",
-      "description": "Exact method source_composite_figi_exact, approved_genuine_transition, approved_provider_contamination_override, provider_figi_bounce_pending_unresolved, provider_figi_bounce_adjudicated_unresolved, source_composite_figi_exact_with_relationship_conflict, share_class_date_unique_composite_candidate, share_class_only, cik_issuer_only, ticker_only, or conflict.",
+      "description": "Exact domain includes source_composite_figi_exact, source_composite_figi_exact_with_inverse_bounce_resolution, approved_genuine_transition, approved_provider_contamination_override, provider_figi_bounce_pending_unresolved, provider_figi_bounce_adjudicated_unresolved, approved_cross_market_provider_contamination_override, cross_market_composite_pending_unresolved, and cross_market_composite_adjudicated_unresolved.",
       "name": "identity_resolution_method",
       "nullable": false
     },
     {
       "arrow_type": "string",
-      "description": "Exact domain observed_consistent, confirmed_genuine_transition, confirmed_provider_contamination, pending_unresolved, adjudicated_unresolved, or not_applicable_no_observed_composite. Pending means no adjudication version is available at the explicit resolution cutoff; adjudicated unresolved means the selected terminal decision explicitly retains or withdraws the case to unresolved.",
+      "description": "Exact domain observed_consistent, confirmed_genuine_transition, confirmed_provider_contamination, pending_unresolved, adjudicated_unresolved, pending_cross_market_review, cross_market_adjudicated_unresolved, or not_applicable_no_observed_composite.",
       "name": "identity_disposition",
       "nullable": false
     },
     {
       "arrow_type": "string",
-      "description": "Deterministic provider-FIGI bounce case ID for suspected or adjudicated episodes; null when no bounce case applies.",
+      "description": "Preserved bounce case ID. observed_consistent may carry it only with inverse_middle_is_canonical_us; cross-market-only long-lived findings may have no case.",
       "name": "identity_case_id",
       "nullable": true
     },
@@ -146,8 +158,38 @@
     },
     {
       "arrow_type": "string",
-      "description": "Selected terminal identity_adjudication ID for confirmed genuine, confirmed provider-contamination, or adjudicated-unresolved episodes at identity_resolution_cutoff_session; null for observed-consistent, pending-unresolved, and non-Composite rows.",
+      "description": "Episode-registry decision ID when one contributes; null for direct, inverse-US, pending, or cross-market-only decisions.",
       "name": "identity_adjudication_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact cross-market scope linked to an override or related inverse-case lineage.",
+      "name": "cross_market_scope_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Effective approved cross-market decision ID; null for pending findings and ordinary direct rows.",
+      "name": "cross_market_adjudication_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Availability of the effective cross-market decision.",
+      "name": "cross_market_adjudication_available_session",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact domain not_classified, known_us, known_non_us_foreign_locale, known_non_us_pending, known_non_us_adjudicated_unresolved, known_non_us_overridden, or inverse_us_observation.",
+      "name": "cross_market_classification_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "contaminated_middle_episode or inverse_middle_is_canonical_us for a preserved related bounce case.",
+      "name": "identity_case_resolution_role",
       "nullable": true
     },
     {
@@ -242,13 +284,13 @@
     },
     {
       "arrow_type": "date32",
-      "description": "Maximum availability over the transitive accepted-source evidence closure, identity_case_available_session when a case affects disposition, the selected adjudication version, and the pinned registry release availability. It must not exceed identity_resolution_cutoff_session; S5 request-status-only coverage is excluded.",
+      "description": "Maximum accepted source, case/episode decision, market-consistency, cross-market decision, and both exact registry-release availability values.",
       "name": "identity_evidence_available_session",
       "nullable": false
     },
     {
       "arrow_type": "string",
-      "description": "Fixed s7_universe_resolution_with_adjudication_v2 observed/canonical separation, bounce detection, episode-scoped mapping, temporal join, and conflict rule version.",
+      "description": "Fixed s7_universe_resolution_with_episode_and_cross_market_adjudication_v3.",
       "name": "resolution_rule_version",
       "nullable": false
     },
@@ -287,11 +329,35 @@
       "description": "First XNYS session on which the exact pinned identity_adjudication release is published and available to the resolver. No decision from the registry may affect a row before this session or when it exceeds identity_resolution_cutoff_session.",
       "name": "source_identity_adjudication_release_available_session",
       "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact full-sequence market-consistency candidate manifest ID.",
+      "name": "source_identity_market_consistency_candidate_manifest_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of exact market-consistency candidate manifest bytes.",
+      "name": "source_identity_market_consistency_candidate_manifest_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact published cross-market adjudication release ID.",
+      "name": "source_identity_cross_market_adjudication_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session on which the exact cross-market registry release was available.",
+      "name": "source_identity_cross_market_adjudication_release_available_session",
+      "nullable": false
     }
   ],
-  "contract_id": "0555e785b4fb5f9df8832d37f8c08cf5fc487e8573993cf39ae3ffba4ccc45b0",
+  "contract_id": "38cd59c4e4b04de8444ba99ed93e6fd8c7a78aec24f01205d7df7494bcfd33d3",
   "contract_schema_version": 1,
-  "description": "One row for every S4 active session/ticker membership, preserving unresolved rows and provider-observed identity/hierarchy separately from canonical research identity/hierarchy. Identity uncertainty never changes membership and S7 emits no liquidation signal, but actual portfolio behavior remains a future backtest-engine blocker test. Historical inactive observations remain in S4; this active-only reconstructed snapshot reduces current-universe survivorship bias but is not an archived as-known universe and does not claim to eliminate all survivorship or revision bias.",
+  "description": "One row for every S4 active session/ticker membership, preserving unresolved rows and provider-observed identity/hierarchy separately from canonical research identity/hierarchy. Identity uncertainty never changes membership and S7 emits no liquidation signal, but actual portfolio behavior remains a future backtest-engine blocker test. Historical inactive observations remain in S4; this active-only reconstructed snapshot reduces current-universe survivorship bias but is not an archived as-known universe and does not claim to eliminate all survivorship or revision bias. Resolution priority is exact cross-market scope, then correct inverse-US direct observation, then ordinary bounce logic.",
   "domain": "reference",
   "grain": "One active S4 membership observation per exact case-sensitive (session_date, ticker), enriched with S7 identity status and lineage.",
   "partition_by": [
@@ -341,7 +407,7 @@
     },
     {
       "check_id": "state_domain_invalid_rows",
-      "description": "Resolution status, method, disposition, position continuity, source-selection status, scope, and rule fields must stay within their exact named domains. Bounce disposition is exactly pending_unresolved, adjudicated_unresolved, confirmed_genuine_transition, or confirmed_provider_contamination; methods include provider_figi_bounce_pending_unresolved and provider_figi_bounce_adjudicated_unresolved; the rule is s7_universe_resolution_with_adjudication_v2.",
+      "description": "Resolution status, method, disposition, classification, case role, continuity, and both registry lineage fields must stay within exact v3 domains.",
       "failure_status": "failed",
       "limit": 0.0,
       "metric": "numerator",
@@ -350,7 +416,7 @@
     },
     {
       "check_id": "state_matrix_invalid_rows",
-      "description": "All rows bind a candidate manifest, registry release and cutoff. observed_consistent has null case/adjudication and follows the direct strong/conflict matrix. pending_unresolved has a case and availability but no adjudication, canonical identity or alias. adjudicated_unresolved adds a selected adjudication and availability but still has no canonical identity or alias; both are ineligible. Confirmed genuine uses observed=canonical; confirmed contamination uses observed!=canonical. A confirmed relation is eligible and emits an alias only when all ordinary asset, hierarchy and conflict gates pass; otherwise it is resolved_conflicted, alias-null and ineligible. Every identity-quality ineligible row uses identity_uncertain_no_new_trade_no_forced_exit_run_incomplete; resolved_identity is allowed exactly for eligible rows. Canonical hierarchy needs independent corroboration. current_reference_factor_eligible and identity_quality_liquidation_signal are always false.",
+      "description": "Exact priority is approved cross-market match, correct inverse-US direct observation, then ordinary bounce logic. Cross-market pending/withdrawn rows are unresolved and ineligible; inverse-US may retain case/group lineage with observed=canonical and override=false.",
       "failure_status": "failed",
       "limit": 0.0,
       "metric": "numerator",
@@ -404,7 +470,7 @@
     },
     {
       "check_id": "identity_evidence_availability_recomputation_mismatch_rows",
-      "description": "identity_evidence_available_session must equal the maximum over the accepted-source closure, identity_case_available_session whenever case status affects the row, adjudication_available_session for the selected terminal version, and source_identity_adjudication_release_available_session whenever the registry affects resolution. It must not exceed identity_resolution_cutoff_session. Unattached S5 events, request status, and sibling outputs remain excluded; ticker-only fallback and conflict closure remain exact.",
+      "description": "Identity evidence availability must include both candidate manifests, episode/cross-market decisions, approval, and both registry releases.",
       "failure_status": "failed",
       "limit": 0.0,
       "metric": "numerator",
@@ -413,7 +479,7 @@
     },
     {
       "check_id": "identity_case_lineage_or_availability_invalid_rows",
-      "description": "identity_case_id and identity_case_available_session must be jointly null or jointly valid and exactly recompute from the immutable source_identity_case_candidate_manifest_id/SHA. The case availability includes the right-side A observation and candidate-manifest availability; no pending or adjudicated disposition may precede it.",
+      "description": "Ordinary case decisions bind exact episode lineage; inverse-US observed-consistent rows may retain a case only with the exact inverse role and market-consistency evidence.",
       "failure_status": "failed",
       "limit": 0.0,
       "metric": "numerator",
@@ -476,7 +542,7 @@
     },
     {
       "check_id": "resolved_row_incomplete_rows",
-      "description": "Eligible resolved_strong and resolved_approved_override rows must have canonical FIGI, asset and alias, valid cutoff-bound disposition lineage, independently valid canonical hierarchy when populated, and eligibility=true. A confirmed relation may instead remain resolved_conflicted, alias-null and ineligible when another ordinary gate fails.",
+      "description": "Every resolved direct, inverse-US, approved episode, or approved cross-market row must carry its method-specific canonical asset, alias, availability, and registry lineage.",
       "failure_status": "failed",
       "limit": 0.0,
       "metric": "numerator",
@@ -485,7 +551,7 @@
     },
     {
       "check_id": "nonresolved_row_eligible_rows",
-      "description": "Candidate, pending-unresolved, adjudicated-unresolved, unresolved, resolved-conflicted, and conflicted-unresolved rows remain ineligible and emit no alias. Only resolved-conflicted may retain a canonical asset. Both unresolved bounce states retain raw observed identity and case; adjudicated_unresolved additionally retains its decision lineage, but neither carries a canonical mapping.",
+      "description": "Pending or adjudicated-unresolved episode and cross-market rows, plus relationship conflicts, must be ineligible with no alias.",
       "failure_status": "failed",
       "limit": 0.0,
       "metric": "numerator",
@@ -611,7 +677,7 @@
     },
     {
       "check_id": "unapproved_canonical_identity_override_rows",
-      "description": "Every non-null canonical_composite_figi different from observed_composite_figi must match the unique terminal confirmed-provider-contamination decision selected from the pinned registry by case, ticker, complete episode source-record set and identity_resolution_cutoff_session. The required numerator is zero.",
+      "description": "Any observed-to-canonical difference requires an effective approved episode decision or exact approved cross-market subject version available by cutoff.",
       "failure_status": "failed",
       "limit": 0.0,
       "metric": "numerator",
@@ -629,7 +695,7 @@
     },
     {
       "check_id": "adjudication_scope_or_availability_invalid_rows",
-      "description": "No decision may apply outside its exact complete episode, mismatch case/source rows, or be selected when either decision availability or registry release availability exceeds identity_resolution_cutoff_session. The resolver selects exactly one terminal complete-chain head at the cutoff; simple masking, recency outside the chain, or input-order tie-breaking is forbidden.",
+      "description": "Episode and cross-market decisions must independently satisfy exact scope, terminal-version, source-release, and cutoff availability rules.",
       "failure_status": "failed",
       "limit": 0.0,
       "metric": "numerator",
@@ -725,6 +791,78 @@
       "metric": "numerator",
       "operator": "eq",
       "severity": "high"
+    },
+    {
+      "check_id": "us_locale_non_us_composite_figi_rows",
+      "description": "High finding over the full sequence, with reason counts, reference coverage, and bounded examples; it is not limited to bounces.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "unapproved_cross_market_composite_eligible_rows",
+      "description": "Known non-US Composite rows in provider locale us must remain ineligible without an exact approved cross-market scope.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "inverse_bounce_misclassified_as_genuine_transition_rows",
+      "description": "A foreign-US-foreign inverse case must never be labeled a genuine transition.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "cross_market_override_scope_mismatch_rows",
+      "description": "Every applied override must exactly match provider, market, locale, ticker, Share Class, foreign FIGI, date, source release, and source record.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "cross_market_override_outside_us_locale_rows",
+      "description": "No us-locale override may affect a real foreign-locale observation.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "correct_us_observation_overridden_rows",
+      "description": "A correct US inverse observation must remain observed=canonical and override=false.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "cross_market_registry_binding_invalid_rows",
+      "description": "Candidate and registry IDs, SHAs, cutoff availability, and row-level decision lineage must replay.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "figi_market_classification_uncovered_rows",
+      "description": "Rows without frozen Composite market classification are measured and cannot be represented as verified-clean coverage.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
     }
   ],
   "schema_version": 1,
@@ -740,7 +878,9 @@
     "ticker_change_event",
     "ticker_overview_safe",
     "identity_case_candidate_manifest",
-    "identity_adjudication"
+    "identity_adjudication",
+    "identity_market_consistency_candidate_manifest",
+    "identity_cross_market_adjudication"
   ],
   "table": "universe_daily"
 }

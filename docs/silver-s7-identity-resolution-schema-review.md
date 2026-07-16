@@ -1,402 +1,301 @@
-# S7 Identity Resolution：可审计的 mismatch / contamination 处理方案
+# S7 Identity Resolution：cross-market contamination 修订提案
 
-## 1. 结论与当前硬停点
+## 1. 当前结论与硬停点
 
-发布前复核提出的问题成立：格式合法、当日唯一的 provider-observed Composite FIGI 仍可能是短期
-provider 污染。若同一 ticker 出现 `A → B → A`，旧方案会把 B 直接提升为强身份，既可能让错误资产
-进入回测，也无法在保留原始 B 的同时把研究身份映射回 A。
+本次修订解决一个此前 schema 无法安全表达的问题：Massive 的 `locale=us` 股票记录可能混入同一
+Share Class 的非美国市场 Composite FIGI；这不是公司身份变化，也不是 inactive/delisted。
 
-因此旧四份 S7 proposal 和本次复核前的中间候选均已撤回。第 13 节五份最终候选已由用户在
-2026-07-15 以 `审批通过 进行下一步` 明确批准；该原文 SHA-256 为
-`bd4de939dc2aef5146f6c6f51dcffede9b466cac29cc180cbad783ae0104a0d9`，其批准对象是上一审批点逐项
-展示的五份 exact Contract ID / Candidate SHA-256，不扩展到 preview、Full 或 publish。
+当前仍严格停在 **schema proposal / candidate contracts / no execution**：
 
-批准后的本轮实现只更新：
+- 既有 bounded detector preview 保持原字节、ID 和 lineage，不重跑、不重写；
+- 19 个 detector case 仍只是 finding，不是最终 adjudication；
+- 本次没有生成这 19 个 case 的 adjudication plan；
+- 没有生成或执行 S7 FullRunPlan、PublishPlan；
+- 没有运行任何远端 S7 数据任务，也没有写远端数据盘；
+- 第 11 节六份 contract 都是新的 **candidate，等待重新批准**，此前五份 approval 不自动覆盖本次修订。
 
-1. S7 source profile 的设计含义；
-2. 一份独立 `identity_adjudication` registry contract；
-3. `asset_master`、`ticker_alias`、`issuer_master`、`universe_daily` 四份 cutoff-bound contracts；
-4. schema-level fixed vectors、hashes 和 QA tests；
-5. exact-release source reader、**有硬内存上限的 preview/fixture detector**、source-bound S4 streaming
-   preview runner、candidate manifest、外部证据/裁决控制链、exact registry snapshot 和纯内存 cutoff fixture；
-6. genuine、confirmed contamination、pending/adjudicated unresolved、conflict 和 availability 的固定小样本。
+保留的 preview 事实：
 
-当前状态为 **schema approved / source-bound S4 preview code ready / production ingress blocked /
-awaiting exact preview plan**。generic detector 和纯内存 resolver 仍只用于 fixture；新增 runner 则只能由
-exact content-addressed plan/request/literal approval 驱动，从 official factory-issued、release-membership-bound
-source bundle 按 session 流式读取 S4 daily membership 和对应 asset parent。每条 case 保存可物理重放的
-Parquet row-group/row-offset、完整行快照和双表 lineage；已有 completion 也必须重新执行同一 physical scan，
-不能仅凭自己声明的 case list 复用。runner 不读取 S5/S6 corroboration，因此 reason 固定为
-`*_not_evaluated`、`support_absence_verified=false`。生产 candidate read/write ingress 对正式 six-release
-binding 仍硬关闭。没有创建真实 S7 ticker/session plan、request event 或 approval；没有运行真实 detector、产生远端
-preview/candidate/adjudication、实现/运行四表 materialization、FullRunPlan、PublishPlan 或任何远端 S7
-数据任务；没有写入远端 staging/Silver，也没有修改 Bronze 或已发布 S1–S6 release。
+| 项目 | 值 |
+| --- | --- |
+| Preview ID | `306543f5fc1d30f868482392aaafdc781daf9f36f30d3f12504024c10f865c70` |
+| Completion ID | `7a1e2386e18428aecf50a9ce322eaaf6b3035307b4a704939584288f131c6b9d` |
+| 状态 | `awaiting_review` |
+| Case / suspected rows | 19 / 89 |
+| 输入范围 | 2022-02-01 至 2022-03-08，25 sessions，25 tickers |
+| 物理输入 | 50 artifacts，1,471,768 rows，168,141,801 bytes |
 
-## 2. 固定 Massive 证据没有改变
+## 2. 已核验的 9 个 cross-market group
 
-S7 仍固定读取六个已发布市场证据表，共 7,542 个 DATA artifacts、138,825,855 行、
-15,944,020,220 bytes：
+OpenFIGI 官方 API 的 exact Composite 查询和 Share Class 反向查询均显式使用
+`includeUnlistedEquities=true`。每组的 US/foreign Composite 都共享同一个 Share Class；US target 的
+Composite market code 为 `US`，污染值的 code 为 `GR`、`EO` 或 `EP`。
 
-| 输入表 | Release ID | 行数 |
-| --- | --- | ---: |
-| `asset_observation_daily` | `26819530e50cb92cbe0ec833d4b731b959c8bd2463ee2197255c02994241d44c` | 69,381,182 |
-| `asset_observation_version` | `b422fd05df859b33587b8ece80d078247dd972d01d272710ef49c3529b0e54be` | 9,706 |
-| `universe_source_daily` | `c7e0d9a75857cbca130ba8873a737411ccb2f11d3e711ee0c0b0d9d0e2f5c614` | 69,376,329 |
-| `ticker_event_request_status` | `afc63db6850fb50295daa8e6e499c52fe1c16b8290b7932b08aea67531ff98eb` | 15,173 |
-| `ticker_change_event` | `18a7eb3dd6805b94151f5b6ce0167c19dbeb328f45bec7c2f806dac42b8a6350` | 12,895 |
-| `ticker_overview_safe` | `8715f90d0e01f990e9738b9266edfeb2830a76d59a00ae4fb7490d9f077092a5` | 30,570 |
+| Ticker | Canonical US Composite | Observed foreign Composite | Code | Share Class | foreign scope | 当前 foreign / inverse rows |
+| --- | --- | --- | --- | --- | --- | ---: |
+| AZPN | `BBG000DFMXT3` | `BBG000KRLLH9` | GR | `BBG001S87NT0` | 2022-02-09…2022-03-02 | 15 / 2 |
+| CR | `BBG000BG7423` | `BBG00CTGPFW0` | EO | `BBG001S5Q3X4` | 2022-02-09…2022-03-02 | 15 / 2 |
+| FLOW | `BBG007FL7ZD2` | `BBG00K03RX51` | EO | `BBG007FL7ZF0` | 2022-02-09…2022-03-02 | 15 / 2 |
+| SBGI | `BBG000F2XXP2` | `BBG000C3K505` | GR | `BBG001S7W602` | 2022-02-08 | 1 / 0 |
+| SIRI | `BBG000BT0093` | `BBG000BGPKZ1` | GR | `BBG001S70ZY6` | 2022-02-08 | 1 / 0 |
+| TA | `BBG000F71CC6` | `BBG000CVD896` | GR | `BBG001SHR063` | 2022-02-08 | 1 / 0 |
+| TBLT | `BBG00LDFP150` | `BBG00YGNW2D3` | EO | `BBG00LDFP1X9` | 2022-02-09…2022-03-02 | 15 / 2 |
+| TNXP | `BBG000LG8XM5` | `BBG00R4FG9L2` | EP | `BBG001T49NZ9` | 2022-02-09…2022-03-02 | 15 / 2 |
+| WW | `BBG000DY6735` | `BBG000D08924` | GR | `BBG001SFWZR1` | 2022-02-08 | 1 / 0 |
 
-六表 binding ID 仍为
-`49f3d20725f2609b43d6736df78993b2975c9f1b71947af93190dc0658366c64`；不会寻找“最新”
-release。事实 profile 位于
-[`silver/source-profiles/identity-resolution-s7-2026-07-14.json`](silver/source-profiles/identity-resolution-s7-2026-07-14.json)，
-文件 SHA-256 为 `b35e7df2ceb136b7717b0c8faf36e01e83599f3425dae3e05dc76901b083f2d0`，
-deterministic fact/design digest 为
-`42141c3998e3ae3270b9fdf4994363edb06a3c7adb7eed6b26a161264593c04d`。
+所以当前 89 行应解释为：
 
-本次没有运行全历史 bounce detector，因此没有声称 suspected case 的真实数量、比例或 disposition。
+- 79 行是 provider `locale=us` 中的 non-US Composite observation；
+- 10 行是正确的 US Composite observation，只是被 foreign→US→foreign 的 inverse bounce 再次检出；
+- 9 个 group 最终最多形成 9 个 cross-market series，不是 19 个 case decisions；
+- 19 个 case 全部保留，只在将来作为 `contaminated_middle_episode` 或
+  `inverse_middle_is_canonical_us` lineage 关联。
 
-## 3. 新的身份分层
+注意：79 是本次 bounded preview 的 foreign middle rows，不是未来 full-sequence scan 的全历史承诺。
+更长的 foreign run 或完全不 bounce 的污染可能产生额外 finding；其范围只能由后续另行批准的完整扫描决定。
 
-S7 不再把 provider observation 和 research identity 混为一列：
+## 3. 官方证据与限制
 
-| 层 | 永久保留内容 | 用途 |
-| --- | --- | --- |
-| observed | provider ticker、Composite FIGI、Share-class FIGI、CIK、source row lineage | 忠实记录原始输入和 mismatch |
-| canonical | research Composite FIGI、asset、Share-class FIGI/ID、CIK/issuer | 只有独立佐证且无冲突时供研究使用 |
-| adjudication | case、版本、证据、审批、availability、observed→canonical 映射 | 只解决一个有界 episode 的身份关系 |
+OpenFIGI 的定义支持分层判断：
 
-FIGI 裁决不能自动解决 Share-class、CIK、重复 membership、source-lineage 或其他关系冲突。即使
-observed→canonical FIGI 已确认，普通 eligibility gate 未通过时仍然无 alias、不可回测。
+- Composite FIGI 聚合同一国家或市场内的 trading-venue FIGIs；
+- Share Class FIGI 在全球范围连接同一 share class 的多个 Composite FIGIs。
 
-## 4. 闭合的控制链
+本次冻结的 candidate evidence manifest：
+
+- 文件：[`identity-cross-market-external-evidence-manifest.candidate.json`](silver/evidence/s7-cross-market/identity-cross-market-external-evidence-manifest.candidate.json)
+- Manifest ID：`2ae779168e3e56887a5b0ae557bb928b6006c1b96392fe1606c201e1649ff848`
+- Candidate SHA-256：`9544537ac7e6817c1b8f946c9ae2d5afb65399b1b553c3fe233a298614b375ab`
+- Availability：2026-07-17；不得回填到 2022。
+
+它逐文件保存 URL、relative path、raw bytes、byte count、SHA-256、capture time 和 media type，并冻结：
+
+- OpenFIGI API 文档 HTML、Allocation Rules PDF；
+- 三组原始 mapping request / response JSON 及去除 cookie/credential 的 allowlisted response headers；
+- 4 份 SEC full submission、对应主文/Exhibit 与 EDGAR acceptance time；
+- SPX FLOW issuer 页面及 allowlisted response headers；
+- 每一个 mapping claim 的 request job index、response path、目标 Composite/Share Class/market code 与验证算法。
+
+两个实现例外已固定测试：
+
+1. TNXP foreign `BBG00R4FG9L2` 没有 `figi == compositeFIGI` self-row；唯一 venue row
+   `BBG00R4FG9M1` 仍明确给出该 Composite 和 Share Class。因此验证器接受任一 exact relation row。
+2. CR 的 direct response 有非目标 venue row 的 `shareClassFIGI=null`；验证只要求目标 relation 存在，
+   并拒绝相同 Composite 下冲突的 non-null Share Class，不能要求整个 response 每行都 non-null。
+
+OpenFIGI 是 current snapshot，不是 2022 point-in-time archive。它证明 hierarchy，但 provider contamination
+结论还必须同时绑定 pinned Massive `market=stocks, locale=us`、ticker、primary exchange、source release 和
+raw source rows。当前 OpenFIGI name/ticker 可能已漂移，不能作为历史身份真值。
+
+公开行动日期也与 2022-02-08…2022-03-03 的跳变不符：AZPN 于 2022-05-16 consummated；CR 在
+2022-02-28 仅签署且仍有生效条件（CIK `0000025445`）；FLOW 于 2022-04-05 closing；TBLT reverse split
+于 2022-04-25 生效；TNXP reverse split 于 2022-05-17 生效。原始页面和 submission bytes 都在上述 manifest。
+
+## 4. 旧 schema 的表示缺陷
+
+旧 `identity_adjudication` 是一 case 一 series，并要求
+`confirmed_provider_contamination.canonical_composite_figi == left_outer_composite_figi`。这对普通
+US→foreign→US bounce 可能碰巧成立，但在 foreign→US→foreign inverse case 中，outer 正是污染值；若继续
+使用旧 matrix，会把正确 US middle 错误映射回 foreign outer。
+
+第二个缺陷是 bounce detector 只识别 `A→B→A`，无法发现一个 non-US Composite 在 Massive US locale 中
+长期保持不变的情况。
+
+修订原则：
+
+1. provider observed identity 与 canonical research identity 永久分列；
+2. canonical target 可以来自独立、不可变外部 evidence，不再由 outer A 决定；
+3. correction 必须 exact scope match，绝不建立全局 `foreign FIGI → US FIGI` 字典；
+4. 未批准的 known cross-market finding 保留 membership，但无 alias、不可回测；
+5. 正确 US observation 无需 override，保持 direct eligible；
+6. identity quality 不改变 active/inactive/delist，不发 forced-liquidation signal。
+
+## 5. 架构选择：新增独立 cross-market registry
+
+本提案保留原 `identity_adjudication` 表和 contract 不变，新增第六张 upstream registry：
+
+`identity_cross_market_adjudication`
+
+不把 cross-market group 硬塞进旧表的理由：
+
+- 旧表、external evidence 和 series 都强绑定单个 bounce case；
+- 长期不 bounce 的污染没有合法 `identity_case_id`；
+- 保持旧表不变能完整保留既有 preview/case/evidence bytes、IDs 和 replay 行为；
+- 两类 registry 的职责清晰：旧表处理真正 episode transition；新表处理 provider-locale market mismatch。
+
+新的控制链为：
 
 ```text
 six exact S4/S5/S6 releases
-        │
-        ▼
-deterministic bounce detector
-        │
-        ▼
-content-addressed identity-case candidate manifest
-        │
-        ├── optional immutable external-evidence manifest
-        ▼
-decision-plan logical payload → exact plan bytes/SHA
-        │
-        ▼
-row-specific approval receipt
-        │
-        ▼
-protected append-only identity_adjudication release
-        │
-        ▼
-six releases + exact case manifest + exact registry release + cutoff
-        │
-        ▼
-one resolution graph → four coordinated derived tables
+        ├── preserved bounce preview / cases
+        └── full-sequence market-consistency detector
+                    │
+                    ▼
+identity_market_consistency_candidate_manifest
+        + immutable cross-market external evidence
+                    │
+                    ▼
+separately approved cross-market plan / row receipt
+                    │
+                    ▼
+identity_cross_market_adjudication release
+                    │
+                    ▼
+exact cross-market scope → inverse-US direct rule → ordinary bounce rule
+                    │
+                    ▼
+four coordinated derived tables
 ```
 
-`identity_adjudication` 先独立发布，四张派生表才消费 exact registry release。未批准 decision plan
-不是派生表输入。四表同时消费 exact `identity_case_candidate_manifest`，因为尚无 registry row 的 pending
-case 也必须保留并 fail closed。四表仍作为一个 coordinated sibling group 构建和原子发布。
+本次只定义 contract、fixture 和 evidence；没有创建图中的 candidate manifest、plan、approval 或 release。
 
-本版本不新增长期 `identity_anomaly_case` Silver 表。case manifest 是内容寻址控制 artifact；如果以后确实
-需要跨 release 查询完整 case 历史，再单独提案提升为业务表。
+## 6. Cross-market override 的 exact scope
 
-## 5. Bounce detector 只发现，不裁决
+一条 effective override 至少绑定：
 
-`s7_provider_figi_bounce_detector_v1` 的 case 是 exact case-sensitive ticker 在给定 S4 source-session
-spine 上的三个 maximal runs：外侧均为 A，中间为不同且有效的 B，B 最长 20 个 XNYS sessions。
+- `provider_id=massive`、`provider_market=stocks`、`provider_locale=us`；
+- exact case-sensitive ticker；
+- exact Share Class FIGI；
+- exact observed foreign Composite FIGI 与 independently evidenced canonical US Composite FIGI；
+- inclusive `valid_from_session / valid_through_session`；
+- sorted exact S4 `source_record_ids`、count 和 set digest；
+- exact S4 release-set 和 six-release binding；
+- full-sequence candidate manifest ID/SHA/availability；
+- external evidence manifest ID/SHA/claim digest/availability；
+- related case IDs 和每个 case 的 role（允许零个，用于 non-bounce finding）；
+- append-only version/predecessor；
+- literal approval request、row-specific receipt、actor、time 和 availability；
+- `adjudication_available_session=max(candidate,evidence,approval)`。
 
-generic 函数会把输入物化为内存对象，因此明确限制最多 250,000 observations 与 5,000 source sessions；
-它仍只用于 fixture。source-bound preview runner 另设更小的 hard ceilings：25 sessions、250 tickers、
-6,250 selected rows、2.1M scanned rows、80 source artifacts 和 512 MiB compressed source bytes，并以
-PyArrow bounded batch iterator 读取，不能先物化整个 Parquet row group。它只输出 content-addressed
-bounded preview、逐 case S4 evidence 和 `awaiting_review` completion，不输出 candidate。完成记录复用时
-会重新执行全部 physical scan 并逐字节比较 preview/evidence，防止预先放置零 case 或漏报 case 的 completion。
-新 run 在物理扫描结束后才冻结 preview/case/completion availability；source-attested evidence 的 standalone
-build/write/read API 全部关闭，只允许绑定 exact root/bundle/plan/approval/calendar 的临时 runner authority。
-authority 在每次 evidence 与最终 completion 写入前重算 XNYS boundary，跨 boundary 或距离开盘不足 1 分钟即
-fail closed，因此不能把 preview、case 和 created time 一起历史回填。
+版本模型分成两层：稳定 `cross_market_subject_id` 只由 provider、market、locale、ticker、Share Class 和
+observed foreign Composite 生成；`cross_market_series_id` 始终从 subject 生成。canonical target、日期区间、
+source release/source-record set、candidate 和 disposition 属于 version-specific `cross_market_scope_id`。
+因此 successor 可以在同一 append-only series 中修正 target/scope，或以
+`cross_market_adjudicated_unresolved`（canonical=null、override=false）撤回先前映射；predecessor 永久保留，
+cutoff 只选择唯一 available terminal head。不同 stable subjects 的 effective scopes 才做 overlap hard gate。
 
-本阶段只证明 A→B→A 的 S4 membership/asset-parent 物理来源。S5 ticker-change、S6 Overview 和 hierarchy
-support 尚未选择或验证，所以 preview 不能把空 support list 解释为 absent。后续必须另行批准 corroboration
-selection，随后再设计 production candidate promotion；正式 six-release binding 的 unattested candidate
-writer 与 adjudication store 均保持 fail closed。
+匹配必须同时满足全部 scope 维度。相同 foreign Composite 在真实 foreign locale、不同 ticker、不同 Share
+Class、日期区间外、不同 source release 或不在 exact source-record set 中时均不命中。
 
-以下任一情况都会打断 run，不能跨越后拼成 A/B/A：
-
-- ticker 缺席；
-- membership inactive；
-- 全局 source-session gap；
-- observed Composite FIGI 为 null、malformed 或发生其他变化。
-
-每个 case ID 精确绑定六表 release binding、detector version、ticker、outer A / middle B、两侧 boundary
-source-record IDs、B episode bounds 和完整 sorted-unique source-record-set digest。candidate manifest 必须
-报告 1、2–5、6–20 session bands、S5/S6/层级 corroboration reason counts、case availability 和 bounded
-examples。
-
-必须看到右侧 A 才知道 A/B/A 成立，所以 `identity_case_available_session` 不得回填到 B episode。给定
-cutoff：
-
-- cutoff 早于 case availability 时，不能使用未来模式；B 仍按当时普通 direct-observation 规则处理；
-- case 已可知但没有可用、已发布裁决时，B 为 `pending_unresolved`；
-- 裁决和 registry release 均已可用时，才应用相应 terminal decision。
-
-多数值、最长 run、前后值、最近值、输入顺序、收益、因子或回测表现都不能自动产生修正。
-
-## 6. Massive 之外的网络证据
-
-Massive 无法确认的 case 可以使用外部来源，优先官方原始材料，例如监管申报、交易所/FINRA 通知和
-公司公告；第三方 identifier reference 只能作为较低等级 corroboration。
-
-外部证据不能只是一个可变 URL。`identity_external_evidence_manifest` 必须保存：
-
-- source authority class 和规范化 URL；
-- 原始页面/API/PDF 的不可变 path、bytes 和 SHA-256；
-- source publication/filing time 与 retrieval time；
-- 精确支持的字段或关系 assertion；
-- 按绑定 XNYS calendar 计算的 availability。
-
-外部 evidence count、manifest ID/SHA 和 `evidence_refs` 必须可重算。其 availability 不早于来源公布时间
-与实际固化时间两者；外部证据仍只进入人工 review，不能自动覆盖 provider observation 或绕过审批。
-本次没有联网抓取任何外部证据。
-
-## 7. Registry disposition 与 append-only revision
-
-一个已发现 case 在 resolution graph 中可能处于以下状态：
-
-| disposition | registry row | canonical | alias / eligibility |
-| --- | --- | --- | --- |
-| `pending_unresolved` | 无可用版本 | null | 无 alias，ineligible |
-| `confirmed_genuine_transition` | approved | observed B | 仅在其余 gate 通过时有 alias/eligible |
-| `confirmed_provider_contamination` | approved | outer A | 原始 B 保留；仅在其余 gate 通过时映射 A |
-| `adjudicated_unresolved` | approved terminal revision | null | 无 alias，ineligible |
-
-`adjudicated_unresolved` 是撤回先前 genuine/contamination decision 的唯一 append-only 方法。旧 row 永久
-保留；不能 update/delete。每个 series 从 version 1 开始，后续 version 必须逐一引用 predecessor。
-
-在 exact pinned registry release 和 explicit cutoff 下，只选择 availability 不晚于 cutoff 的唯一最高
-完整链版本。successor 生效前 predecessor 仍有效；successor 生效后 predecessor 不再 effective，但仍可
-审计。一个 S4 source row 在 terminal-head 选择后最多命中一个 episode decision。
-
-`identity_adjudication_id` 的 exact payload 包含 series、case、version、predecessor、disposition、nullable
-canonical target、evidence digest、reason code/detail 和 rule version。审批字段不进入 decision ID，以避免
-receipt-subject digest cycle；receipt 反向精确绑定 decision/plan/candidate/actor/time，且一个 decision 只能有
-一个 accepted receipt。
-
-## 8. Availability 与 physical cutoff build
-
-裁决可用日为：
-
-```text
-max(identity_case_available_session,
-    evidence_cutoff_session,
-    approval_available_session)
-```
-
-派生表还必须等待 exact registry release 的 publication availability。四表显式保存
-`identity_resolution_cutoff_session` 和 `source_identity_adjudication_release_available_session`；所有 case、
-decision、external evidence 和 registry availability 均不得晚于 cutoff。
-
-Historical-as-known 不能拿一张后来生成的 revised 表只 mask 几列。必须选择或重新构建一套 exact cutoff
-release；若没有满足 cutoff 的 registry/candidate release，fail closed。Revised retrospective build 可以把
-后来批准的映射应用到历史 episode，但仍保留所有 availability lineage，不能作为历史因子信号。
-
-## 9. 五张表的职责
-
-### `identity_adjudication`
-
-一行是一个 deterministic case 的一个不可变 approved decision version。包含完整 episode scope、candidate
-manifest、可选 external-evidence manifest、evidence digest、reason、approval receipt、calendar、availability
-和 predecessor chain。它是受保护 upstream registry，不是四表 sibling。
+## 7. 四张派生表的变更
 
 ### `asset_master`
 
-- asset 只由 independently anchored canonical Composite FIGI 创建；
-- direct-observed 日期与 adjudication 后 canonical membership span 分开；
-- genuine 和 provider-contamination adjudication 分开计数；
-- pending B、contamination-only B 和 S6-only target 不能创建 eligible override asset；
-- observed hierarchy counts 保留，但污染-only Share-class/CIK 不能填 canonical hierarchy。
+- 新增 cross-market override evidence row count 和 distinct adjudication count；
+- canonical target 可由 approved immutable external identifier assertion 独立 anchor；
+- 因此 purely external anchor 的 first/last direct observation 可为 null；
+- unapproved foreign finding 不能创建 asset；
+- foreign hierarchy evidence 不能污染 canonical Share Class/issuer。
 
 ### `ticker_alias`
 
-- observed/canonical Composite FIGI、Share-class FIGI 和 CIK 全部分列；
-- interval 在任何 observed tuple 或 lineage 变化时拆段；
-- alias ID 绑定 case、decision、candidate manifest、registry release、availability 和 cutoff；
-- pending 或 adjudicated-unresolved episode 不生成 alias；
-- confirmed FIGI relationship 若仍有其他 conflict，也不生成 alias。
+- 新增 observed/canonical market code、cross-market scope/decision/availability、case role；
+- foreign observation 只有 exact approved scope 才生成 canonical US alias；
+- inverse US middle 保持 `observed=canonical`、`canonical_override=false`、direct alias；
+- 真实 foreign-locale row 永不受 US scope 影响。
 
 ### `issuer_master`
 
-- CIK 仍只是 issuer key，绝不是 asset merge key；
-- contamination-only CIK 不创建 issuer，也不进入 lifetime、name/SIC consensus；
-- 已存在 issuer 的被排除污染 evidence 有独立 count；纯 contamination-only CIK 进入 build-level funnel；
-- reference availability 包括用于 include/exclude 的 case、adjudication 和 registry availability。
+- cross-market-contaminated CIK/name/SIC 只保留 observed lineage；
+- excluded cross-market evidence 独立计数；
+- 不把 foreign observation 的 hierarchy 自动迁移到 canonical US issuer。
 
 ### `universe_daily`
 
-- 每个 S4 active `(session_date, ticker)` row 都保留；
-- observed identity/hierarchy 永久保留，canonical fields 可为 null；
-- pending、adjudicated unresolved 和普通 conflicts 都保留在 membership denominator 中但不可回测；
-- 这套 reconstructed active snapshot 可减少 current-universe survivorship bias，但不是 archived as-known
-  universe，不能宣称消除了所有 survivorship/revision bias。
+- 保留每个 active membership row 和原始 observed FIGI；
+- 新增 market classification、scope/decision/availability 和 case role；
+- resolution priority 固定为：
+  1. exact approved cross-market foreign match；
+  2. externally classified correct inverse US direct observation；
+  3. ordinary bounce/case adjudication；
+- pending cross-market finding 保留 membership，但 canonical/alias 为 null、ineligible；
+- `identity_quality_liquidation_signal=false`，不得把 identity uncertainty 当作 delist。
 
-`identity_quality_liquidation_signal` 恒为 false，identity quality 不能改写 active/inactive/delist。S7 只能
-输出 `identity_uncertain_no_new_trade_no_forced_exit_run_incomplete` 控制状态；已有持仓遇到身份 gap 时不
-强平、不填零收益、不静默 carry stale price 的实际行为，必须在后续 backtest-engine fixture 中作为 blocker
-test 验证，不能由 schema approval 代替。
+四表共同新增 exact market-consistency candidate 和 cross-market registry release binding；仍需 coordinated
+sibling build 才能发布。
 
-## 10. Resolution matrix
+## 8. Resolution matrix
 
-| 情况 | status / method | canonical | alias | eligible | continuity |
-| --- | --- | --- | --- | --- | --- |
-| case 尚不可知、普通 direct B | `resolved_strong / source_composite_figi_exact` | B | 视普通 gate | 视普通 gate | 与 eligibility 一致 |
-| case 已知、无可用裁决 | `unresolved / provider_figi_bounce_pending_unresolved` | null | 无 | false | run incomplete |
-| genuine 且无其他 conflict | `resolved_strong / approved_genuine_transition` | B | 有 | true | resolved |
-| contamination 且无其他 conflict | `resolved_approved_override / approved_provider_contamination_override` | A | 有 | true | resolved |
-| confirmed 但其他关系冲突 | `resolved_conflicted / approved_*` | 已确认 target | 无 | false | run incomplete |
-| approved withdrawal | `unresolved / provider_figi_bounce_adjudicated_unresolved` | null | 无 | false | run incomplete |
+| Observation | Cross-market decision | canonical | eligible | 说明 |
+| --- | --- | --- | --- | --- |
+| US→foreign→US 中的 foreign row，已批准 | confirmed contamination | independent US target | ordinary gates 通过时 true | raw foreign FIGI 保留 |
+| US locale 的 known foreign row，未批准 | pending cross-market review | null | false | 不静默猜测 |
+| 已批准映射后追加 withdrawal | cross-market adjudicated unresolved | null | false | append-only 撤回，不改旧 row |
+| foreign→US→foreign 的 US middle | observed consistent / inverse-US direct | observed US | ordinary gates 通过时 true | 不是 genuine transition，不 override |
+| long-lived foreign、US locale、无 bounce | finding；批准前 pending | null | false | full-sequence detector 能发现 |
+| 同一 foreign Composite、真实 foreign locale | ordinary direct | observed foreign | ordinary gates 决定 | US scope 不泄漏 |
+| 任一关系 conflict | resolved conflicted 或 unresolved | 已确认 target 或 null | false | FIGI 裁决不绕过其他 gate |
 
-“confirmed”只确认 episode 的 observed→canonical 关系，不等于自动可回测。
+## 9. 必须冻结的 QA
 
-## 11. Critical / High QA
+用户要求的三个新 gate：
 
-用户要求的三个 gate 已冻结：
+- `us_locale_non_us_composite_figi_rows`：High warning；全序列统计，必须有 reason counts、reference coverage
+  和 bounded examples，不限于 bounce；
+- `unapproved_cross_market_composite_eligible_rows = 0`：Critical；
+- `inverse_bounce_misclassified_as_genuine_transition_rows = 0`：Critical。
 
-- `suspected_provider_figi_bounce_rows`：High warning，必须输出 reason counts、availability 和 bounded
-  examples；
-- `unapproved_canonical_identity_override_rows = 0`：Critical；
-- `suspected_provider_contamination_eligible_rows = 0`：Critical，覆盖 pending 与 adjudicated unresolved。
+同时加入：
 
-同时新增或强化：
+- `cross_market_override_scope_mismatch_rows = 0`；
+- `cross_market_scope_overlap_rows = 0`；
+- `cross_market_override_outside_us_locale_rows = 0`；
+- `correct_us_observation_overridden_rows = 0`；
+- `cross_market_target_evidence_invalid_rows = 0`；
+- `cross_market_registry_binding_invalid_rows = 0`；
+- `identity_quality_membership_mutation_rows = 0`；
+- `identity_quality_forced_liquidation_signal_rows = 0`；
+- `figi_market_classification_uncovered_rows`：High warning。
 
-- case/series/adjudication/alias exact ID fixed vectors；
-- candidate、external evidence、plan、receipt、calendar 和 registry trust chain；
-- maximal episode scope、source-record-set digest、terminal revision 与 overlap；
-- unadjudicated B asset creation、unanchored target、confirmed-but-conflicted eligibility；
-- observed/canonical hierarchy leakage 和 contamination-only CIK funnel；
-- cutoff、case/adjudication/release availability；
-- membership mutation、forced-liquidation signal 和 identity exclusion coverage；
-- outcome-driven identity cleaning 永远为零。
+最后一项很重要：本次 9 组 evidence 不能伪装成全市场 identifier reference。未来若要声称全历史扫描
+coverage，必须先固定有版本、可审计覆盖率的 Composite market-classification reference；unknown 不能当 clean。
 
-真实 detector numerator、case IDs、examples、warning waiver 和 quarantine acceptance 必须等后续 detector
-run 才能产生；本次 schema review 不预先批准任何 future warning。
+## 10. 固定测试
 
-## 12. 固定测试边界
+代码 fixture 已覆盖：
 
-合同测试覆盖：
+1. US→foreign→US：只 override foreign row，raw observed 永久不改；
+2. foreign→US→foreign inverse：US middle direct eligible、override=false、genuine count=0；
+3. locale=us、MIC=XNAS/XNYS 的长期 foreign Composite：无 bounce 仍被发现，未批准 fail closed；
+4. 同一 foreign Composite 在真实 foreign locale：合法 direct identity，不被全局覆盖；
+5. exact scope、release、source-record、evidence 和 approval availability；
+6. fixed scope/series/decision ID vectors；
+7. 25 份外部 raw artifacts 的 bytes/SHA replay；
+8. 18 个 exact Composite relations 和 9 个 Share Class reverse projections；
+9. TNXP no-self-row 与 CR nullable non-target relation 两个 API 例外；
+10. membership 不变、无 forced liquidation。
+11. 同一 stable subject 的 append-only withdrawal：series 不变、version-specific scope 可变、cutoff 前后选择正确。
 
-1. genuine `A → B → A`；
-2. confirmed contamination `A → B → A`；
-3. pending unresolved；
-4. append-only withdrawal to `adjudicated_unresolved`；
-5. confirmed mapping 但 Share-class/issuer 等仍冲突；
-6. case availability、decision availability 和 registry publication availability 三个 cutoff；
-7. observed/canonical hierarchy mismatch；
-8. active membership 不变、liquidation signal=false、run-incomplete state。
+fixture 仍不是 production ingress，也没有读取或改写远端 S7 数据。
 
-这些规则现在同时有 schema-level vectors 和纯内存 pipeline fixture；fixture 只验证规则矩阵、cutoff 和
-fail-closed 行为。它不证明 observations/membership 来自正式 S4 release，也不是四表 Parquet transform，
-不能证明 backtest engine 已执行 no-forced-exit 行为。
+## 11. 新的 candidate contracts 与 hashes
 
-## 13. 已批准并资源化的 contracts
+以下六份为本次重新审批对象；`identity_adjudication` 本身 byte-for-byte 不变，但整体 S7 contract set 已扩展：
 
 | Table | columns / QA | Contract ID | Arrow schema digest | Candidate SHA-256 |
 | --- | ---: | --- | --- | --- |
 | `identity/identity_adjudication` | 51 / 19 | `6423cc01b952498cc78d55e93a349d7afe408bd30003e4f7be59f211102f2d5e` | `e5082a8611bedb6913f79da506f1f5cc19c94507b9e27d04edfb88566033575f` | `eb5e9d1746ad2014d7b0e4a9a56ffa29e4f36cf1e1d18d348634a058f0d22231` |
-| `identity/asset_master` | 40 / 34 | `adbba0d86bd9681e034b0ffda3e380da40b6fc92d280942d856d416a1b53f868` | `827ce87a698faa903c35b93f8957f807a83caedf4936736f351adc881fa4cdc0` | `0a6dd9cb244e60723eeff625b6d82b42fc6fe882fbe0660532807054a4f717f2` |
-| `identity/ticker_alias` | 44 / 44 | `384d1e5acf2181f929e29c5e3a5369a796f0ee42cdde7740b7ca3bdfdf8faf3b` | `dd79463bc022a49b65c441f3baf98a3455c06ab563bbccf22ae100ab5c787e95` | `8ef120892c5748ca51fc1242d143372237c1b5d9b92ac9f4f2585aea48fd5afe` |
-| `identity/issuer_master` | 30 / 33 | `4951c0ab96fdd91b961cf4234185607e858856fb1b1ad4279b2e84d41fb2eb58` | `638f66cdb812ed657844e26c91ea7e1dcda4b27aa7ea4aedd75e94b0353c8bd9` | `6f326ae11885affb5bac37500c2006bdc845f2205d7388e2043b5504d0fb0ec8` |
-| `reference/universe_daily` | 48 / 47 | `0555e785b4fb5f9df8832d37f8c08cf5fc487e8573993cf39ae3ffba4ccc45b0` | `e22cddaa57c7836f49bc21633a521f795751e473b22b4f3215b13d2e74c83b68` | `fe8d5760384322419eb28a0f8b3af6f45d52c1cbba18bc5226578fa471766701` |
+| `identity/identity_cross_market_adjudication` | 60 / 24 | `ae91c7b1bfc27bde82e5f5a39afdc5a3c2c9929d075486cb081836b6798e14e8` | `96fe9108cd246919a9a00855d04d9f4057c439b6043d4d67178beb1c32d7a0fe` | `a7308e22c07e8243a8587bfc7eab7ae45b2f232fe9bba310d084916d722f56d0` |
+| `identity/asset_master` | 46 / 37 | `959c5f7bf464eed59fd32a7008349f60ebcfd3cf9e892c9c3d7f00080eae2149` | `5ef86bbe8e3e0219e795ed9f8c5c9eca35ebc7b16ff21a903901765b3e7d53d3` | `bfb31004df41c4556e71beb379bb36e07063f36298d329c887be48c005b02fa5` |
+| `identity/ticker_alias` | 54 / 49 | `39dbf6ef89ed4c2d466fa0be2e47d2840a90f1a97f6a47670af05df3e15513ce` | `2f857bc07319426e48494901571a570b1abf622c16c9e429ab8185c08af2d743` | `8bf758af5c358c79477ff40177aab5f3b7c8d26f7f0882e261f7d844a66a1f95` |
+| `identity/issuer_master` | 35 / 35 | `2faa8d4d2e10e4a065b10b9ae851e53ac517db7e69af4fd59d5f6edc677aa408` | `dac9dbe43450cf094c8170d8e88db1742fb035052df9d1b78b7ced02cc4282d2` | `adee0a5457ac32356a0ec9b9a28c692fcebdacc4ba9cccedd1237e8c66b722b7` |
+| `reference/universe_daily` | 59 / 55 | `38cd59c4e4b04de8444ba99ed93e6fd8c7a78aec24f01205d7df7494bcfd33d3` | `80902539df5dc822dc43a88cf7325b16f4fdc2c4c6786c78ea93434116e6e25a` | `c0923508dafa0d56de4be6b8ff43187a581627dd1d64e964cf5f506f5ce8ea0b` |
 
-批准时的候选文件：
+Candidate files：
 
 - [`identity_adjudication.schema-v1.candidate.json`](silver/contracts/identity/identity_adjudication.schema-v1.candidate.json)
+- [`identity_cross_market_adjudication.schema-v1.candidate.json`](silver/contracts/identity/identity_cross_market_adjudication.schema-v1.candidate.json)
 - [`asset_master.schema-v1.candidate.json`](silver/contracts/identity/asset_master.schema-v1.candidate.json)
 - [`ticker_alias.schema-v1.candidate.json`](silver/contracts/identity/ticker_alias.schema-v1.candidate.json)
 - [`issuer_master.schema-v1.candidate.json`](silver/contracts/identity/issuer_master.schema-v1.candidate.json)
 - [`universe_daily.schema-v1.candidate.json`](silver/contracts/reference/universe_daily.schema-v1.candidate.json)
 
-原旧四份 Contract IDs：
+## 12. 下一审批点
 
-- `d7a6ef66f72c1048b6556b57910af3afbea4926661f3c6062708937fbc2b4ba6`
-- `e645573e813c18a82fcea80f3bfef07c547c738fc00cc01419a1f1824a27a47b`
-- `33c146bab2a9aed61a44d8c20e9b301fd1aa116deb5185214df92a4ee69f632d`
-- `915a389ccfa9d8442cd2b7b2a14f782adf68f2bb5c8635ddf90224102750e319`
+下一步只应 review 并重新批准第 11 节六份 exact Contract ID / Candidate SHA-256，以及 evidence manifest
+ID/SHA。本次 9 个 group 只是 schema/evidence representation，`future_adjudication_status` 明确为
+`not_planned_not_approved`。
 
-复核过程中的中间五份 IDs（`91df2789…`、`c06cedc8…`、`5d87d912…`、`3155390e…`、
-`79edaa58…`）也不是待批准版本。
-
-## 14. Code-ready 实现结果
-
-| 组件 | 入口 | Fail-closed 边界 |
-| --- | --- | --- |
-| 五份批准合同 | `identity_resolution_contract.py` | import 时同时校验 exact Contract ID 与 approved file SHA |
-| 六表 source reader | `identity_source.py` | 只接受固定六个 release ID/manifest SHA/build/row count；无 latest lookup |
-| bounce detector | `identity_bounce.py` | preview/fixture 内存上限 250k rows；exact ticker maximal `A→B→A`，1–20 sessions；只发现、不裁决 |
-| candidate manifest | `identity_bounce.py` | canonical content-addressed path、完整 cases、reason counts、bounded examples；正式 binding 的 read/write ingress 等待另行批准的 corroboration/promotion provenance |
-| preview plan/approval | `identity_preview_plan.py` | exact ticker/session/caps；request event 先于逐字 literal-bound v2 approval；ID/SHA 交叉复用失败 |
-| source-bound preview | `identity_preview_runner.py` | 只接收 root + plan/approval ID/SHA；S4 双表物理重放；existing completion 必须重扫；只到 `awaiting_review` |
-| physical evidence | `identity_provider_evidence.py` | release membership、Parquet row locator/full snapshot、S4 parent pair、post-scan availability、live runner authority、approval chronology 与写前 replay |
-| 外部证据 | `identity_adjudication.py` | URL/bytes/SHA/timestamps/assertion/license 固化；敏感 query 与篡改拒绝 |
-| 裁决控制链 | `identity_adjudication.py` | exact real candidate cases、plan、row approval、append-only successor |
-| registry snapshot | `identity_adjudication.py` | 显式 decision IDs 的不可变 release；新增 successor 不改变旧 snapshot |
-| cutoff fixture | `identity_resolution.py` | control object 精确、membership 仍由 fixture 提供；pending/unresolved 无 alias、不可回测；不导出 production API |
-| availability | `calendar_artifact.py` / `availability.py` | exact immutable calendar ID/SHA；candidate、approval、registry availability 重算 |
-
-实现中的三个用户指定 gate 已闭合：
-
-- detector manifest 产出 `suspected_provider_figi_bounce_rows`、reason counts 和 bounded examples；
-- resolver 强制 `unapproved_canonical_identity_override_rows=0`；
-- pending/adjudicated-unresolved 行强制
-  `suspected_provider_contamination_eligible_rows=0`、无 alias、无 liquidation signal。
-
-定向自动测试覆盖 approved contract byte hashes、bounded detector、candidate→adjudication fixture 绑定、
-外部证据、registry snapshot、cutoff、三类 `A→B→A`、withdrawal、relationship conflict、无强平信号和
-content-addressed XNYS calendar。测试只在临时目录写 synthetic artifacts，不写远端数据盘。
-
-## 15. 下一审批点
-
-当前硬停在 **source-bound preview code ready / production ingress blocked / awaiting exact preview plan**。
-下一次若继续，应先提出 exact case-sensitive ticker allowlist、XNYS session range 和 resource caps，固化 plan
-及独立 request event，然后展示 canonical approval literal。只有用户逐字批准后，才能执行一次 bounded S4
-detector preview并停在 `awaiting_review`。该 preview 只证明 S4 A→B→A 与 parent lineage，不生成 candidate，
-也不声称 S5/S6/hierarchy support absent。corroboration selection、production candidate promotion、逐 case
-disposition/approval、四表 FullRunPlan 和 publish 都是后续独立审批点；不能沿用本次 schema/code approval
-启动任何真实 preview 或十年扫描。
-
-### 15.1 第一份 exact detector-preview request proposal
-
-第一份 source-bound preview 选择已冻结为一个高信号、仍然严格有界的 review-target scope：
-
-- XNYS sessions：`2022-02-01` 至 `2022-03-08`，连续 25 个交易日；
-- exact case-sensitive ticker allowlist（已排序）：`AAPL`、`AULT`、`AZPN`、`BOC`、
-  `BRK.B`、`CEG`、`CIBR`、`CMS`、`CR`、`DPW`、`FLOW`、`GPUS`、`KNTK`、`MSFT`、
-  `NILE`、`RCM`、`SBGI`、`SIRI`、`SPY`、`SWI`、`TA`、`TBLT`、`TNXP`、`VG`、`WW`；
-- 选择目的：覆盖已审查的 `TBLT`/`TNXP` 短期 Composite FIGI bounce、`CMS` CIK-only
-  negative control、多个高 churn strata、`DPW → NILE → AULT → GPUS` 生命周期链，以及
-  `AAPL`/`MSFT`/`SPY`/`BRK.B` 稳定对照；`BOC`/`CEG`/`KNTK` 只属于 S5 event-dated
-  controls，不代表 genuine transition 已被确认，也不得影响本次 S4-only detector 输出。
-
-未扫描 Parquet 的 exact pinned-release manifest preflight 为：
-
-| S4 source | Artifacts | Rows | Bytes |
-| --- | ---: | ---: | ---: |
-| `asset_observation_daily` | 25 | 735,884 | 86,988,096 |
-| `universe_source_daily` | 25 | 735,884 | 81,153,705 |
-| 合计 | 50 | 1,471,768 | 168,141,801 |
-
-两份 release manifest 的实际 SHA-256 分别与 S7 pin
-`f5fb26e75f44382caddf980e8fdf88a77903465b55bfd367f8d9029852848084` 和
-`6b2c6ca1b612c4c38ddc8e359c1402c177a4f19b0295604d42b78bcd5804596d` 一致。由此冻结
-resource caps：`selected_rows=625`、两张表各 `scanned_rows=735884`、
-`total_scanned_rows=1471768`、`source_artifacts=50`、`source_bytes=168141801`、
-`cases=100`、`batch_size=8192`。`cases=100` 是 review tripwire；若触发只能停止并重提计划，
-不能在运行中放宽。
-
-该 proposal 只授权生成 full-range immutable XNYS calendar、allowlist、plan 和独立
-approval-request。生成后仍必须展示完整 selection/caps 与 canonical literal 并停在
-`awaiting_literal_human_approval`；它本身不构成 approval，也不授权 detector、candidate、
-adjudication、Full 或 publish。
+获得 schema approval 后，也不能直接生成 adjudication 或进入 Full/Publish。应先另行提出
+`identity_market_consistency_candidate_manifest` 的 exact bounded/full-sequence scan plan、reference coverage、
+resource caps 与 literal approval，并再次停下等待批准。

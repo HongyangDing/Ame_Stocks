@@ -103,6 +103,12 @@
       "nullable": false
     },
     {
+      "arrow_type": "int64",
+      "description": "Count of known cross-market-contaminated rows excluded from issuer reference consensus.",
+      "name": "excluded_cross_market_contamination_evidence_row_count",
+      "nullable": false
+    },
+    {
       "arrow_type": "boolean",
       "description": "Always false in S7 because name and SIC returned at source capture are not historical PIT classifications.",
       "name": "backtest_classification_eligible",
@@ -116,7 +122,7 @@
     },
     {
       "arrow_type": "date32",
-      "description": "Maximum availability over the transitive accepted-source evidence closure, every detector case and effective adjudication used to include or exclude issuer evidence, and source_identity_adjudication_release_available_session. It covers identity, accepted/excluded counts, lifetime, asset/ticker links, name/SIC consensus, and conflicts; S5 request-status-only coverage is excluded.",
+      "description": "Maximum availability of accepted source rows and every episode/cross-market include-or-exclude control and registry release.",
       "name": "reference_available_session",
       "nullable": false
     },
@@ -128,7 +134,7 @@
     },
     {
       "arrow_type": "string",
-      "description": "Fixed s7_issuer_resolution_with_adjudication_v2 CIK normalization, contamination-only evidence exclusion, explicit cutoff, and conservative name/SIC consensus rule version.",
+      "description": "Fixed s7_issuer_master_resolution_with_episode_and_cross_market_adjudication_v3.",
       "name": "resolution_rule_version",
       "nullable": false
     },
@@ -179,11 +185,35 @@
       "description": "Availability session of the exact source_identity_adjudication_release_id, independently verified from its trusted release chain. It must not exceed identity_resolution_cutoff_session.",
       "name": "source_identity_adjudication_release_available_session",
       "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact full-sequence market-consistency candidate manifest ID.",
+      "name": "source_identity_market_consistency_candidate_manifest_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of exact market-consistency candidate manifest bytes.",
+      "name": "source_identity_market_consistency_candidate_manifest_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact published cross-market adjudication release ID.",
+      "name": "source_identity_cross_market_adjudication_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session on which the exact cross-market registry release was available.",
+      "name": "source_identity_cross_market_adjudication_release_available_session",
+      "nullable": false
     }
   ],
-  "contract_id": "4951c0ab96fdd91b961cf4234185607e858856fb1b1ad4279b2e84d41fb2eb58",
+  "contract_id": "2faa8d4d2e10e4a065b10b9ae851e53ac517db7e69af4fd59d5f6edc677aa408",
   "contract_schema_version": 1,
-  "description": "Issuer references keyed only by independently valid normalized CIK evidence. Asset-level FIGI adjudication cannot create, merge, or rewrite an issuer; hierarchy/name/SIC evidence carried only by confirmed provider-contamination rows is excluded unless independently corroborated. Issuer metadata remains retrospective reference evidence and never an asset identity key or PIT industry signal.",
+  "description": "Issuer references keyed only by independently valid normalized CIK evidence. Asset-level FIGI adjudication cannot create, merge, or rewrite an issuer; hierarchy/name/SIC evidence carried only by confirmed provider-contamination rows is excluded unless independently corroborated. Issuer metadata remains retrospective reference evidence and never an asset identity key or PIT industry signal. Cross-market-contaminated rows remain observed lineage but cannot migrate foreign CIK/name/SIC evidence onto the canonical US asset.",
   "domain": "identity",
   "grain": "One active v1 issuer identity per validated ten-digit normalized CIK anchored by accepted S4 or S6 evidence, with conservative scalar name and SIC consensus fields.",
   "partition_by": [],
@@ -274,7 +304,7 @@
     },
     {
       "check_id": "state_matrix_invalid_rows",
-      "description": "Every row is active_reference with null superseded_by_issuer_id. unique_reference_name requires non-null reference_name and accepted non-contamination variant_count=1; multiple requires null name and count>=2; missing requires null name and count=0. SIC follows the same accepted-evidence matrix. source_evidence_row_count excludes contamination-only evidence, excluded_contamination_evidence_row_count records every exclusion, and neither count may be inferred from the other. backtest_classification_eligible is always false.",
+      "description": "Issuer state, evidence include/exclude counts, reference eligibility, and both adjudication registry bindings must satisfy the exact v3 matrix.",
       "failure_status": "failed",
       "limit": 0.0,
       "metric": "numerator",
@@ -310,7 +340,7 @@
     },
     {
       "check_id": "reference_availability_recomputation_mismatch_rows",
-      "description": "reference_available_session must equal the maximum over accepted-source availability, every detector-case and adjudication availability used to include or exclude issuer evidence, and the exact registry release availability. The closure covers identity, accepted/excluded counts, lifetime, canonical-asset/ticker relationships, name/SIC consensus, hierarchy, and conflicts. No case or adjudication after identity_resolution_cutoff_session may affect the row; unattached S5 evidence, request status, and sibling outputs remain excluded.",
+      "description": "reference_available_session must include source, case/episode, market-consistency, cross-market decision, and both registry-release availability.",
       "failure_status": "failed",
       "limit": 0.0,
       "metric": "numerator",
@@ -487,6 +517,24 @@
       "metric": "numerator",
       "operator": "eq",
       "severity": "high"
+    },
+    {
+      "check_id": "cross_market_contamination_exclusion_count_mismatch_rows",
+      "description": "Excluded cross-market issuer evidence counts must reproduce from exact classified rows.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "cross_market_contaminated_issuer_evidence_leak_rows",
+      "description": "Foreign-locale hierarchy evidence from a contaminated US-provider row cannot alter canonical issuer identity or reference consensus.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
     }
   ],
   "schema_version": 1,
@@ -501,7 +549,9 @@
     "ticker_change_event",
     "ticker_overview_safe",
     "identity_case_candidate_manifest",
-    "identity_adjudication"
+    "identity_adjudication",
+    "identity_market_consistency_candidate_manifest",
+    "identity_cross_market_adjudication"
   ],
   "table": "issuer_master"
 }
