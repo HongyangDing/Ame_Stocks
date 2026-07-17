@@ -38,8 +38,11 @@ now at **Silver Phase 2 with S1–S6 published; S7 production ingress is fail-cl
   records: 79 rows are foreign observations and 10 are correct inverse-case US observations. The
   revised proposal preserves all 19 cases and raw FIGI lineage, adds a separate exact-scope
   `identity_cross_market_adjudication` registry, full-sequence market-consistency QA, and immutable
-  OpenFIGI/SEC/issuer evidence. Six contract candidates now await reapproval. No adjudication plan,
-  market-consistency scan, four-table materialization, FullRunPlan, PublishPlan, or S7 release has run;
+  OpenFIGI/SEC/issuer evidence. The six-contract schema/evidence package was approved exactly on
+  2026-07-17, but the current external evidence classifies only 18 Composite FIGIs and therefore
+  cannot stand in for a full-market reference. The next fail-closed checkpoint only freezes a
+  full-history S4 Composite-inventory Plan and approval Request; no inventory scan, OpenFIGI lookup,
+  adjudication plan, four-table materialization, FullRunPlan, PublishPlan, or S7 release has run;
 
 The final strict full audit is
 `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/bronze/full-2026-07-12-v9.json`
@@ -97,11 +100,14 @@ documented in
 [docs/silver-s5-ticker-events-schema-review.md](docs/silver-s5-ticker-events-schema-review.md). The
 published S6 evidence contract, lifecycle coverage, QA/quarantine results, and release are documented
 in [docs/silver-s6-ticker-overview-schema-review.md](docs/silver-s6-ticker-overview-schema-review.md).
-The current hard stop is an exact S7 detector-preview plan: the revised contracts and source-bound
-S4 streaming preview runner exist, but no real ticker allowlist, session range, request event, literal
-approval, detector output, production membership resolver, full build, or release is authorized.
-The runner cannot accept caller-supplied rows, paths, checksums, bundles, or evidence; even a successful
-run stops at `awaiting_review` and cannot enter candidate/adjudication/backtest/publication paths.
+The current hard stop follows the completed S7 bounded detector preview and exact schema/evidence
+approval. Before a full market-consistency scan can be proposed, Gate A must freeze the authoritative
+Composite inventory from all 2,513 S4 sessions, and Gate B must attempt market classification for
+every valid inventory key. The Gate A request generator accepts only operational repository/data
+roots; it cannot accept caller-supplied rows, dates, tickers, source/artifact selection paths,
+releases, checksums, caps, or API credentials and has no approval or execution path.
+The three independent reference gates and their fail-closed unknown policy are documented in
+[docs/silver-s7-market-reference-prerequisite-plan.md](docs/silver-s7-market-reference-prerequisite-plan.md).
 The exact input binding, observed/canonical split, adjudication rules, contract digests, and approval
 wording are in
 [docs/silver-s7-identity-resolution-schema-review.md](docs/silver-s7-identity-resolution-schema-review.md).

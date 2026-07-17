@@ -60,6 +60,7 @@ ame-silver-assets-full = "ame_stocks_api.cli.silver_assets_full:main"
 ame-silver-assets-publish-plan = "ame_stocks_api.cli.silver_assets_publish_plan:main"
 ame-silver-assets-release-set = "ame_stocks_api.cli.silver_assets_release_set:main"
 ame-silver-identity-preview-request = "ame_stocks_api.cli.silver_identity_preview_request:main"
+ame-silver-identity-market-inventory-request = "ame_stocks_api.cli.silver_identity_market_inventory_request:main"
 ame-view-parquet = "ame_stocks_api.cli.parquet_view:main"
 
 [tool.pytest.ini_options]
