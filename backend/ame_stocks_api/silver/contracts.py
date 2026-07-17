@@ -57,6 +57,7 @@ class SilverContractError(ArtifactError):
 
 class ArrowType(StrEnum):
     STRING = "string"
+    LIST_STRING = "list_string"
     BOOLEAN = "boolean"
     INT64 = "int64"
     FLOAT64 = "float64"
@@ -131,6 +132,7 @@ class QuarantineReviewStatus(StrEnum):
 
 _ARROW_TYPES: dict[ArrowType, pa.DataType] = {
     ArrowType.STRING: pa.string(),
+    ArrowType.LIST_STRING: pa.list_(pa.field("item", pa.string(), nullable=False)),
     ArrowType.BOOLEAN: pa.bool_(),
     ArrowType.INT64: pa.int64(),
     ArrowType.FLOAT64: pa.float64(),

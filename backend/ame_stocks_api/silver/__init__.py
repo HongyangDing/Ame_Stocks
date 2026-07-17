@@ -1,256 +1,219 @@
-"""Reviewed Silver contracts, workflow registry, and release-only reader."""
+"""Reviewed Silver APIs exposed without eagerly importing pipeline modules."""
 
-from ame_stocks_api.silver.asset_contract import (
-    ASSET_CONTRACTS,
-    ASSET_OBSERVATION_DAILY_CONTRACT,
-    ASSET_OBSERVATION_DAILY_CONTRACT_ID,
-    ASSET_OBSERVATION_VERSION_CONTRACT,
-    ASSET_OBSERVATION_VERSION_CONTRACT_ID,
-    UNIVERSE_SOURCE_DAILY_CONTRACT,
-    UNIVERSE_SOURCE_DAILY_CONTRACT_ID,
-)
-from ame_stocks_api.silver.asset_full import (
-    ASSET_FULL_POLICY_VERSION,
-    CURRENT_ASSET_FULL_AUTHORIZATION,
-    AssetFullAuthorization,
-    AssetFullRun,
-    AssetFullTableRun,
-    run_asset_full,
-)
-from ame_stocks_api.silver.asset_full_run_plan import (
-    ASSET_FULL_PARQUET_WRITER_POLICY,
-    ASSET_FULL_RUN_PLAN_POLICY_VERSION,
-    CURRENT_ASSET_FULL_RUN_PLAN_AUTHORIZATION,
-    AssetFullRunPlanApprovalRun,
-    AssetFullRunPlanAuthorization,
-    AssetFullRunPlanRun,
-    AssetFullRunPreflight,
-    AssetManifestScope,
-    AssetTableFullRunPlanRun,
-    approve_asset_full_run_plans,
-    create_asset_full_run_plans,
-)
-from ame_stocks_api.silver.asset_preview import (
-    CURRENT_ASSET_PREVIEW_AUTHORIZATION,
-    AssetPreviewAuthorization,
-    AssetPreviewRun,
-    AssetTablePreviewRun,
-    run_asset_preview,
-)
-from ame_stocks_api.silver.asset_source import (
-    AssetSourceError,
-    AssetSourcePage,
-    AssetSourceReader,
-    AssetSourceRecord,
-    AssetSourceRequest,
-    AssetSourceSession,
-    build_asset_source_inventory,
-    read_asset_source_inventory,
-)
-from ame_stocks_api.silver.assets import (
-    ASSET_METADATA_TIME_SCOPE,
-    ASSET_REFERENCE_TIME_SCOPE,
-    ASSET_SOURCE_AVAILABILITY_QUALITY,
-    ASSET_SOURCE_AVAILABILITY_RULE,
-    ASSET_TRANSFORM_VERSION,
-    ASSET_VERSION_SELECTION_RULE,
-    UNIVERSE_SOURCE_AVAILABILITY_RULE,
-    AssetTableTransformResult,
-    AssetTransformError,
-    AssetTransformResult,
-    transform_asset_session,
-)
-from ame_stocks_api.silver.condition_code_contract import (
-    CONDITION_CODE_CONTRACTS,
-    CONDITION_CODE_DATA_TYPE_BRIDGE_CONTRACT,
-    CONDITION_CODE_DATA_TYPE_BRIDGE_CONTRACT_ID,
-    CONDITION_CODE_DIM_CONTRACT,
-    CONDITION_CODE_DIM_CONTRACT_ID,
-)
-from ame_stocks_api.silver.condition_code_lifecycle import (
-    CURRENT_CONDITION_CODE_AUTHORIZATION,
-    S3_COMPLETION_AUTHORIZATION,
-    ConditionCodeLifecycleRun,
-    ConditionCodeTableRun,
-    complete_condition_code_lifecycle,
-)
-from ame_stocks_api.silver.condition_code_source import (
-    ConditionCodeSourceBatch,
-    ConditionCodeSourceError,
-    ConditionCodeSourcePage,
-    ConditionCodeSourceSnapshot,
-    build_condition_code_source_inventory,
-    read_condition_code_source_inventory,
-)
-from ame_stocks_api.silver.condition_codes import (
-    CONDITION_CODE_AVAILABILITY_RULE,
-    CONDITION_CODE_SNAPSHOT_SCOPE,
-    CONDITION_CODE_TRANSFORM_VERSION,
-    ConditionCodeTableTransformResult,
-    ConditionCodeTransformError,
-    ConditionCodeTransformResult,
-    transform_condition_code_batch,
-)
-from ame_stocks_api.silver.contracts import (
-    SEPARATE_FULL_RUN_PLAN_POLICY,
-    ApprovalReceipt,
-    ArtifactRef,
-    BuildIntent,
-    BuildManifest,
-    FullRunPlan,
-    PreviewMetadata,
-    QAMetric,
-    QAOperator,
-    QARule,
-    QuarantineRecord,
-    ReleaseManifest,
-    SourceInventory,
-    SourceInventoryItem,
-    SourceLayer,
-    TableContract,
-    UpstreamManifestRef,
-    thaw_json,
-)
-from ame_stocks_api.silver.exchange_contract import (
-    EXCHANGE_DIM_CONTRACT,
-    EXCHANGE_DIM_CONTRACT_ID,
-)
-from ame_stocks_api.silver.exchange_preview import ExchangePreviewRun, run_exchange_preview
-from ame_stocks_api.silver.exchange_release import ExchangeReleaseRun, complete_exchange_release
-from ame_stocks_api.silver.exchange_source import (
-    ExchangeSourceBatch,
-    ExchangeSourceError,
-    ExchangeSourcePage,
-    ExchangeSourceSnapshot,
-    build_exchange_source_inventory,
-    read_exchange_source_inventory,
-)
-from ame_stocks_api.silver.exchanges import (
-    EXCHANGE_DIM_TRANSFORM_VERSION,
-    ExchangeTransformError,
-    ExchangeTransformResult,
-    transform_exchange_batch,
-)
-from ame_stocks_api.silver.identity_resolution_contract import (
-    ASSET_MASTER_CONTRACT,
-    ASSET_MASTER_CONTRACT_ID,
-    ASSET_MASTER_RESOURCE_SHA256,
-    IDENTITY_ADJUDICATION_CONTRACT,
-    IDENTITY_ADJUDICATION_CONTRACT_ID,
-    IDENTITY_ADJUDICATION_RESOURCE_SHA256,
-    IDENTITY_CROSS_MARKET_ADJUDICATION_CONTRACT,
-    IDENTITY_CROSS_MARKET_ADJUDICATION_CONTRACT_ID,
-    IDENTITY_CROSS_MARKET_ADJUDICATION_RESOURCE_SHA256,
-    ISSUER_MASTER_CONTRACT,
-    ISSUER_MASTER_CONTRACT_ID,
-    ISSUER_MASTER_RESOURCE_SHA256,
-    S7_ADJUDICATION_CONTRACTS,
-    S7_CONTRACTS,
-    S7_DERIVED_CONTRACTS,
-    S7_RESOURCE_SHA256_BY_TABLE,
-    TICKER_ALIAS_CONTRACT,
-    TICKER_ALIAS_CONTRACT_ID,
-    TICKER_ALIAS_RESOURCE_SHA256,
-    UNIVERSE_DAILY_CONTRACT,
-    UNIVERSE_DAILY_CONTRACT_ID,
-    UNIVERSE_DAILY_RESOURCE_SHA256,
-)
-from ame_stocks_api.silver.reader import PublishedRelease, PublishedSilverReader
-from ame_stocks_api.silver.store import SilverStore, WorkflowSnapshot, WorkflowState
-from ame_stocks_api.silver.ticker_event_contract import (
-    TICKER_CHANGE_EVENT_CONTRACT,
-    TICKER_CHANGE_EVENT_CONTRACT_ID,
-    TICKER_EVENT_CONTRACTS,
-    TICKER_EVENT_REQUEST_STATUS_CONTRACT,
-    TICKER_EVENT_REQUEST_STATUS_CONTRACT_ID,
-)
-from ame_stocks_api.silver.ticker_event_lifecycle import (
-    CURRENT_TICKER_EVENT_AUTHORIZATION,
-    S5_COMPLETION_AUTHORIZATION,
-    S5_DATE_QUALITY_AUTHORIZATION,
-    S5_DATE_QUALITY_DECISION_ID,
-    S5_DATE_QUALITY_DECISION_SHA256,
-    TickerEventAuthorization,
-    TickerEventLifecycleRun,
-    TickerEventTableRun,
-    complete_ticker_event_lifecycle,
-)
-from ame_stocks_api.silver.ticker_event_source import (
-    TickerEventCoverageReceipt,
-    TickerEventRequestStatus,
-    TickerEventSourceBatch,
-    TickerEventSourceError,
-    TickerEventSourcePage,
-    TickerEventSourceRecord,
-    TickerEventSourceSnapshot,
-    build_ticker_event_request_source_inventory,
-    build_ticker_event_source_inventory,
-    read_ticker_event_source_inventory,
-    ticker_event_transform_inputs,
-)
-from ame_stocks_api.silver.ticker_events import (
-    TICKER_EVENT_TRANSFORM_VERSION,
-    TickerEventOccurrenceInput,
-    TickerEventRequestInput,
-    TickerEventTableTransformResult,
-    TickerEventTransformError,
-    TickerEventTransformResult,
-    transform_ticker_events,
-)
-from ame_stocks_api.silver.ticker_overview_contract import (
-    TICKER_OVERVIEW_SAFE_CONTRACT,
-    TICKER_OVERVIEW_SAFE_CONTRACT_ID,
-)
-from ame_stocks_api.silver.ticker_overview_lifecycle import (
-    CURRENT_TICKER_OVERVIEW_AUTHORIZATION,
-    S6_COMPLETION_AUTHORIZATION,
-    S6_EXECUTION_AUTHORIZATION,
-    TickerOverviewAuthorization,
-    TickerOverviewLifecycleRun,
-    complete_ticker_overview_lifecycle,
-)
-from ame_stocks_api.silver.ticker_overview_source import (
-    TickerOverviewSourceBatch,
-    TickerOverviewSourceError,
-    TickerOverviewSourceRecord,
-    build_ticker_overview_lifecycle_source_inventory,
-    build_ticker_overview_source_inventory,
-    read_ticker_overview_source_inventory,
-    ticker_overview_transform_inputs,
-)
-from ame_stocks_api.silver.ticker_overviews import (
-    TICKER_OVERVIEW_SAFE_TRANSFORM_VERSION,
-    TickerOverviewSafeInput,
-    TickerOverviewSafeTransformError,
-    TickerOverviewSafeTransformResult,
-    transform_ticker_overview_safe,
-)
-from ame_stocks_api.silver.ticker_type_contract import (
-    TICKER_TYPE_DIM_CONTRACT,
-    TICKER_TYPE_DIM_CONTRACT_ID,
-)
-from ame_stocks_api.silver.ticker_type_preview import (
-    TickerTypePreviewRun,
-    run_ticker_type_preview,
-)
-from ame_stocks_api.silver.ticker_type_release import (
-    TickerTypeReleaseRun,
-    complete_ticker_type_release,
-)
-from ame_stocks_api.silver.ticker_type_source import (
-    TickerTypeSourceBatch,
-    TickerTypeSourceError,
-    TickerTypeSourcePage,
-    TickerTypeSourceSnapshot,
-    build_ticker_type_source_inventory,
-    read_ticker_type_source_inventory,
-)
-from ame_stocks_api.silver.ticker_types import (
-    TICKER_TYPE_DIM_TRANSFORM_VERSION,
-    TickerTypeTransformError,
-    TickerTypeTransformResult,
-    transform_ticker_type_batch,
-)
+from __future__ import annotations
+
+from importlib import import_module as _import_module
+
+_EXPORTS: dict[str, str] = {
+    "ASSET_CONTRACTS": "ame_stocks_api.silver.asset_contract",
+    "ASSET_OBSERVATION_DAILY_CONTRACT": "ame_stocks_api.silver.asset_contract",
+    "ASSET_OBSERVATION_DAILY_CONTRACT_ID": "ame_stocks_api.silver.asset_contract",
+    "ASSET_OBSERVATION_VERSION_CONTRACT": "ame_stocks_api.silver.asset_contract",
+    "ASSET_OBSERVATION_VERSION_CONTRACT_ID": "ame_stocks_api.silver.asset_contract",
+    "UNIVERSE_SOURCE_DAILY_CONTRACT": "ame_stocks_api.silver.asset_contract",
+    "UNIVERSE_SOURCE_DAILY_CONTRACT_ID": "ame_stocks_api.silver.asset_contract",
+    "ASSET_FULL_POLICY_VERSION": "ame_stocks_api.silver.asset_full",
+    "CURRENT_ASSET_FULL_AUTHORIZATION": "ame_stocks_api.silver.asset_full",
+    "AssetFullAuthorization": "ame_stocks_api.silver.asset_full",
+    "AssetFullRun": "ame_stocks_api.silver.asset_full",
+    "AssetFullTableRun": "ame_stocks_api.silver.asset_full",
+    "run_asset_full": "ame_stocks_api.silver.asset_full",
+    "ASSET_FULL_PARQUET_WRITER_POLICY": "ame_stocks_api.silver.asset_full_run_plan",
+    "ASSET_FULL_RUN_PLAN_POLICY_VERSION": "ame_stocks_api.silver.asset_full_run_plan",
+    "CURRENT_ASSET_FULL_RUN_PLAN_AUTHORIZATION": "ame_stocks_api.silver.asset_full_run_plan",
+    "AssetFullRunPlanApprovalRun": "ame_stocks_api.silver.asset_full_run_plan",
+    "AssetFullRunPlanAuthorization": "ame_stocks_api.silver.asset_full_run_plan",
+    "AssetFullRunPlanRun": "ame_stocks_api.silver.asset_full_run_plan",
+    "AssetFullRunPreflight": "ame_stocks_api.silver.asset_full_run_plan",
+    "AssetManifestScope": "ame_stocks_api.silver.asset_full_run_plan",
+    "AssetTableFullRunPlanRun": "ame_stocks_api.silver.asset_full_run_plan",
+    "approve_asset_full_run_plans": "ame_stocks_api.silver.asset_full_run_plan",
+    "create_asset_full_run_plans": "ame_stocks_api.silver.asset_full_run_plan",
+    "CURRENT_ASSET_PREVIEW_AUTHORIZATION": "ame_stocks_api.silver.asset_preview",
+    "AssetPreviewAuthorization": "ame_stocks_api.silver.asset_preview",
+    "AssetPreviewRun": "ame_stocks_api.silver.asset_preview",
+    "AssetTablePreviewRun": "ame_stocks_api.silver.asset_preview",
+    "run_asset_preview": "ame_stocks_api.silver.asset_preview",
+    "AssetSourceError": "ame_stocks_api.silver.asset_source",
+    "AssetSourcePage": "ame_stocks_api.silver.asset_source",
+    "AssetSourceReader": "ame_stocks_api.silver.asset_source",
+    "AssetSourceRecord": "ame_stocks_api.silver.asset_source",
+    "AssetSourceRequest": "ame_stocks_api.silver.asset_source",
+    "AssetSourceSession": "ame_stocks_api.silver.asset_source",
+    "build_asset_source_inventory": "ame_stocks_api.silver.asset_source",
+    "read_asset_source_inventory": "ame_stocks_api.silver.asset_source",
+    "ASSET_METADATA_TIME_SCOPE": "ame_stocks_api.silver.assets",
+    "ASSET_REFERENCE_TIME_SCOPE": "ame_stocks_api.silver.assets",
+    "ASSET_SOURCE_AVAILABILITY_QUALITY": "ame_stocks_api.silver.assets",
+    "ASSET_SOURCE_AVAILABILITY_RULE": "ame_stocks_api.silver.assets",
+    "ASSET_TRANSFORM_VERSION": "ame_stocks_api.silver.assets",
+    "ASSET_VERSION_SELECTION_RULE": "ame_stocks_api.silver.assets",
+    "UNIVERSE_SOURCE_AVAILABILITY_RULE": "ame_stocks_api.silver.assets",
+    "AssetTableTransformResult": "ame_stocks_api.silver.assets",
+    "AssetTransformError": "ame_stocks_api.silver.assets",
+    "AssetTransformResult": "ame_stocks_api.silver.assets",
+    "transform_asset_session": "ame_stocks_api.silver.assets",
+    "CONDITION_CODE_CONTRACTS": "ame_stocks_api.silver.condition_code_contract",
+    "CONDITION_CODE_DATA_TYPE_BRIDGE_CONTRACT": "ame_stocks_api.silver.condition_code_contract",
+    "CONDITION_CODE_DATA_TYPE_BRIDGE_CONTRACT_ID": "ame_stocks_api.silver.condition_code_contract",
+    "CONDITION_CODE_DIM_CONTRACT": "ame_stocks_api.silver.condition_code_contract",
+    "CONDITION_CODE_DIM_CONTRACT_ID": "ame_stocks_api.silver.condition_code_contract",
+    "CURRENT_CONDITION_CODE_AUTHORIZATION": "ame_stocks_api.silver.condition_code_lifecycle",
+    "S3_COMPLETION_AUTHORIZATION": "ame_stocks_api.silver.condition_code_lifecycle",
+    "ConditionCodeLifecycleRun": "ame_stocks_api.silver.condition_code_lifecycle",
+    "ConditionCodeTableRun": "ame_stocks_api.silver.condition_code_lifecycle",
+    "complete_condition_code_lifecycle": "ame_stocks_api.silver.condition_code_lifecycle",
+    "ConditionCodeSourceBatch": "ame_stocks_api.silver.condition_code_source",
+    "ConditionCodeSourceError": "ame_stocks_api.silver.condition_code_source",
+    "ConditionCodeSourcePage": "ame_stocks_api.silver.condition_code_source",
+    "ConditionCodeSourceSnapshot": "ame_stocks_api.silver.condition_code_source",
+    "build_condition_code_source_inventory": "ame_stocks_api.silver.condition_code_source",
+    "read_condition_code_source_inventory": "ame_stocks_api.silver.condition_code_source",
+    "CONDITION_CODE_AVAILABILITY_RULE": "ame_stocks_api.silver.condition_codes",
+    "CONDITION_CODE_SNAPSHOT_SCOPE": "ame_stocks_api.silver.condition_codes",
+    "CONDITION_CODE_TRANSFORM_VERSION": "ame_stocks_api.silver.condition_codes",
+    "ConditionCodeTableTransformResult": "ame_stocks_api.silver.condition_codes",
+    "ConditionCodeTransformError": "ame_stocks_api.silver.condition_codes",
+    "ConditionCodeTransformResult": "ame_stocks_api.silver.condition_codes",
+    "transform_condition_code_batch": "ame_stocks_api.silver.condition_codes",
+    "SEPARATE_FULL_RUN_PLAN_POLICY": "ame_stocks_api.silver.contracts",
+    "ApprovalReceipt": "ame_stocks_api.silver.contracts",
+    "ArtifactRef": "ame_stocks_api.silver.contracts",
+    "BuildIntent": "ame_stocks_api.silver.contracts",
+    "BuildManifest": "ame_stocks_api.silver.contracts",
+    "FullRunPlan": "ame_stocks_api.silver.contracts",
+    "PreviewMetadata": "ame_stocks_api.silver.contracts",
+    "QAMetric": "ame_stocks_api.silver.contracts",
+    "QAOperator": "ame_stocks_api.silver.contracts",
+    "QARule": "ame_stocks_api.silver.contracts",
+    "QuarantineRecord": "ame_stocks_api.silver.contracts",
+    "ReleaseManifest": "ame_stocks_api.silver.contracts",
+    "SourceInventory": "ame_stocks_api.silver.contracts",
+    "SourceInventoryItem": "ame_stocks_api.silver.contracts",
+    "SourceLayer": "ame_stocks_api.silver.contracts",
+    "TableContract": "ame_stocks_api.silver.contracts",
+    "UpstreamManifestRef": "ame_stocks_api.silver.contracts",
+    "thaw_json": "ame_stocks_api.silver.contracts",
+    "EXCHANGE_DIM_CONTRACT": "ame_stocks_api.silver.exchange_contract",
+    "EXCHANGE_DIM_CONTRACT_ID": "ame_stocks_api.silver.exchange_contract",
+    "ExchangePreviewRun": "ame_stocks_api.silver.exchange_preview",
+    "run_exchange_preview": "ame_stocks_api.silver.exchange_preview",
+    "ExchangeReleaseRun": "ame_stocks_api.silver.exchange_release",
+    "complete_exchange_release": "ame_stocks_api.silver.exchange_release",
+    "ExchangeSourceBatch": "ame_stocks_api.silver.exchange_source",
+    "ExchangeSourceError": "ame_stocks_api.silver.exchange_source",
+    "ExchangeSourcePage": "ame_stocks_api.silver.exchange_source",
+    "ExchangeSourceSnapshot": "ame_stocks_api.silver.exchange_source",
+    "build_exchange_source_inventory": "ame_stocks_api.silver.exchange_source",
+    "read_exchange_source_inventory": "ame_stocks_api.silver.exchange_source",
+    "EXCHANGE_DIM_TRANSFORM_VERSION": "ame_stocks_api.silver.exchanges",
+    "ExchangeTransformError": "ame_stocks_api.silver.exchanges",
+    "ExchangeTransformResult": "ame_stocks_api.silver.exchanges",
+    "transform_exchange_batch": "ame_stocks_api.silver.exchanges",
+    "ASSET_MASTER_CONTRACT": "ame_stocks_api.silver.identity_resolution_contract",
+    "ASSET_MASTER_CONTRACT_ID": "ame_stocks_api.silver.identity_resolution_contract",
+    "ASSET_MASTER_RESOURCE_SHA256": "ame_stocks_api.silver.identity_resolution_contract",
+    "IDENTITY_ADJUDICATION_CONTRACT": "ame_stocks_api.silver.identity_resolution_contract",
+    "IDENTITY_ADJUDICATION_CONTRACT_ID": "ame_stocks_api.silver.identity_resolution_contract",
+    "IDENTITY_ADJUDICATION_RESOURCE_SHA256": "ame_stocks_api.silver.identity_resolution_contract",
+    "IDENTITY_CROSS_MARKET_ADJUDICATION_CONTRACT": (
+        "ame_stocks_api.silver.identity_resolution_contract"
+    ),
+    "IDENTITY_CROSS_MARKET_ADJUDICATION_CONTRACT_ID": (
+        "ame_stocks_api.silver.identity_resolution_contract"
+    ),
+    "IDENTITY_CROSS_MARKET_ADJUDICATION_RESOURCE_SHA256": (
+        "ame_stocks_api.silver.identity_resolution_contract"
+    ),
+    "ISSUER_MASTER_CONTRACT": "ame_stocks_api.silver.identity_resolution_contract",
+    "ISSUER_MASTER_CONTRACT_ID": "ame_stocks_api.silver.identity_resolution_contract",
+    "ISSUER_MASTER_RESOURCE_SHA256": "ame_stocks_api.silver.identity_resolution_contract",
+    "S7_ADJUDICATION_CONTRACTS": "ame_stocks_api.silver.identity_resolution_contract",
+    "S7_CONTRACTS": "ame_stocks_api.silver.identity_resolution_contract",
+    "S7_DERIVED_CONTRACTS": "ame_stocks_api.silver.identity_resolution_contract",
+    "S7_RESOURCE_SHA256_BY_TABLE": "ame_stocks_api.silver.identity_resolution_contract",
+    "TICKER_ALIAS_CONTRACT": "ame_stocks_api.silver.identity_resolution_contract",
+    "TICKER_ALIAS_CONTRACT_ID": "ame_stocks_api.silver.identity_resolution_contract",
+    "TICKER_ALIAS_RESOURCE_SHA256": "ame_stocks_api.silver.identity_resolution_contract",
+    "UNIVERSE_DAILY_CONTRACT": "ame_stocks_api.silver.identity_resolution_contract",
+    "UNIVERSE_DAILY_CONTRACT_ID": "ame_stocks_api.silver.identity_resolution_contract",
+    "UNIVERSE_DAILY_RESOURCE_SHA256": "ame_stocks_api.silver.identity_resolution_contract",
+    "PublishedRelease": "ame_stocks_api.silver.reader",
+    "PublishedSilverReader": "ame_stocks_api.silver.reader",
+    "SilverStore": "ame_stocks_api.silver.store",
+    "WorkflowSnapshot": "ame_stocks_api.silver.store",
+    "WorkflowState": "ame_stocks_api.silver.store",
+    "TICKER_CHANGE_EVENT_CONTRACT": "ame_stocks_api.silver.ticker_event_contract",
+    "TICKER_CHANGE_EVENT_CONTRACT_ID": "ame_stocks_api.silver.ticker_event_contract",
+    "TICKER_EVENT_CONTRACTS": "ame_stocks_api.silver.ticker_event_contract",
+    "TICKER_EVENT_REQUEST_STATUS_CONTRACT": "ame_stocks_api.silver.ticker_event_contract",
+    "TICKER_EVENT_REQUEST_STATUS_CONTRACT_ID": "ame_stocks_api.silver.ticker_event_contract",
+    "CURRENT_TICKER_EVENT_AUTHORIZATION": "ame_stocks_api.silver.ticker_event_lifecycle",
+    "S5_COMPLETION_AUTHORIZATION": "ame_stocks_api.silver.ticker_event_lifecycle",
+    "S5_DATE_QUALITY_AUTHORIZATION": "ame_stocks_api.silver.ticker_event_lifecycle",
+    "S5_DATE_QUALITY_DECISION_ID": "ame_stocks_api.silver.ticker_event_lifecycle",
+    "S5_DATE_QUALITY_DECISION_SHA256": "ame_stocks_api.silver.ticker_event_lifecycle",
+    "TickerEventAuthorization": "ame_stocks_api.silver.ticker_event_lifecycle",
+    "TickerEventLifecycleRun": "ame_stocks_api.silver.ticker_event_lifecycle",
+    "TickerEventTableRun": "ame_stocks_api.silver.ticker_event_lifecycle",
+    "complete_ticker_event_lifecycle": "ame_stocks_api.silver.ticker_event_lifecycle",
+    "TickerEventCoverageReceipt": "ame_stocks_api.silver.ticker_event_source",
+    "TickerEventRequestStatus": "ame_stocks_api.silver.ticker_event_source",
+    "TickerEventSourceBatch": "ame_stocks_api.silver.ticker_event_source",
+    "TickerEventSourceError": "ame_stocks_api.silver.ticker_event_source",
+    "TickerEventSourcePage": "ame_stocks_api.silver.ticker_event_source",
+    "TickerEventSourceRecord": "ame_stocks_api.silver.ticker_event_source",
+    "TickerEventSourceSnapshot": "ame_stocks_api.silver.ticker_event_source",
+    "build_ticker_event_request_source_inventory": "ame_stocks_api.silver.ticker_event_source",
+    "build_ticker_event_source_inventory": "ame_stocks_api.silver.ticker_event_source",
+    "read_ticker_event_source_inventory": "ame_stocks_api.silver.ticker_event_source",
+    "ticker_event_transform_inputs": "ame_stocks_api.silver.ticker_event_source",
+    "TICKER_EVENT_TRANSFORM_VERSION": "ame_stocks_api.silver.ticker_events",
+    "TickerEventOccurrenceInput": "ame_stocks_api.silver.ticker_events",
+    "TickerEventRequestInput": "ame_stocks_api.silver.ticker_events",
+    "TickerEventTableTransformResult": "ame_stocks_api.silver.ticker_events",
+    "TickerEventTransformError": "ame_stocks_api.silver.ticker_events",
+    "TickerEventTransformResult": "ame_stocks_api.silver.ticker_events",
+    "transform_ticker_events": "ame_stocks_api.silver.ticker_events",
+    "TICKER_OVERVIEW_SAFE_CONTRACT": "ame_stocks_api.silver.ticker_overview_contract",
+    "TICKER_OVERVIEW_SAFE_CONTRACT_ID": "ame_stocks_api.silver.ticker_overview_contract",
+    "CURRENT_TICKER_OVERVIEW_AUTHORIZATION": "ame_stocks_api.silver.ticker_overview_lifecycle",
+    "S6_COMPLETION_AUTHORIZATION": "ame_stocks_api.silver.ticker_overview_lifecycle",
+    "S6_EXECUTION_AUTHORIZATION": "ame_stocks_api.silver.ticker_overview_lifecycle",
+    "TickerOverviewAuthorization": "ame_stocks_api.silver.ticker_overview_lifecycle",
+    "TickerOverviewLifecycleRun": "ame_stocks_api.silver.ticker_overview_lifecycle",
+    "complete_ticker_overview_lifecycle": "ame_stocks_api.silver.ticker_overview_lifecycle",
+    "TickerOverviewSourceBatch": "ame_stocks_api.silver.ticker_overview_source",
+    "TickerOverviewSourceError": "ame_stocks_api.silver.ticker_overview_source",
+    "TickerOverviewSourceRecord": "ame_stocks_api.silver.ticker_overview_source",
+    "build_ticker_overview_lifecycle_source_inventory": (
+        "ame_stocks_api.silver.ticker_overview_source"
+    ),
+    "build_ticker_overview_source_inventory": "ame_stocks_api.silver.ticker_overview_source",
+    "read_ticker_overview_source_inventory": "ame_stocks_api.silver.ticker_overview_source",
+    "ticker_overview_transform_inputs": "ame_stocks_api.silver.ticker_overview_source",
+    "TICKER_OVERVIEW_SAFE_TRANSFORM_VERSION": "ame_stocks_api.silver.ticker_overviews",
+    "TickerOverviewSafeInput": "ame_stocks_api.silver.ticker_overviews",
+    "TickerOverviewSafeTransformError": "ame_stocks_api.silver.ticker_overviews",
+    "TickerOverviewSafeTransformResult": "ame_stocks_api.silver.ticker_overviews",
+    "transform_ticker_overview_safe": "ame_stocks_api.silver.ticker_overviews",
+    "TICKER_TYPE_DIM_CONTRACT": "ame_stocks_api.silver.ticker_type_contract",
+    "TICKER_TYPE_DIM_CONTRACT_ID": "ame_stocks_api.silver.ticker_type_contract",
+    "TickerTypePreviewRun": "ame_stocks_api.silver.ticker_type_preview",
+    "run_ticker_type_preview": "ame_stocks_api.silver.ticker_type_preview",
+    "TickerTypeReleaseRun": "ame_stocks_api.silver.ticker_type_release",
+    "complete_ticker_type_release": "ame_stocks_api.silver.ticker_type_release",
+    "TickerTypeSourceBatch": "ame_stocks_api.silver.ticker_type_source",
+    "TickerTypeSourceError": "ame_stocks_api.silver.ticker_type_source",
+    "TickerTypeSourcePage": "ame_stocks_api.silver.ticker_type_source",
+    "TickerTypeSourceSnapshot": "ame_stocks_api.silver.ticker_type_source",
+    "build_ticker_type_source_inventory": "ame_stocks_api.silver.ticker_type_source",
+    "read_ticker_type_source_inventory": "ame_stocks_api.silver.ticker_type_source",
+    "TICKER_TYPE_DIM_TRANSFORM_VERSION": "ame_stocks_api.silver.ticker_types",
+    "TickerTypeTransformError": "ame_stocks_api.silver.ticker_types",
+    "TickerTypeTransformResult": "ame_stocks_api.silver.ticker_types",
+    "transform_ticker_type_batch": "ame_stocks_api.silver.ticker_types",
+}
 
 __all__ = [
     "ASSET_CONTRACTS",
@@ -454,3 +417,25 @@ __all__ = [
     "transform_ticker_overview_safe",
     "transform_ticker_type_batch",
 ]
+
+if set(__all__) != set(_EXPORTS):  # pragma: no cover - import-time invariant
+    missing = sorted(set(__all__) - set(_EXPORTS))
+    extra = sorted(set(_EXPORTS) - set(__all__))
+    raise RuntimeError(f"Silver lazy export registry mismatch: missing={missing}, extra={extra}")
+
+
+def __getattr__(name: str) -> object:
+    """Load one public Silver symbol from its defining module on first access."""
+
+    module_name = _EXPORTS.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(_import_module(module_name), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    """Expose the stable public surface without importing its implementations."""
+
+    return sorted(set(globals()) | set(__all__))

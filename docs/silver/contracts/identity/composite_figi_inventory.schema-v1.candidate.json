@@ -1,0 +1,312 @@
+{
+  "columns": [
+    {
+      "arrow_type": "string",
+      "description": "Exact syntactically valid provider-observed Composite FIGI from the S4 asset_observation_daily authority table. This value is not canonicalized, classified, or adjudicated.",
+      "name": "observed_composite_figi",
+      "nullable": false
+    },
+    {
+      "arrow_type": "list_string",
+      "description": "Lexicographically sorted unique syntactically valid Share Class FIGIs observed with this Composite FIGI in authority rows. The list and every item are non-null; an empty list means no valid Share Class FIGI was observed.",
+      "name": "observed_share_class_figis",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "True exactly when observed_share_class_figis contains more than one distinct value. A conflict is retained for review and does not classify or rewrite the observed Composite FIGI.",
+      "name": "share_class_conflict",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Earliest bound S4 XNYS session containing an authority row for this valid observed Composite FIGI.",
+      "name": "first_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Latest bound S4 XNYS session containing an authority row for this valid observed Composite FIGI.",
+      "name": "last_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Non-negative count of asset_observation_daily authority rows whose exact provider_active value is true for this Composite FIGI.",
+      "name": "active_row_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Non-negative count of asset_observation_daily authority rows whose exact provider_active value is false for this Composite FIGI. Identity quality does not alter provider activity.",
+      "name": "inactive_row_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Positive count of distinct bound S4 XNYS sessions containing an authority row for this Composite FIGI.",
+      "name": "session_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Positive count of distinct exact case-sensitive provider tickers observed in authority rows for this Composite FIGI.",
+      "name": "ticker_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Non-negative count of distinct non-null exact provider locale values observed in authority rows for this Composite FIGI.",
+      "name": "provider_locale_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Non-negative count of distinct non-null exact provider market values observed in authority rows for this Composite FIGI.",
+      "name": "provider_market_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Non-negative count of distinct non-null exact primary_exchange_mic values observed in authority rows for this Composite FIGI.",
+      "name": "primary_exchange_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of parent tables allowed to contribute inventory observations; fixed to one because asset_observation_daily is authoritative and universe_source_daily is reconciliation-only.",
+      "name": "parent_table_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of exact authority releases contributing inventory observations; fixed to the one bound asset_observation_daily release. The reconciliation-only universe release is excluded.",
+      "name": "source_release_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 under s7_composite_inventory_source_record_lineage_v1. Seed bytes are exactly UTF-8 of {\"parent_table\":\"asset_observation_daily\",\"release_id\":\"26819530e50cb92cbe0ec833d4b731b959c8bd2463ee2197255c02994241d44c\",\"rule_version\":\"s7_composite_inventory_source_record_lineage_v1\",\"scan_order\":\"artifact_path_asc,row_group_asc,row_index_asc\"} with no newline; then update(bytes.fromhex(source_record_id)) for each authority row of this Composite in that exact scan order. Reconciliation rows are excluded.",
+      "name": "source_record_lineage_digest",
+      "nullable": false
+    }
+  ],
+  "contract_id": "66ac429ccc2f76bbb2a474679e83a9cf68a0f52a52c662c76905e2e4221241e8",
+  "contract_schema_version": 1,
+  "description": "Read-only S7 Gate A candidate inventory of every syntactically valid provider-observed Composite FIGI across the exact full-history S4 Assets release. asset_observation_daily is the sole inventory authority; universe_source_daily is reconciliation-only and cannot add observations. This candidate contains no market classification, canonical identity, eligibility, adjudication, membership mutation, or publication authority.",
+  "domain": "identity",
+  "grain": "One row per distinct syntactically valid observed_composite_figi in the exact bound asset_observation_daily authority release.",
+  "partition_by": [],
+  "primary_key": [
+    "observed_composite_figi"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "schema_exact",
+      "description": "Output field order, Arrow types, outer nullability, and list item nullability must exactly match this contract.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_binding_invalid",
+      "description": "The exact S4 release-set, authority/reconciliation roles, calendar, session range, and immutable plan bindings must validate.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_artifact_integrity_invalid",
+      "description": "Every bound authority and reconciliation Parquet artifact must match its exact path, byte size, SHA-256, row count, and Arrow schema digest.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_count_mismatch",
+      "description": "Observed artifact, row, byte, and session totals must equal the exact bound source totals before any candidate is written.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "session_spine_mismatch",
+      "description": "Daily authority and reconciliation artifacts must map one-to-one to the complete exact bound XNYS session spine.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "authority_source_record_duplicate",
+      "description": "asset_observation_daily must contain no duplicate source_record_id within each session; the bounded daily reconciliation key is not a full-release uniqueness claim.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "requested_provider_active_mismatch",
+      "description": "Every authority row must preserve the reviewed S4 invariant requested_active equals provider_active.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "universe_selected_source_record_duplicate",
+      "description": "universe_source_daily must contain no duplicate selected_source_record_id within each session; the bounded daily reconciliation key is not a full-release uniqueness claim.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "universe_parent_missing",
+      "description": "Every reconciliation selected_source_record_id must resolve to exactly one authority source_record_id in the same session.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "universe_projection_mismatch",
+      "description": "Every shared reviewed field in a universe row must equal the corresponding authority row selected for the same session.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "inventory_authority_leak",
+      "description": "No reconciliation-only universe row, synthetic row, classification, canonical value, or adjudication may contribute to inventory aggregates.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "invalid_composite_in_output",
+      "description": "Every output key must match the exact accepted Composite FIGI syntax; null and malformed source values are measured but excluded.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_duplicate",
+      "description": "The candidate must contain no duplicate observed_composite_figi primary key.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "output_sort_invalid",
+      "description": "Candidate rows must be strictly ascending by observed_composite_figi with deterministic list ordering.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "lineage_digest_invalid",
+      "description": "Every source_record_lineage_digest must be reproduced exactly by s7_composite_inventory_source_record_lineage_v1 from its fixed seed and authority rows only.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "aggregate_invariant_invalid",
+      "description": "Counts, first/last sessions, list uniqueness, conflict flag, fixed parent/release counts, and active plus inactive reconciliation must all hold.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "resource_cap_exceeded",
+      "description": "Distinct Composite, Composite/Share-Class pair, output byte, temporary byte, RSS, batch, worker, and runtime caps must not be exceeded.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "malformed_composite_rows",
+      "description": "Authority rows with an invalid Composite FIGI are assigned the first mutually exclusive reason in null, empty, whitespace_only, surrounding_whitespace, length_not_12, non_upper_ascii_alnum, prefix_not_BBG order. All except null are reported here with bounded examples and excluded.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "malformed_share_class_rows",
+      "description": "For authority rows with a valid Composite FIGI, invalid Share Class FIGIs use the first mutually exclusive reason in null, empty, whitespace_only, surrounding_whitespace, length_not_12, non_upper_ascii_alnum, prefix_not_BBG order. All except null are reported here and omitted from the list.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "share_class_conflict_groups",
+      "description": "Composite groups associated with more than one valid Share Class FIGI remain in the candidate with share_class_conflict=true and are reported for review.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "composite_figi_null_rows",
+      "description": "Authority rows with a null Composite FIGI are excluded from inventory and measured separately from malformed values.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "valid_composite_missing_share_class_rows",
+      "description": "Authority rows with a valid Composite FIGI and null Share Class FIGI retain the Composite group and are measured without inventing a Share Class value.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    }
+  ],
+  "schema_version": 1,
+  "sort_by": [
+    "observed_composite_figi"
+  ],
+  "source_datasets": [
+    "asset_observation_daily",
+    "universe_source_daily"
+  ],
+  "table": "composite_figi_inventory"
+}
