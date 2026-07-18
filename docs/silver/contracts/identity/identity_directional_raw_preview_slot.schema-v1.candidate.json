@@ -1,0 +1,585 @@
+{
+  "columns": [
+    {
+      "arrow_type": "string",
+      "description": "Stable digest of the exact review-only case scope. It is not an identity_case_id and cannot enter an adjudication registry.",
+      "name": "review_case_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Content-addressed ID of the exact three-case, eleven-pair scope-set manifest approved for this review-only candidate.",
+      "name": "review_scope_set_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider namespace; fixed to massive for this bounded review.",
+      "name": "provider_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider market; fixed to stocks for this bounded review.",
+      "name": "provider_market",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider locale; fixed to us for this bounded review. No locale normalization is allowed.",
+      "name": "provider_locale",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact case-sensitive provider ticker from the approved scope: SOR, XZO, or ANABV.",
+      "name": "ticker",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Observed Composite FIGI key of the exact reviewed inventory conflict row. It is selection context only and must not filter the S4 ticker/session scan or become canonical identity.",
+      "name": "inventory_anchor_composite_figi",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "One exact XNYS session from the approved eleven-pair case/session matrix. Missing source membership still produces a review slot.",
+      "name": "session_date",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Zero-based ordinal within the explicitly approved session sequence for this review case.",
+      "name": "session_sequence_ordinal",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Previous explicitly requested session for this review case; null for ordinal zero. This is not an inferred validity boundary.",
+      "name": "previous_requested_session",
+      "nullable": true
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Whether this session immediately follows previous_requested_session on the frozen XNYS calendar; null for ordinal zero. False exposes an unsampled interval.",
+      "name": "previous_session_is_adjacent_xnys",
+      "nullable": true
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of exact matching universe_source_daily rows for this ticker/session. It must be zero or one; zero is retained for review rather than dropped.",
+      "name": "universe_membership_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact derived domain present_active, present_inactive, or absent_source_membership; identity quality never changes this source membership state.",
+      "name": "membership_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Exact source active_on_date when membership is present; null when the review slot has no universe source row.",
+      "name": "active_on_date",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "ProviderRowAttestation v2 ID for the exact universe_source_daily row; null only when universe_membership_count is zero.",
+      "name": "universe_row_attestation_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact selected_source_record_id from universe_source_daily; null only when source membership is absent.",
+      "name": "selected_source_record_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Exact source_version_count from universe_source_daily; null only when source membership is absent.",
+      "name": "source_version_count",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact source version_group_id; null for a singleton or absent source membership.",
+      "name": "version_group_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact universe_source_daily selection_status; null only when source membership is absent.",
+      "name": "selection_status",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact selected provider-observed Composite FIGI; null is preserved. No canonicalization, classification, override, or majority rule is applied.",
+      "name": "observed_composite_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact selected provider-observed Share Class FIGI; null is preserved. This field is never rewritten by the preview.",
+      "name": "observed_share_class_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact selected provider-observed CIK string; null is preserved and no issuer relationship is inferred.",
+      "name": "observed_cik",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact selected provider market value; null is preserved.",
+      "name": "observed_market",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact selected provider locale value; null is preserved.",
+      "name": "observed_locale",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact selected provider primary_exchange_mic value; null is preserved and no current dictionary value is substituted.",
+      "name": "observed_primary_exchange_mic",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact selected provider type_code value; null is preserved and no security-type eligibility is decided.",
+      "name": "observed_type_code",
+      "nullable": true
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Exact universe source_available_session; null only when source membership is absent. It remains distinct from session_date.",
+      "name": "universe_source_available_session",
+      "nullable": true
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of all exact matching asset_observation_daily rows for this ticker/session, including nonselected source versions.",
+      "name": "asset_observation_match_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of matching asset observations whose source_record_id equals selected_source_record_id. It must be one when membership is present and zero when absent.",
+      "name": "selected_asset_parent_match_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "ProviderRowAttestation v2 ID for the exact selected asset_observation_daily parent; null only when source membership is absent.",
+      "name": "selected_asset_parent_attestation_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of matching asset observations not selected as the universe parent. Every such raw source version remains attested and reviewable.",
+      "name": "nonselected_asset_observation_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "json_string",
+      "description": "Canonical JSON array of all matching asset ProviderRowAttestation v2 IDs in deterministic physical order, including the selected parent when present.",
+      "name": "asset_observation_attestation_ids_json",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "True only when the selected universe row reproduces the exact S4 parent projection; null when membership is absent. False cannot enter a trustworthy candidate.",
+      "name": "selected_parent_projection_match",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Content-addressed ID of the immutable case evidence manifest containing every full ProviderRowAttestation v2 snapshot used by this slot.",
+      "name": "case_evidence_manifest_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Normalized relative path to the immutable case evidence manifest.",
+      "name": "case_evidence_manifest_path",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 of the exact case evidence manifest bytes.",
+      "name": "case_evidence_manifest_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed direction_only_not_exact_scope. Eleven sampled sessions can establish observed direction but never an unobserved effective_from/effective_to interval.",
+      "name": "interval_inference_state",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed not_evaluated. This raw preview loads no identity, cross-market, provider-Composite, Share Class, or transition registry and reports no collision count.",
+      "name": "registry_evaluation_state",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false. A raw review slot is not an adjudication input without a separately approved decision plan.",
+      "name": "adjudication_eligible",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false. The preview contains observed source evidence only and cannot create a canonical identity candidate.",
+      "name": "canonical_candidate_eligible",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false. This review-only output cannot authorize S7 Full materialization.",
+      "name": "full_run_eligible",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false. This review-only output cannot be published as a Silver registry or derived identity table.",
+      "name": "publication_eligible",
+      "nullable": false
+    }
+  ],
+  "contract_id": "b475ee2c9745791aae83908c0b6b6380724a34db132b194315ccae1a72ca1366",
+  "contract_schema_version": 1,
+  "description": "Review-only S7 table with exactly one row for each of the approved SOR, XZO, and ANABV case/session slots. It preserves source membership absence, all matching Asset versions, the exact selected-parent reconciliation, and ProviderRowAttestation v2 lineage. It performs no interval inference, registry matching, collision resolution, canonical identity construction, adjudication, Full run, or publication.",
+  "domain": "identity",
+  "grain": "One row for one exact approved review_case_id and XNYS session_date in the fixed three-case, eleven-pair directional raw preview scope, including an explicit row when source membership is absent.",
+  "partition_by": [],
+  "primary_key": [
+    "review_case_id",
+    "session_date"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "schema_exact",
+      "description": "Output field order, Arrow types, nullability, and JSON-string fields must exactly match this review-only contract.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "fixed_review_scope_invalid",
+      "description": "The output must contain exactly the frozen eleven case/session pairs for SOR, XZO, and ANABV, with no ticker-by-session Cartesian expansion.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "inventory_binding_invalid",
+      "description": "Every case must bind the exact reviewed Composite inventory candidate, completion, DATA bytes, schema, and full conflict-row digest without treating the anchor as canonical.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "s4_source_binding_invalid",
+      "description": "The exact S4 release set, two table releases, calendar, scope-set manifest, and immutable plan bindings must validate before scanning.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_artifact_integrity_invalid",
+      "description": "All twenty-two approved daily Parquet artifacts must match exact path, SHA-256, byte count, row count, table contract, and Arrow schema.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_scan_count_mismatch",
+      "description": "Physically scanned artifact, row, and byte totals must equal the exact manifest-bound totals; filtered output counts never substitute for physical scan counts.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "exact_pair_scope_leakage_rows",
+      "description": "No selected source row or output slot may fall outside the exact eleven approved ticker/session pairs; filtering by Composite or Share Class is also forbidden.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "scoped_source_omission_rows",
+      "description": "Every matching universe row and every matching asset observation version in the two bound S4 tables must be retained and attested.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "duplicate_universe_membership_rows",
+      "description": "Each exact review ticker/session may match at most one universe_source_daily row.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "selected_parent_missing_rows",
+      "description": "Every present universe membership must resolve selected_source_record_id to exactly one matching asset_observation_daily parent in the same session.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "selected_parent_multiple_rows",
+      "description": "No present universe membership may resolve selected_source_record_id to more than one matching asset parent.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "selected_parent_projection_mismatch_rows",
+      "description": "Every present membership and selected Asset parent must reproduce the frozen S4 lineage, identity, activity, descriptive, and request-route projection; source availability timelines remain distinct.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "provider_row_attestation_schema_invalid_rows",
+      "description": "Every retained source row must use ProviderRowAttestation schema version 2 with its full contracted row snapshot and exact physical locator.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "row_attestation_replay_invalid_rows",
+      "description": "Every ProviderRowAttestation v2 must replay byte-for-byte from its exact release, artifact, row group, and row index.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "orphan_or_duplicate_attestation_rows",
+      "description": "No evidence manifest may omit a used attestation, contain an unused attestation, duplicate a row-attestation ID, or reuse a physical row locator.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "observed_source_row_mutation_rows",
+      "description": "Observed Composite, Share Class, CIK, membership, activity, ticker, and lineage values must equal the full source snapshots; no raw field is rewritten.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "direction_only_state_invalid_rows",
+      "description": "Every row must remain direction_only_not_exact_scope; sampled observations cannot create effective_from or effective_to intervals.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "registry_resolution_attempt_rows",
+      "description": "The preview must not load, match, rank, prioritize, or apply any Composite, Share Class, or transition registry.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "registry_collision_evaluation_state_invalid_rows",
+      "description": "Every row must state registry_evaluation_state=not_evaluated. The preview must not report multi-registry collision counts as zero when no registry was loaded.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "canonical_identity_output_rows",
+      "description": "No canonical Composite, canonical Share Class, asset_id, issuer_id, canonical CIK, override target, or equivalent identity result may appear.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "adjudication_or_transition_decision_rows",
+      "description": "No disposition, exact override interval, asset transition, registry decision, or decision-plan row may be emitted by this review-only preview.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "capability_true_rows",
+      "description": "adjudication_eligible, canonical_candidate_eligible, full_run_eligible, and publication_eligible must all be false on every row.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_duplicate_excess",
+      "description": "The candidate must contain no duplicate review_case_id and session_date primary key.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "output_sort_invalid",
+      "description": "Rows must be sorted by exact ticker and session_date with the frozen per-case ordinal reproducing the scope manifest.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "output_artifact_readback_invalid",
+      "description": "Candidate manifest, slot Parquet, QA, directional review, bounded examples, case evidence, and completion references must pass exact SHA, byte, schema, count, and immutable readback checks.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "resource_cap_exceeded",
+      "description": "Execution must fail closed before candidate commit if any approved artifact, row, byte, selected-row, wall-time, memory, disk, temporary, or output cap is exceeded.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "requested_slot_missing_membership_rows",
+      "description": "Requested review slots without a universe source membership remain explicit and require review; they are not synthesized, dropped, or treated as inactive.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "asset_only_scope_rows",
+      "description": "Matching Asset observations without a selected universe membership remain attested for review and cannot create membership.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "nonselected_asset_observation_rows",
+      "description": "Nonselected same-session Asset versions remain visible with reason counts and bounded examples rather than being silently discarded.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "same_session_identity_variant_groups",
+      "description": "Same-session matching Asset rows with different Composite, Share Class, or CIK values remain separate source evidence for review.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "directional_composite_change_edges",
+      "description": "Observed selected Composite changes between ordered requested sessions are reported as directional facts only, with bounded examples.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "directional_share_class_change_edges",
+      "description": "Observed selected Share Class changes between ordered requested sessions are reported as directional facts only, with bounded examples.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "sampled_gap_edges",
+      "description": "Changes or continuities spanning an unobserved XNYS interval are reported separately and cannot establish an exact effective interval.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "inventory_anchor_unobserved_slots",
+      "description": "A slot whose selected source Composite differs from or lacks the inventory anchor remains valid directional evidence and requires review; the anchor never filters the scan.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    }
+  ],
+  "schema_version": 1,
+  "sort_by": [
+    "ticker",
+    "session_date"
+  ],
+  "source_datasets": [
+    "composite_figi_inventory",
+    "asset_observation_daily",
+    "universe_source_daily"
+  ],
+  "table": "identity_directional_raw_preview_slot"
+}
