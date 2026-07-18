@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
 
@@ -13,6 +14,9 @@ from ame_stocks_api.silver.contracts import arrow_schema_digest
 from ame_stocks_api.silver.identity_directional_raw_preview_contract import (
     DIRECTIONAL_RAW_PREVIEW_FIXED_CASE_SESSIONS,
     IDENTITY_DIRECTIONAL_RAW_PREVIEW_SLOT_CONTRACT,
+)
+from ame_stocks_api.silver.identity_directional_raw_preview_execution_plan import (
+    S7DirectionalRawPreviewExecutionSourcePin,
 )
 from ame_stocks_api.silver.identity_directional_raw_preview_runner import (
     _RUNNER_VERIFIED_CRITICAL_QA_IDS,
@@ -233,6 +237,226 @@ def _source_refs() -> tuple[DirectionalSourceArtifactRef, ...]:
                 )
             )
     return tuple(result)
+
+
+def _source_projection_context():
+    raw_documents = []
+    execution_pins = []
+    for ref in sorted(_source_refs()):
+        raw_documents.append(
+            {
+                "bytes": ref.bytes,
+                "content_opened": False,
+                "disk_is_regular_file": True,
+                "disk_is_symlink": False,
+                "disk_size_bytes": ref.bytes,
+                "media_type": "application/vnd.apache.parquet",
+                "path": ref.path,
+                "release_id": ref.release_id,
+                "release_manifest_sha256": ref.release_manifest_sha256,
+                "role": "data",
+                "row_count": ref.row_count,
+                "session_date": ref.session_date.isoformat(),
+                "sha256": ref.sha256,
+                "source_contract_id": ref.source_contract_id,
+                "source_schema_digest": ref.schema_digest,
+                "table": ref.table,
+            }
+        )
+        execution_pins.append(
+            S7DirectionalRawPreviewExecutionSourcePin(
+                table=ref.table,
+                session_date=ref.session_date.isoformat(),
+                release_id=ref.release_id,
+                release_manifest_sha256=ref.release_manifest_sha256,
+                path=ref.path,
+                sha256=ref.sha256,
+                bytes=ref.bytes,
+                row_count=ref.row_count,
+                source_contract_id=ref.source_contract_id,
+                schema_digest=ref.schema_digest,
+            )
+        )
+    source_binding = {
+        "source_artifact_set_digest": stable_digest(raw_documents),
+        "source_artifacts": raw_documents,
+    }
+    plan = SimpleNamespace(
+        source_artifact_set_digest=stable_digest(
+            [item.to_dict() for item in execution_pins]
+        ),
+        source_artifacts=tuple(execution_pins),
+    )
+    return source_binding, plan
+
+
+def _approved_projection_controls(tmp_path):
+    source_binding, plan = _source_projection_context()
+    plan.__dict__.update(
+        {
+            "algorithm_digest": "a" * 64,
+            "contract_candidate_sha256": "b" * 64,
+            "contract_id": "c" * 64,
+            "contract_schema_digest": "d" * 64,
+            "execution_data_root": str(tmp_path),
+            "input_binding_digest": "e" * 64,
+            "inventory_completion_id": "f" * 64,
+            "inventory_completion_sha256": "0" * 64,
+            "manifest_preflight_intent_id": "1" * 64,
+            "manifest_preflight_intent_path": "intent/manifest.json",
+            "manifest_preflight_intent_sha256": "2" * 64,
+            "plan_id": PLAN_ID,
+            "qa_semantics_digest": "3" * 64,
+            "resource_caps": SimpleNamespace(digest="4" * 64),
+            "runtime_file_set_digest": "5" * 64,
+            "scope_set_id": SCOPE_ID,
+            "scope_set_sha256": "6" * 64,
+            "sha256": PLAN_SHA,
+            "source_binding_manifest_id": "7" * 64,
+            "source_binding_manifest_path": "source-binding/manifest.json",
+            "source_binding_manifest_sha256": "8" * 64,
+            "verification_file_set_digest": "9" * 64,
+        }
+    )
+    approval = SimpleNamespace(
+        algorithm_digest=plan.algorithm_digest,
+        approval_id=APPROVAL_ID,
+        approved_at_utc=NOW,
+        contract_candidate_sha256=plan.contract_candidate_sha256,
+        contract_id=plan.contract_id,
+        contract_schema_digest=plan.contract_schema_digest,
+        execution_data_root=plan.execution_data_root,
+        input_binding_digest=plan.input_binding_digest,
+        inventory_completion_id=plan.inventory_completion_id,
+        inventory_completion_sha256=plan.inventory_completion_sha256,
+        manifest_preflight_intent_id=plan.manifest_preflight_intent_id,
+        manifest_preflight_intent_path=plan.manifest_preflight_intent_path,
+        manifest_preflight_intent_sha256=plan.manifest_preflight_intent_sha256,
+        plan_id=plan.plan_id,
+        plan_sha256=plan.sha256,
+        qa_semantics_digest=plan.qa_semantics_digest,
+        registry_semantics_digest=(
+            runner_module.DIRECTIONAL_RAW_PREVIEW_REGISTRY_EXCLUSIVITY_SEMANTICS_DIGEST
+        ),
+        request_event_id="a" * 64,
+        request_event_sha256="b" * 64,
+        resource_caps_digest=plan.resource_caps.digest,
+        runtime_file_set_digest=plan.runtime_file_set_digest,
+        scope_set_id=plan.scope_set_id,
+        scope_set_sha256=plan.scope_set_sha256,
+        sha256=APPROVAL_SHA,
+        source_artifact_set_digest=plan.source_artifact_set_digest,
+        source_binding_manifest_id=plan.source_binding_manifest_id,
+        source_binding_manifest_sha256=plan.source_binding_manifest_sha256,
+        verification_file_set_digest=plan.verification_file_set_digest,
+        preview_execution_authorized=True,
+        data_read_authorized=True,
+        parquet_read_authorized=True,
+        once_to_awaiting_review=True,
+        source_discovery_authorized=False,
+        caller_scope_override_authorized=False,
+        exact_group_history_read_authorized=False,
+        network_access_authorized=False,
+        external_evidence_capture_authorized=False,
+        registry_evaluation_authorized=False,
+        adjudication_authorized=False,
+        table_materialization_authorized=False,
+        full_run_authorized=False,
+        publication_authorized=False,
+        forced_liquidation_authorized=False,
+    )
+    source_binding["source_binding_id"] = plan.source_binding_manifest_id
+    return source_binding, _LoadedControls(plan=plan, approval=approval, calendar=None)
+
+
+def test_source_binding_projection_domains_validate_independently() -> None:
+    source_binding, plan = _source_projection_context()
+    assert source_binding["source_artifact_set_digest"] != plan.source_artifact_set_digest
+
+    runner_module._verify_source_artifact_projection_domains(source_binding, plan)
+
+
+def test_source_binding_raw_projection_digest_tamper_fails_closed() -> None:
+    source_binding, plan = _source_projection_context()
+    source_binding["source_artifact_set_digest"] = "f" * 64
+
+    with pytest.raises(
+        IdentityDirectionalRawPreviewRunnerError, match="s4_source_binding_invalid"
+    ):
+        runner_module._verify_source_artifact_projection_domains(source_binding, plan)
+
+
+def test_source_binding_self_consistent_raw_execution_field_tamper_fails_closed() -> None:
+    source_binding, plan = _source_projection_context()
+    source_binding["source_artifacts"][0]["sha256"] = "f" * 64
+    source_binding["source_artifact_set_digest"] = stable_digest(
+        source_binding["source_artifacts"]
+    )
+
+    with pytest.raises(
+        IdentityDirectionalRawPreviewRunnerError, match="s4_source_binding_invalid"
+    ):
+        runner_module._verify_source_artifact_projection_domains(source_binding, plan)
+
+
+def test_source_binding_tamper_stops_before_source_open_or_staging(
+    tmp_path, monkeypatch
+) -> None:
+    source_binding, controls = _approved_projection_controls(tmp_path)
+    source_binding["source_artifact_set_digest"] = "f" * 64
+    reads = []
+    source_open_count = 0
+
+    monkeypatch.setattr(
+        runner_module, "_load_controls", lambda *_args, **_kwargs: controls
+    )
+
+    def read_bound_json(_root, _relative, _expected_sha256, label):
+        reads.append(label)
+        return source_binding
+
+    def unexpected_source_open(*_args, **_kwargs):
+        nonlocal source_open_count
+        source_open_count += 1
+        raise AssertionError("source bundle must not open")
+
+    monkeypatch.setattr(runner_module, "_read_bound_json", read_bound_json)
+    monkeypatch.setattr(
+        runner_module, "_open_exact_source_bundle", unexpected_source_open
+    )
+    with pytest.raises(
+        IdentityDirectionalRawPreviewRunnerError, match="s4_source_binding_invalid"
+    ):
+        runner_module.run_exact_s7_directional_raw_preview(
+            tmp_path,
+            plan_id=PLAN_ID,
+            expected_plan_sha256=PLAN_SHA,
+            approval_id=APPROVAL_ID,
+            expected_approval_sha256=APPROVAL_SHA,
+        )
+
+    assert reads == ["S4 source binding"]
+    assert source_open_count == 0
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("tamper", ["digest", "self_consistent_pin"])
+def test_source_binding_execution_projection_tamper_fails_closed(tamper: str) -> None:
+    source_binding, plan = _source_projection_context()
+    if tamper == "digest":
+        plan.source_artifact_set_digest = "f" * 64
+    else:
+        pins = list(plan.source_artifacts)
+        pins[0] = replace(pins[0], sha256="f" * 64)
+        plan.source_artifacts = tuple(pins)
+        plan.source_artifact_set_digest = stable_digest(
+            [item.to_dict() for item in pins]
+        )
+
+    with pytest.raises(
+        IdentityDirectionalRawPreviewRunnerError, match="s4_source_binding_invalid"
+    ):
+        runner_module._verify_source_artifact_projection_domains(source_binding, plan)
 
 
 def _fixture_attestations() -> tuple[ProviderRowAttestation, ...]:

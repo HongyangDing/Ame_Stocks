@@ -2132,12 +2132,9 @@ def _verify_bound_control_artifacts(root: Path, plan: Any) -> None:
         plan.source_binding_manifest_sha256,
         "S4 source binding",
     )
-    if (
-        source_binding.get("source_binding_id") != plan.source_binding_manifest_id
-        or source_binding.get("source_artifact_set_digest")
-        != plan.source_artifact_set_digest
-    ):
+    if source_binding.get("source_binding_id") != plan.source_binding_manifest_id:
         raise IdentityDirectionalRawPreviewRunnerError("s4_source_binding_invalid")
+    _verify_source_artifact_projection_domains(source_binding, plan)
     completion = _read_bound_json(
         root,
         plan.inventory_completion_path,
@@ -2170,6 +2167,63 @@ def _verify_bound_control_artifacts(root: Path, plan: Any) -> None:
     ]
     if len(data_refs) != 1 or data_refs[0].get("sha256") != plan.inventory_candidate_data_sha256:
         raise IdentityDirectionalRawPreviewRunnerError("inventory_binding_invalid")
+
+
+def _verify_source_artifact_projection_domains(
+    source_binding: Mapping[str, object], plan: Any
+) -> None:
+    try:
+        from ame_stocks_api.silver.identity_directional_raw_preview_execution_plan import (
+            IdentityDirectionalRawPreviewExecutionPlanError,
+            S7DirectionalRawPreviewExecutionSourcePin,
+        )
+        from ame_stocks_api.silver.identity_directional_raw_preview_manifest_plan import (
+            IdentityDirectionalRawPreviewManifestPlanError,
+            S7DirectionalRawPreviewSourceArtifactRef,
+        )
+    except ImportError as exc:
+        raise IdentityDirectionalRawPreviewRunnerError(
+            "s4_source_binding_invalid"
+        ) from exc
+
+    raw_documents = source_binding.get("source_artifacts")
+    try:
+        if not isinstance(raw_documents, list):
+            raise TypeError("source artifacts must be a list")
+        raw_refs = tuple(
+            S7DirectionalRawPreviewSourceArtifactRef.from_dict(item)
+            for item in raw_documents
+        )
+        execution_pins = tuple(plan.source_artifacts)
+        if any(
+            not isinstance(item, S7DirectionalRawPreviewExecutionSourcePin)
+            for item in execution_pins
+        ):
+            raise TypeError("execution source pin has an untrusted type")
+        normalized_refs = tuple(
+            S7DirectionalRawPreviewExecutionSourcePin.from_source_ref(item)
+            for item in raw_refs
+        )
+        raw_digest = stable_digest([item.to_dict() for item in raw_refs])
+        normalized_digest = stable_digest([item.to_dict() for item in execution_pins])
+    except (
+        AttributeError,
+        IdentityDirectionalRawPreviewExecutionPlanError,
+        IdentityDirectionalRawPreviewManifestPlanError,
+        KeyError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        raise IdentityDirectionalRawPreviewRunnerError(
+            "s4_source_binding_invalid"
+        ) from exc
+
+    if (
+        source_binding.get("source_artifact_set_digest") != raw_digest
+        or plan.source_artifact_set_digest != normalized_digest
+        or normalized_refs != execution_pins
+    ):
+        raise IdentityDirectionalRawPreviewRunnerError("s4_source_binding_invalid")
 
 
 def _read_bound_json(
