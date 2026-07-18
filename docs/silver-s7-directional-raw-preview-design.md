@@ -1,20 +1,23 @@
-# S7 三案例 directional raw preview：review-only schema proposal
+# S7 三案例 directional raw preview：冻结的 future-executable package
 
 ## 1. 当前状态与边界
 
-本文件冻结 SOR、XZO、ANABV 三个已知 Share Class 冲突案例的下一道只读审查结构。
-当前只完成：
+本文件冻结 SOR、XZO、ANABV 三个已知 Share Class 冲突案例的下一道只读审查结构，以及
+后续两道仍须分别逐字批准的执行控制面。当前已完成：
 
 - review-only slot candidate contract；
 - packaged schema resource；
 - 固定 11-pair scope constants；
 - registry 职责互斥语义；
 - 本地、非执行型 ScopeSet / PreparationPlan / Request 控制面；
-- contract、Plan、Request 测试。
+- manifest-only Plan / Request / Approval / runner 控制包；
+- future preview ExecutionPlan / Request / Approval / runner 控制包；
+- contract、控制链、fixture、幂等恢复、CLI import isolation 和 runner 测试。
 
-当前没有实现或授权 runner、approval receipt、远程 preview、external evidence capture、exact-group
-全历史补读、adjudication plan、registry release、四表 materialization、Full 或 Publish。刚完成的
-`composite_figi_inventory` 继续有效，不重跑。
+这些 runner 只是已经冻结的未来能力，并不等于当前获准执行。当前 preparation approval 只授权实现并
+冻结代码；没有读取远程 S4 manifest、没有读取或 `lstat` 远程 Parquet，也没有运行 preview。仍未授权
+external evidence capture、exact-group 全历史补读、adjudication plan、registry release、四表
+materialization、Full 或 Publish。刚完成的 `composite_figi_inventory` 继续有效，不重跑。
 
 ## 2. 精确逻辑范围
 
@@ -195,7 +198,7 @@ semantics digest 由 `identity_directional_raw_preview_contract.py` 的固定语
 
 ## 9. Capability boundary
 
-本 schema package 的所有 capability 均为 false：
+本 schema package 的所有 materialization capability 均为 false：
 
 ```text
 preview_execution
@@ -208,27 +211,41 @@ full_run
 publication
 ```
 
-本 checkpoint 的 PreparationPlan/Request 也不可执行：它们只请求批准实现并冻结未来 executable package，
-不授权读取 22 份日分区。当前 Request 没有 approval recorder、runner、run CLI、exact physical artifact refs
-或 completion manifest SHA；其 literal 即使获批，也只允许准备这些代码和新的 execution controls。
+PreparationPlan/Request 本身不可执行：其逐字批准只允许实现并冻结本文件描述的 future-executable
+package，不授权读取 22 份日分区。完成代码冻结后，控制链必须依次经过两个互不替代的 gate：
 
-真正执行 preview 前仍须再生成一份绑定 runner/approval/run CLI、exact 22 artifact refs、completion lineage、
-clean Git commit/tree、runtime/test file sets 的 execution Plan/Request，并等待新的逐字 execution approval。
-未来 Preview completion 必须停在 `awaiting_review`。
+1. **Manifest-only gate**：新的逐字批准最多读取 4 份固定 JSON manifest，并对 22 份固定 Parquet
+   只执行一次 `lstat`；禁止打开、hash 或读取 Parquet 内容。它先写 immutable run intent，再生成
+   source binding、ExecutionPlan、ExecutionRequest 和 manifest-preflight completion，共 5 份 immutable
+   JSON，最后停在 `awaiting_review`。同一 Plan/Approval 的完成态重试不再读取 source manifest，也不再
+   `lstat` Parquet。若崩溃后只留下 pre-read intent 而没有 source binding，由于无法证明此前是否已经
+   完成读取，重试必须 fail closed，不能自动再读；已有完整 source binding 时才允许以 0 次读取恢复
+   后续控制输出。
+2. **Preview-execution gate**：必须对上一步生成的 exact ExecutionPlan/Request 另行逐字批准，才允许
+   runner 打开其中固定的 22 份 Parquet。它不能接受 caller 提供的 ticker、日期、范围或路径，并且
+   candidate/completion 必须停在 `awaiting_review`。
 
-## 10. 后续输出设计（尚未实现）
+两道 gate 都绑定 clean Git commit/tree、完整 runtime/test file pins、固定 data root、资源上限和
+前序 immutable control lineage。任何控制冲突、source mismatch 或 partial output 冲突都 fail closed，
+不会自动选择较新文件、覆盖结果或扩大范围。
 
-未来 executable package 获得单独 execution approval 后，独立 runner 才可生成：
+## 10. Future preview 输出（已实现代码，尚未执行）
+
+future executable package 获得单独 execution approval 后，独立 runner 才可生成：
 
 ```text
-directional-raw-preview-case-evidence/<review_case_id>/<manifest_id>/manifest.json
-directional-raw-preview-candidates/<candidate_id>/manifest.json
-directional-raw-preview-candidates/<candidate_id>/data/review-slots.parquet
-directional-raw-preview-candidates/<candidate_id>/review/directional-sequences.json
-directional-raw-preview-candidates/<candidate_id>/qa/qa.json
-directional-raw-preview-candidates/<candidate_id>/examples/review-anomalies.json
-directional-raw-preview-completions/<plan_id>/<approval_id>/manifest.json
+manifests/silver/identity/directional-raw-preview-candidates/candidate_id=<candidate_id>/evidence/review_case_id=<review_case_id>/manifest.json
+manifests/silver/identity/directional-raw-preview-candidates/candidate_id=<candidate_id>/manifest.json
+manifests/silver/identity/directional-raw-preview-candidates/candidate_id=<candidate_id>/data/review-slots.parquet
+manifests/silver/identity/directional-raw-preview-candidates/candidate_id=<candidate_id>/review/directional-sequences.json
+manifests/silver/identity/directional-raw-preview-candidates/candidate_id=<candidate_id>/qa/qa.json
+manifests/silver/identity/directional-raw-preview-candidates/candidate_id=<candidate_id>/examples/review-anomalies.json
+manifests/silver/identity/directional-raw-preview-execution-completions/plan_id=<plan_id>/approval_id=<approval_id>/manifest.json
 ```
 
-这只是 output contract 设计，不是文件创建或执行授权。SEC、issuer、OpenFIGI 原始 bytes 和两条
+candidate 先在同文件系统 staging 中完整写入、文件与目录 `fsync`、做 schema/语义/attestation replay 和
+资源上限复核，然后才允许 no-clobber forward rename；completion 只通过 no-replace hardlink 发布。失败后
+保留可审计现场，不执行反向 rollback 或自动删除。已有完成态必须重新验证全部语义绑定后才可幂等返回。
+
+这仍只是代码与 output contract，不是文件创建或执行授权。SEC、issuer、OpenFIGI 原始 bytes 和两条
 availability 时间轴在 raw preview review 后进入独立 external-evidence gate，不能回填成历史事件时点。

@@ -22,6 +22,7 @@ from ame_stocks_api.silver.identity_source import (
     IdentityPublishedSource,
     IdentitySourceBundle,
     IdentitySourceError,
+    open_approved_identity_directional_raw_preview_source_bundle,
     open_approved_identity_preview_source_bundle,
 )
 
@@ -314,6 +315,17 @@ def test_approved_preview_source_factory_has_no_caller_scope_inputs() -> None:
         "approval_id",
         "expected_approval_sha256",
     )
+    assert tuple(
+        inspect.signature(
+            open_approved_identity_directional_raw_preview_source_bundle
+        ).parameters
+    ) == (
+        "data_root",
+        "plan_id",
+        "expected_plan_sha256",
+        "approval_id",
+        "expected_approval_sha256",
+    )
 
 
 def test_preview_capability_requires_exact_two_table_session_cartesian_product(
@@ -370,4 +382,65 @@ def test_preview_capability_requires_exact_two_table_session_cartesian_product(
             authorized_sessions=(session,),
             preview_control_binding=("1" * 64, "2" * 64, "3" * 64, "4" * 64),
             _seal=identity_source_module._OFFICIAL_CAPABILITY_SEAL,
+        )
+
+
+def test_directional_capability_cannot_be_forged_or_used_as_detector_scope(
+    tmp_path: Path,
+) -> None:
+    session = date(2024, 1, 2)
+    memberships = {}
+    for table in ("asset_observation_daily", "universe_source_daily"):
+        pin = S7_SOURCE_PINS[table]
+        ref = ArtifactRef(
+            path=(
+                f"silver/schema=v1/fixture/{table}/build_id={pin.build_id}/data/"
+                f"session_year=2024/session_date={session}/part-00000.parquet"
+            ),
+            sha256="7" * 64,
+            bytes=100,
+            row_count=1,
+            media_type="application/vnd.apache.parquet",
+            role=ArtifactRole.DATA,
+            table=table,
+            schema_digest="8" * 64,
+        )
+        memberships[(table, ref.path)] = (
+            pin.release_id,
+            f"manifests/silver/releases/release_id={pin.release_id}.json",
+            pin.release_manifest_sha256,
+            ref,
+        )
+    capability = identity_source_module._IdentitySourceCapability(
+        official=True,
+        data_root=tmp_path.resolve(),
+        artifact_memberships=memberships,
+        physical_scope=identity_source_module._DIRECTIONAL_PREVIEW_PHYSICAL_SCOPE,
+        authorized_sessions=(session,),
+        preview_control_binding=("1" * 64, "2" * 64, "3" * 64, "4" * 64),
+        _seal=identity_source_module._OFFICIAL_CAPABILITY_SEAL,
+    )
+    with pytest.raises(IdentitySourceError, match="not issued"):
+        capability.require_approved_directional_preview_scope(
+            plan_id="1" * 64,
+            plan_sha256="2" * 64,
+            approval_id="3" * 64,
+            approval_sha256="4" * 64,
+            sessions=(session,),
+        )
+    identity_source_module._FACTORY_ISSUED_OFFICIAL_CAPABILITIES.add(capability)
+    capability.require_approved_directional_preview_scope(
+        plan_id="1" * 64,
+        plan_sha256="2" * 64,
+        approval_id="3" * 64,
+        approval_sha256="4" * 64,
+        sessions=(session,),
+    )
+    with pytest.raises(IdentitySourceError, match="bounded preview scope"):
+        capability.require_approved_preview_scope(
+            plan_id="1" * 64,
+            plan_sha256="2" * 64,
+            approval_id="3" * 64,
+            approval_sha256="4" * 64,
+            sessions=(session,),
         )

@@ -50,6 +50,9 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _SESSION_PARTITION = re.compile(r"(?:^|/)session_date=(\d{4}-\d{2}-\d{2})(?:/|$)")
 _FULL_PHYSICAL_SCOPE: Final = "full_six_release_physical_v1"
 _PREVIEW_PHYSICAL_SCOPE: Final = "approved_detector_preview_s4_daily_v1"
+_DIRECTIONAL_PREVIEW_PHYSICAL_SCOPE: Final = (
+    "approved_directional_raw_preview_s4_daily_v1"
+)
 _TEST_PHYSICAL_SCOPE: Final = "test_fixture_v1"
 
 
@@ -119,7 +122,10 @@ class _IdentitySourceCapability:
                     raise IdentitySourceError(
                         "full official S7 source capability membership is incomplete"
                     )
-            elif self.physical_scope == _PREVIEW_PHYSICAL_SCOPE:
+            elif self.physical_scope in {
+                _PREVIEW_PHYSICAL_SCOPE,
+                _DIRECTIONAL_PREVIEW_PHYSICAL_SCOPE,
+            }:
                 if (
                     not sessions
                     or tuple(sorted(set(sessions))) != sessions
@@ -212,6 +218,29 @@ class _IdentitySourceCapability:
         ):
             raise IdentitySourceError(
                 "S7 source capability crosses its approved bounded preview scope"
+            )
+
+    def require_approved_directional_preview_scope(
+        self,
+        *,
+        plan_id: str,
+        plan_sha256: str,
+        approval_id: str,
+        approval_sha256: str,
+        sessions: Sequence[date],
+    ) -> None:
+        """Require the dedicated exact directional Plan/Approval capability."""
+
+        self.require_factory_issued()
+        if (
+            not self.official
+            or self.physical_scope != _DIRECTIONAL_PREVIEW_PHYSICAL_SCOPE
+            or self.preview_control_binding
+            != (plan_id, plan_sha256, approval_id, approval_sha256)
+            or self.authorized_sessions != tuple(sessions)
+        ):
+            raise IdentitySourceError(
+                "S7 source capability crosses its approved directional preview scope"
             )
 
 
@@ -494,6 +523,23 @@ class IdentitySourceBundle:
             sessions=sessions,
         )
 
+    def require_approved_directional_preview_scope(
+        self,
+        *,
+        plan_id: str,
+        plan_sha256: str,
+        approval_id: str,
+        approval_sha256: str,
+        sessions: Sequence[date],
+    ) -> None:
+        self._capability.require_approved_directional_preview_scope(
+            plan_id=plan_id,
+            plan_sha256=plan_sha256,
+            approval_id=approval_id,
+            approval_sha256=approval_sha256,
+            sessions=sessions,
+        )
+
     @property
     def sources(self) -> Mapping[str, IdentityPublishedSource]:
         return self._sources
@@ -667,6 +713,303 @@ class IdentitySourceBundle:
                     source_record_id=row["selected_source_record_id"],
                     source_available_session=row["source_available_session"],
                 )
+
+
+def open_approved_identity_directional_raw_preview_source_bundle(
+    data_root: Path,
+    *,
+    plan_id: str,
+    expected_plan_sha256: str,
+    approval_id: str,
+    expected_approval_sha256: str,
+) -> IdentitySourceBundle:
+    """Open only the exact twenty-two directional-preview artifacts in the Plan.
+
+    This factory accepts no dates, tickers, ranges, artifacts or paths from the
+    caller.  The independently recorded execution Approval is required, and the
+    ordinary full-history and old detector-preview capabilities are not reused.
+    """
+
+    if not isinstance(data_root, Path):
+        raise IdentitySourceError("approved directional preview data_root must be a Path")
+    for label, value in (
+        ("plan ID", plan_id),
+        ("plan SHA-256", expected_plan_sha256),
+        ("approval ID", approval_id),
+        ("approval SHA-256", expected_approval_sha256),
+    ):
+        if not isinstance(value, str) or not _SHA256.fullmatch(value):
+            raise IdentitySourceError(f"approved directional preview {label} is invalid")
+    root = data_root.expanduser().resolve()
+    if not root.is_dir() or root.is_symlink() or root != root.resolve():
+        raise IdentitySourceError("approved directional preview root is unavailable or unsafe")
+
+    from ame_stocks_api.silver.identity_directional_raw_preview_approval import (
+        DirectionalRawPreviewExecutionApprovalStore,
+        IdentityDirectionalRawPreviewExecutionApprovalError,
+    )
+    from ame_stocks_api.silver.identity_directional_raw_preview_contract import (
+        DIRECTIONAL_RAW_PREVIEW_FIXED_CASE_SESSIONS,
+    )
+    from ame_stocks_api.silver.identity_directional_raw_preview_execution_plan import (
+        DirectionalRawPreviewExecutionPlanStore,
+        IdentityDirectionalRawPreviewExecutionPlanError,
+    )
+    from ame_stocks_api.silver.store import SilverStoreError
+
+    try:
+        plan_store = DirectionalRawPreviewExecutionPlanStore(root)
+        plan, _ = plan_store.load_execution_plan(
+            plan_id, expected_sha256=expected_plan_sha256
+        )
+        approval, _ = DirectionalRawPreviewExecutionApprovalStore(root).load_approval(
+            approval_id, expected_sha256=expected_approval_sha256
+        )
+        if (
+            approval.plan_id != plan.plan_id
+            or approval.plan_sha256 != plan.sha256
+            or approval.source_artifact_set_digest != plan.source_artifact_set_digest
+            or approval.source_binding_manifest_id != plan.source_binding_manifest_id
+            or approval.source_binding_manifest_sha256
+            != plan.source_binding_manifest_sha256
+            or approval.execution_data_root != str(root)
+            or not approval.preview_execution_authorized
+            or not approval.data_read_authorized
+            or not approval.parquet_read_authorized
+            or approval.source_discovery_authorized
+            or approval.caller_scope_override_authorized
+        ):
+            raise IdentitySourceError("directional execution controls cross scope")
+        source_pins = tuple(plan.source_artifacts)
+        sessions = tuple(
+            sorted({date.fromisoformat(item.session_date) for item in source_pins})
+        )
+        fixed_sessions = tuple(
+            sorted(
+                {
+                    session
+                    for _, case_sessions in DIRECTIONAL_RAW_PREVIEW_FIXED_CASE_SESSIONS
+                    for session in case_sessions
+                }
+            )
+        )
+        if (
+            len(source_pins) != 22
+            or sessions != fixed_sessions
+            or {
+                (item.table, item.session_date) for item in source_pins
+            }
+            != {
+                (table, session.isoformat())
+                for table in ("asset_observation_daily", "universe_source_daily")
+                for session in sessions
+            }
+        ):
+            raise IdentitySourceError("directional Plan source spine is not exact")
+
+        release_set_path = (
+            "manifests/silver/release-sets/assets/"
+            f"release_set_id={S7_S4_RELEASE_SET_ID}/manifest.json"
+        )
+        physical_release_set_path = safe_relative_path(root, release_set_path)
+        if (
+            not physical_release_set_path.is_file()
+            or physical_release_set_path.is_symlink()
+            or sha256_file(physical_release_set_path)
+            != S7_S4_RELEASE_SET_MANIFEST_SHA256
+        ):
+            raise IdentitySourceError("S7 S4 release-set marker differs")
+
+        store = SilverStore(root)
+        selected_by_table: dict[str, tuple[ArtifactRef, ...]] = {}
+        for table in ("asset_observation_daily", "universe_source_daily"):
+            pin = S7_SOURCE_PINS[table]
+            release, document = store.load_release(pin.release_id)
+            _verify_release_pin_metadata(pin, release, document.path, document.sha256)
+            selected = _select_daily_preview_outputs(
+                release, table=table, sessions=sessions
+            )
+            expected_by_session = {
+                date.fromisoformat(item.session_date): item
+                for item in source_pins
+                if item.table == table
+            }
+            for output in selected:
+                match = _SESSION_PARTITION.search(output.path)
+                if match is None:
+                    raise IdentitySourceError("directional DATA path has no session")
+                expected = expected_by_session[date.fromisoformat(match.group(1))]
+                if (
+                    output.path != expected.path
+                    or output.sha256 != expected.sha256
+                    or output.bytes != expected.bytes
+                    or output.row_count != expected.row_count
+                    or output.table != expected.table
+                    or output.schema_digest != expected.schema_digest
+                    or release.contract_id != expected.source_contract_id
+                    or pin.release_id != expected.release_id
+                    or pin.release_manifest_sha256 != expected.release_manifest_sha256
+                ):
+                    raise IdentitySourceError(
+                        "directional source artifact differs from embedded Plan ref"
+                    )
+            selected_by_table[table] = selected
+        _verify_directional_preview_metadata_caps(plan.resource_caps, selected_by_table)
+
+        ordinary_reader = PublishedSilverReader(root)
+        s4_reader = PublishedAssetEvidenceReader(root)
+        sources: dict[str, IdentityPublishedSource] = {}
+        for table, pin in S7_SOURCE_PINS.items():
+            selected_outputs = selected_by_table.get(table, ())
+            selected_paths = tuple(sorted(item.path for item in selected_outputs))
+            if pin.evidence_only_s4:
+                evidence, verified_outputs = (
+                    s4_reader._inspect_selected_for_identity_preview(
+                        pin.release_id, selected_paths
+                    )
+                )
+                published = PublishedRelease(
+                    release=evidence.release,
+                    contract=evidence.contract,
+                    build=evidence.build,
+                    data_paths=evidence.data_paths,
+                )
+            else:
+                published, release_set, verified_outputs = (
+                    ordinary_reader._inspect_selected_for_identity_preview(
+                        pin.release_id, selected_paths
+                    )
+                )
+                if release_set is not None:
+                    raise IdentitySourceError(
+                        "non-S4 directional source unexpectedly has a release set"
+                    )
+            if tuple(verified_outputs) != tuple(
+                sorted(selected_outputs, key=lambda item: item.path)
+            ):
+                raise IdentitySourceError("directional physical artifact set differs")
+            release, document = store.load_release(pin.release_id)
+            if release.to_dict() != published.release.to_dict():
+                raise IdentitySourceError(f"S7 release changed on reread: {table}")
+            _verify_pin(pin, published, document.path, document.sha256)
+            _verify_declared_identity_source(pin, published)
+            sources[table] = IdentityPublishedSource(
+                pin=pin,
+                published=published,
+                release_manifest_path=document.path,
+                release_manifest_sha256=document.sha256,
+                data_root=root,
+                physical_artifacts=tuple(
+                    zip(verified_outputs, published.data_paths, strict=True)
+                ),
+            )
+        return _build_official_identity_directional_preview_source_bundle(
+            root,
+            sources,
+            plan_id=plan.plan_id,
+            plan_sha256=plan.sha256,
+            approval_id=approval.approval_id,
+            approval_sha256=approval.sha256,
+            sessions=sessions,
+        )
+    except IdentitySourceError:
+        raise
+    except (
+        IdentityDirectionalRawPreviewExecutionPlanError,
+        IdentityDirectionalRawPreviewExecutionApprovalError,
+        SilverStoreError,
+        OSError,
+    ) as exc:
+        raise IdentitySourceError(
+            "approved directional preview source bundle cannot open"
+        ) from exc
+
+
+def _verify_directional_preview_metadata_caps(
+    caps: object,
+    selected_by_table: Mapping[str, tuple[ArtifactRef, ...]],
+) -> None:
+    asset = selected_by_table["asset_observation_daily"]
+    universe = selected_by_table["universe_source_daily"]
+    values = (
+        (
+            sum(int(item.row_count or 0) for item in asset),
+            getattr(caps, "scanned_asset_row_hard_cap", -1),
+            "asset rows",
+        ),
+        (
+            sum(int(item.row_count or 0) for item in universe),
+            getattr(caps, "scanned_universe_row_hard_cap", -1),
+            "universe rows",
+        ),
+        (
+            sum(int(item.row_count or 0) for item in (*asset, *universe)),
+            getattr(caps, "scanned_total_row_hard_cap", -1),
+            "total rows",
+        ),
+        (
+            len(asset) + len(universe),
+            getattr(caps, "expected_physical_artifact_count", -1),
+            "artifact count",
+        ),
+        (
+            sum(item.bytes for item in (*asset, *universe)),
+            getattr(caps, "source_bytes_hard_cap", -1),
+            "source bytes",
+        ),
+    )
+    for observed, limit, label in values:
+        if type(limit) is not int or limit <= 0 or observed > limit:
+            raise IdentitySourceError(
+                f"approved directional metadata exceeds {label} cap"
+            )
+    if len(asset) + len(universe) != getattr(
+        caps, "expected_physical_artifact_count", -1
+    ):
+        raise IdentitySourceError("approved directional artifact count is not exact")
+
+
+def _build_official_identity_directional_preview_source_bundle(
+    data_root: Path,
+    sources: Mapping[str, IdentityPublishedSource],
+    *,
+    plan_id: str,
+    plan_sha256: str,
+    approval_id: str,
+    approval_sha256: str,
+    sessions: tuple[date, ...],
+) -> IdentitySourceBundle:
+    root = data_root.expanduser().resolve()
+    _verify_official_identity_preview_sources(root, sources, sessions=sessions)
+    memberships = {
+        (table, ref.path): (
+            source.pin.release_id,
+            source.release_manifest_path,
+            source.release_manifest_sha256,
+            ref,
+        )
+        for table, source in sources.items()
+        for ref, _ in source.artifact_bindings
+    }
+    capability = _IdentitySourceCapability(
+        official=True,
+        data_root=root,
+        artifact_memberships=MappingProxyType(memberships),
+        physical_scope=_DIRECTIONAL_PREVIEW_PHYSICAL_SCOPE,
+        authorized_sessions=sessions,
+        preview_control_binding=(plan_id, plan_sha256, approval_id, approval_sha256),
+        _seal=_OFFICIAL_CAPABILITY_SEAL,
+    )
+    bundle = IdentitySourceBundle(sources, _capability=capability)
+    _FACTORY_ISSUED_OFFICIAL_CAPABILITIES.add(capability)
+    bundle.require_approved_directional_preview_scope(
+        plan_id=plan_id,
+        plan_sha256=plan_sha256,
+        approval_id=approval_id,
+        approval_sha256=approval_sha256,
+        sessions=sessions,
+    )
+    return bundle
 
 
 def open_approved_identity_preview_source_bundle(

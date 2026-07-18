@@ -161,6 +161,146 @@ class _RunnerEvidenceAuthority:
 _RUNNER_EVIDENCE_AUTHORITIES: WeakSet[_RunnerEvidenceAuthority] = WeakSet()
 
 
+@dataclass(frozen=True, slots=True, eq=False, weakref_slot=True)
+class DirectionalPreviewEvidenceAuthority:
+    """Unforgeable live authority for one exact directional execution approval."""
+
+    data_root: Path
+    bundle: IdentitySourceBundle
+    plan_id: str
+    plan_sha256: str
+    approval_id: str
+    approval_sha256: str
+    calendar_artifact_id: str
+    calendar_sha256: str
+    sessions: tuple[date, ...]
+    created_at_utc: datetime
+
+    def require(
+        self,
+        *,
+        bundle: IdentitySourceBundle,
+        plan: object,
+        approval: object,
+        calendar: XNYSCalendarArtifact,
+    ) -> None:
+        if self not in _DIRECTIONAL_EVIDENCE_AUTHORITIES:
+            raise ProviderEvidenceError(
+                "directional evidence authority was not factory-issued"
+            )
+        if (
+            bundle is not self.bundle
+            or getattr(plan, "plan_id", None) != self.plan_id
+            or getattr(plan, "sha256", None) != self.plan_sha256
+            or getattr(approval, "approval_id", None) != self.approval_id
+            or getattr(approval, "sha256", None) != self.approval_sha256
+            or calendar.calendar_artifact_id != self.calendar_artifact_id
+            or calendar.sha256 != self.calendar_sha256
+        ):
+            raise ProviderEvidenceError("directional evidence authority crosses controls")
+        self.bundle.require_approved_directional_preview_scope(
+            plan_id=self.plan_id,
+            plan_sha256=self.plan_sha256,
+            approval_id=self.approval_id,
+            approval_sha256=self.approval_sha256,
+            sessions=self.sessions,
+        )
+
+
+_DIRECTIONAL_EVIDENCE_AUTHORITIES: WeakSet[DirectionalPreviewEvidenceAuthority] = WeakSet()
+
+
+def issue_directional_preview_evidence_authority(
+    *,
+    data_root: Path,
+    bundle: IdentitySourceBundle,
+    plan: object,
+    approval: object,
+    calendar: XNYSCalendarArtifact,
+    created_at_utc: datetime,
+) -> DirectionalPreviewEvidenceAuthority:
+    """Issue an ephemeral authority only from exact directional controls."""
+
+    from ame_stocks_api.silver.identity_directional_raw_preview_approval import (
+        S7DirectionalRawPreviewExecutionApproval,
+    )
+    from ame_stocks_api.silver.identity_directional_raw_preview_execution_plan import (
+        S7DirectionalRawPreviewExecutionPlan,
+    )
+    from ame_stocks_api.silver.identity_directional_raw_preview_plan import (
+        CALENDAR_ARTIFACT_ID,
+        CALENDAR_ARTIFACT_SHA256,
+    )
+
+    if type(bundle) is not IdentitySourceBundle or type(plan) is not (
+        S7DirectionalRawPreviewExecutionPlan
+    ) or type(approval) is not S7DirectionalRawPreviewExecutionApproval:
+        raise ProviderEvidenceError("directional evidence authority requires exact types")
+    if (
+        calendar.calendar_artifact_id != CALENDAR_ARTIFACT_ID
+        or calendar.sha256 != CALENDAR_ARTIFACT_SHA256
+    ):
+        raise ProviderEvidenceError("directional evidence calendar is not approved")
+    root = data_root.expanduser().resolve()
+    if bundle.data_root != root or plan.execution_data_root != str(root):
+        raise ProviderEvidenceError("directional evidence authority root differs")
+    created = _utc_datetime(created_at_utc, "directional authority created_at_utc")
+    issued = _utc_now()
+    if created < approval.approved_at_utc or created > issued or issued - created > timedelta(
+        minutes=5
+    ):
+        raise ProviderEvidenceError("directional evidence authority time is invalid")
+    sessions = tuple(
+        sorted({date.fromisoformat(item.session_date) for item in plan.source_artifacts})
+    )
+    bundle.require_approved_directional_preview_scope(
+        plan_id=plan.plan_id,
+        plan_sha256=plan.sha256,
+        approval_id=approval.approval_id,
+        approval_sha256=approval.sha256,
+        sessions=sessions,
+    )
+    authority = DirectionalPreviewEvidenceAuthority(
+        data_root=root,
+        bundle=bundle,
+        plan_id=plan.plan_id,
+        plan_sha256=plan.sha256,
+        approval_id=approval.approval_id,
+        approval_sha256=approval.sha256,
+        calendar_artifact_id=calendar.calendar_artifact_id,
+        calendar_sha256=calendar.sha256,
+        sessions=sessions,
+        created_at_utc=created,
+    )
+    _DIRECTIONAL_EVIDENCE_AUTHORITIES.add(authority)
+    return authority
+
+
+def attest_directional_preview_provider_rows(
+    source_batch: IdentitySourceBatch,
+    *,
+    row_indices_in_batch: Sequence[int],
+    calendar: XNYSCalendarArtifact,
+    authority: DirectionalPreviewEvidenceAuthority,
+) -> tuple[ProviderRowAttestation, ...]:
+    """Attest exact rows only under a factory-issued directional authority."""
+
+    if authority not in _DIRECTIONAL_EVIDENCE_AUTHORITIES:
+        raise ProviderEvidenceError("directional evidence authority is not live")
+    if (
+        calendar.calendar_artifact_id != authority.calendar_artifact_id
+        or calendar.sha256 != authority.calendar_sha256
+    ):
+        raise ProviderEvidenceError("directional evidence calendar crosses its authority")
+    if source_batch.artifact not in authority.bundle.artifacts(source_batch.artifact.table):
+        raise ProviderEvidenceError("directional source batch is outside its authority")
+    return attest_provider_rows(
+        source_batch,
+        row_indices_in_batch=row_indices_in_batch,
+        calendar=calendar,
+    )
+
+
 def _issue_runner_evidence_authority(
     *,
     data_root: Path,
@@ -2690,6 +2830,7 @@ __all__ = [
     "S4_BOUNCE_MANIFEST_SCHEMA_VERSION",
     "S4_BOUNCE_USAGE_RULE_VERSION",
     "S4_BOUNCE_USAGE_SCHEMA_VERSION",
+    "DirectionalPreviewEvidenceAuthority",
     "ProviderEvidenceError",
     "ProviderEvidenceRole",
     "ProviderEvidenceUsage",
@@ -2697,12 +2838,14 @@ __all__ = [
     "ProviderRowAttestation",
     "S4BounceCaseEvidenceUsage",
     "S4BounceProviderEvidenceManifest",
+    "attest_directional_preview_provider_rows",
     "attest_provider_row",
     "attest_provider_rows",
     "build_provider_evidence_manifest",
     "build_provider_evidence_usage",
     "build_s4_bounce_case_evidence_usage",
     "build_s4_bounce_provider_evidence_manifest",
+    "issue_directional_preview_evidence_authority",
     "provider_evidence_manifest_path",
     "read_provider_evidence_manifest",
     "read_s4_bounce_provider_evidence_manifest",

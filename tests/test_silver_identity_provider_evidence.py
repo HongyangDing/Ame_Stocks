@@ -31,12 +31,14 @@ from ame_stocks_api.silver.identity_preview_plan import (
     build_s7_ticker_allowlist,
 )
 from ame_stocks_api.silver.identity_provider_evidence import (
+    DirectionalPreviewEvidenceAuthority,
     ProviderEvidenceError,
     S4BounceProviderEvidenceManifest,
     _build_s4_bounce_provider_evidence_manifest_for_runner,
     _issue_runner_evidence_authority,
     _ProviderReplaySession,
     _write_s4_bounce_provider_evidence_manifest_from_official_bundle,
+    attest_directional_preview_provider_rows,
     attest_provider_row,
     attest_provider_rows,
     build_s4_bounce_case_evidence_usage,
@@ -62,6 +64,38 @@ OUTER_FIGI = "BBG000000001"
 MIDDLE_FIGI = "BBG000000002"
 TICKER = "FIX"
 EVIDENCE_CREATED_AT = datetime(2024, 1, 8, 21, tzinfo=UTC)
+
+
+def test_directional_evidence_authority_is_unforgeable_and_calendar_bound(
+    tmp_path: Path,
+) -> None:
+    authority = DirectionalPreviewEvidenceAuthority(
+        data_root=tmp_path,
+        bundle=SimpleNamespace(artifacts=lambda table: ()),
+        plan_id="1" * 64,
+        plan_sha256="2" * 64,
+        approval_id="3" * 64,
+        approval_sha256="4" * 64,
+        calendar_artifact_id="5" * 64,
+        calendar_sha256="6" * 64,
+        sessions=(date(2024, 1, 2),),
+        created_at_utc=EVIDENCE_CREATED_AT,
+    )
+    with pytest.raises(ProviderEvidenceError, match="not live"):
+        attest_directional_preview_provider_rows(
+            SimpleNamespace(artifact=SimpleNamespace(table="asset_observation_daily")),
+            row_indices_in_batch=(0,),
+            calendar=SimpleNamespace(calendar_artifact_id="5" * 64, sha256="6" * 64),
+            authority=authority,
+        )
+    provider_evidence_module._DIRECTIONAL_EVIDENCE_AUTHORITIES.add(authority)
+    with pytest.raises(ProviderEvidenceError, match="calendar crosses"):
+        attest_directional_preview_provider_rows(
+            SimpleNamespace(artifact=SimpleNamespace(table="asset_observation_daily")),
+            row_indices_in_batch=(0,),
+            calendar=SimpleNamespace(calendar_artifact_id="7" * 64, sha256="8" * 64),
+            authority=authority,
+        )
 
 
 def _digest(character: str) -> str:
