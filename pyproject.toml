@@ -64,6 +64,11 @@ ame-silver-identity-market-inventory-request = "ame_stocks_api.cli.silver_identi
 ame-silver-identity-market-inventory-execution-request = "ame_stocks_api.cli.silver_identity_market_inventory_execution_request:main"
 ame-silver-identity-market-inventory-approval = "ame_stocks_api.cli.silver_identity_market_inventory_approval:main"
 ame-silver-identity-market-inventory-run = "ame_stocks_api.cli.silver_identity_market_inventory_run:main"
+ame-silver-identity-market-consistency = "ame_stocks_api.cli.silver_identity_market_consistency:main"
+ame-silver-identity-market-sequence = "ame_stocks_api.cli.silver_identity_market_sequence:main"
+ame-silver-identity-registry-production = "ame_stocks_api.cli.silver_identity_registry_production:main"
+ame-silver-identity-streaming = "ame_stocks_api.cli.silver_identity_materialization_streaming:main"
+ame-silver-identity-publish = "ame_stocks_api.cli.silver_identity_materialization_publish:main"
 ame-view-parquet = "ame_stocks_api.cli.parquet_view:main"
 
 [tool.pytest.ini_options]

@@ -1,0 +1,513 @@
+{
+  "columns": [
+    {
+      "arrow_type": "string",
+      "description": "Content-addressed immutable transition decision ID.",
+      "name": "asset_transition_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Stable append-only event series ID.",
+      "name": "asset_transition_series_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Stable provider/ticker/type/legal-date subject ID.",
+      "name": "asset_transition_subject_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Positive contiguous version within the series.",
+      "name": "decision_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Immediate predecessor; null exactly for version one.",
+      "name": "supersedes_asset_transition_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider namespace; fixed massive.",
+      "name": "provider_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider market; fixed stocks.",
+      "name": "provider_market",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider locale; fixed us.",
+      "name": "provider_locale",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact case-sensitive provider ticker.",
+      "name": "observed_ticker",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Controlled genuine security-transition type.",
+      "name": "transition_type",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Historical legal effective date; not evidence availability.",
+      "name": "legal_effective_date",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Last accepted predecessor trading session boundary.",
+      "name": "predecessor_last_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First accepted successor trading session boundary.",
+      "name": "successor_first_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Canonical predecessor Composite FIGI.",
+      "name": "predecessor_composite_figi",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Deterministic predecessor asset ID.",
+      "name": "predecessor_asset_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Canonical successor Composite FIGI; null for an unresolved successor version.",
+      "name": "successor_composite_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Deterministic successor asset ID; null when unresolved.",
+      "name": "successor_asset_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Positive exact S4 boundary source-record count.",
+      "name": "boundary_source_record_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Digest of sorted unique boundary source-record IDs.",
+      "name": "boundary_source_record_set_digest",
+      "nullable": false
+    },
+    {
+      "arrow_type": "json_string",
+      "description": "Canonical sorted boundary source-record ID array.",
+      "name": "boundary_source_record_ids_json",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Confirmed genuine transition or adjudicated unresolved.",
+      "name": "disposition",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed lineage_only_no_override_no_return_stitching.",
+      "name": "relationship_effect",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed none.",
+      "name": "identity_override_effect",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed none.",
+      "name": "membership_effect",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed none.",
+      "name": "tradability_effect",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed none_requires_future_entitlement_accounting.",
+      "name": "return_stitching_effect",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false.",
+      "name": "identity_quality_liquidation_signal",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Reviewed controlled reason code.",
+      "name": "reason_code",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Immutable human rationale without outcome evidence.",
+      "name": "reason_detail",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Immutable decision-plan ID.",
+      "name": "source_decision_plan_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Normalized relative decision-plan path.",
+      "name": "source_decision_plan_path",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of exact decision-plan bytes.",
+      "name": "source_decision_plan_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact literal approval request-event ID.",
+      "name": "approval_request_event_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of exact request-event bytes.",
+      "name": "approval_request_event_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Immutable row-specific approval receipt ID.",
+      "name": "approval_receipt_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of exact approval receipt bytes.",
+      "name": "approval_receipt_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Stable explicit human reviewer identity.",
+      "name": "approved_by",
+      "nullable": false
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "UTC timestamp from the approval receipt.",
+      "name": "approved_at_utc",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First bound-calendar session after approval.",
+      "name": "approval_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Maximum of candidate, evidence, and approval availability; never backdated to the event.",
+      "name": "transition_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact frozen S4 release-set ID.",
+      "name": "source_s4_release_set_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact completed three-group full-history candidate manifest ID.",
+      "name": "source_exact_group_candidate_manifest_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of the exact three-group candidate manifest bytes.",
+      "name": "source_exact_group_candidate_manifest_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Operational candidate availability session.",
+      "name": "candidate_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Immutable external-evidence manifest ID binding raw SEC, issuer, and OpenFIGI bytes.",
+      "name": "source_external_evidence_manifest_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of exact external-evidence manifest bytes.",
+      "name": "source_external_evidence_manifest_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First session when all frozen evidence was available to this project; never the historical event date.",
+      "name": "external_evidence_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact immutable XNYS calendar artifact ID.",
+      "name": "availability_calendar_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of exact calendar artifact bytes.",
+      "name": "availability_calendar_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false.",
+      "name": "outcome_or_backtest_evidence_used",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed s7_asset_transition_v1.",
+      "name": "rule_version",
+      "nullable": false
+    }
+  ],
+  "contract_id": "8831443729fe360c3b4265595a2bd74c8a8b9031cb6f6ca30ee0ac4e1beef7ac",
+  "contract_schema_version": 1,
+  "description": "Append-only predecessor/successor security relations supported by immutable corporate-action evidence. A transition relation performs no identity override, return stitching, membership change, tradability decision or forced liquidation.",
+  "domain": "identity",
+  "grain": "One immutable approved decision version for one exact provider/ticker/legal-event transition series.",
+  "partition_by": [],
+  "primary_key": [
+    "asset_transition_id"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "schema_exact",
+      "description": "Fields, order, Arrow types and nullability must exactly match.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_null_or_duplicate_rows",
+      "description": "Transition IDs must be non-null and unique.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "append_only_version_chain_invalid_rows",
+      "description": "Versions must be contiguous and reference the immediate predecessor.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "decision_id_recomputation_mismatch_rows",
+      "description": "Subject, series, source-set, asset and transition IDs must reproduce.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "provider_scope_invalid_rows",
+      "description": "Scope must remain exact massive/stocks/us and case-sensitive ticker.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "transition_boundary_invalid_rows",
+      "description": "Legal and predecessor/successor session boundaries must be ordered and evidence-backed.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "self_transition_rows",
+      "description": "A confirmed transition cannot map an asset to itself.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "transition_cycle_rows",
+      "description": "Effective confirmed transition relations must form an acyclic graph.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "boundary_source_scope_invalid_rows",
+      "description": "Every exact boundary source record and release binding must reconcile.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "external_evidence_manifest_binding_invalid_rows",
+      "description": "SEC, issuer and OpenFIGI bytes, claims, timestamps and SHAs must replay.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "approval_chain_invalid_rows",
+      "description": "Decision plan, request event and row receipt must bind the exact transition.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "availability_recomputation_mismatch_rows",
+      "description": "Availability must be max(candidate, evidence, approval), never event date.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "unapproved_asset_transition_rows",
+      "description": "Only approved transition decisions may enter a release.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "asset_transition_used_as_identity_override_rows",
+      "description": "A relation cannot execute a Composite or Share Class override.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "asset_transition_return_stitching_rows",
+      "description": "A relation cannot stitch returns without future entitlement-aware accounting.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "asset_transition_membership_mutation_rows",
+      "description": "A relation cannot alter active/inactive membership.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "asset_transition_tradability_rows",
+      "description": "A relation alone cannot set final tradability.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_quality_forced_liquidation_signal_rows",
+      "description": "A transition relation cannot trigger liquidation.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "temporary_security_merged_into_ordinary_asset_rows",
+      "description": "A temporary ex-distribution security may not be merged into its ordinary ticker asset.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "outcome_or_backtest_evidence_rows",
+      "description": "Returns, factors and backtests are prohibited evidence.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    }
+  ],
+  "schema_version": 1,
+  "sort_by": [
+    "observed_ticker",
+    "legal_effective_date",
+    "decision_version"
+  ],
+  "source_datasets": [
+    "identity_exact_group_history_review_slot",
+    "identity_external_evidence",
+    "identity_approval_receipt"
+  ],
+  "table": "asset_transition"
+}

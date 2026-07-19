@@ -1,0 +1,549 @@
+{
+  "columns": [
+    {
+      "arrow_type": "string",
+      "description": "Content-addressed immutable decision ID.",
+      "name": "share_class_adjudication_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Stable append-only decision series ID.",
+      "name": "share_class_adjudication_series_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Stable exact subject ID.",
+      "name": "share_class_adjudication_subject_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Positive contiguous version within the series.",
+      "name": "decision_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Immediate predecessor; null exactly for version one.",
+      "name": "supersedes_share_class_adjudication_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider namespace; fixed massive.",
+      "name": "provider_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider market; fixed stocks.",
+      "name": "provider_market",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider locale; fixed us.",
+      "name": "provider_locale",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact case-sensitive provider ticker.",
+      "name": "observed_ticker",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider-observed Composite scope guard.",
+      "name": "observed_composite_figi",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Unique canonical Composite precondition; this registry cannot create or alter it.",
+      "name": "required_unique_canonical_composite_figi",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider-observed Share Class FIGI, never rewritten.",
+      "name": "observed_share_class_figi",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Independently evidenced canonical Share Class; null when unresolved.",
+      "name": "canonical_share_class_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Deterministic Share Class identity; null when unresolved.",
+      "name": "canonical_share_class_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First inclusive exact S4 scope session.",
+      "name": "valid_from_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Last inclusive exact S4 scope session.",
+      "name": "valid_through_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Positive exact source-record count.",
+      "name": "scoped_source_record_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Digest of the sorted unique exact source-record ID array.",
+      "name": "scoped_source_record_set_digest",
+      "nullable": false
+    },
+    {
+      "arrow_type": "json_string",
+      "description": "Canonical JSON array of sorted unique exact source-record IDs.",
+      "name": "scoped_source_record_ids_json",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Confirmed Share Class correction or adjudicated unresolved.",
+      "name": "disposition",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "True exactly for a confirmed correction.",
+      "name": "share_class_override",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed none.",
+      "name": "composite_identity_effect",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed none.",
+      "name": "asset_id_effect",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed none.",
+      "name": "issuer_identity_effect",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed none.",
+      "name": "membership_effect",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed none; final tradability remains downstream.",
+      "name": "tradability_effect",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false.",
+      "name": "identity_quality_liquidation_signal",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Reviewed controlled reason code.",
+      "name": "reason_code",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Immutable human rationale without outcome evidence.",
+      "name": "reason_detail",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Immutable decision-plan ID.",
+      "name": "source_decision_plan_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Normalized relative decision-plan path.",
+      "name": "source_decision_plan_path",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of exact decision-plan bytes.",
+      "name": "source_decision_plan_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact literal approval request-event ID.",
+      "name": "approval_request_event_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of exact request-event bytes.",
+      "name": "approval_request_event_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Immutable row-specific approval receipt ID.",
+      "name": "approval_receipt_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of exact approval receipt bytes.",
+      "name": "approval_receipt_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Stable explicit human reviewer identity.",
+      "name": "approved_by",
+      "nullable": false
+    },
+    {
+      "arrow_type": "timestamp_ns_utc",
+      "description": "UTC timestamp from the approval receipt.",
+      "name": "approved_at_utc",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First bound-calendar session after approval.",
+      "name": "approval_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Maximum of candidate, evidence, and approval availability.",
+      "name": "adjudication_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact frozen S4 release-set ID.",
+      "name": "source_s4_release_set_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact completed three-group full-history candidate manifest ID.",
+      "name": "source_exact_group_candidate_manifest_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of the exact three-group candidate manifest bytes.",
+      "name": "source_exact_group_candidate_manifest_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Operational candidate availability session.",
+      "name": "candidate_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Immutable external-evidence manifest ID binding raw SEC, issuer, and OpenFIGI bytes.",
+      "name": "source_external_evidence_manifest_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of exact external-evidence manifest bytes.",
+      "name": "source_external_evidence_manifest_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First session when all frozen evidence was available to this project; never the historical event date.",
+      "name": "external_evidence_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact immutable XNYS calendar artifact ID.",
+      "name": "availability_calendar_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of exact calendar artifact bytes.",
+      "name": "availability_calendar_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false.",
+      "name": "outcome_or_backtest_evidence_used",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed s7_share_class_adjudication_v1.",
+      "name": "rule_version",
+      "nullable": false
+    }
+  ],
+  "contract_id": "5918ade4aaca64372cbb9de70297dce042ef39da4fd3186b174c4c687edd2919",
+  "contract_schema_version": 1,
+  "description": "Append-only exact-source-row Share Class corrections. The registry is applied only after a unique canonical Composite is known and cannot create or change asset or issuer identity.",
+  "domain": "identity",
+  "grain": "One immutable approved decision version for one provider/market/locale/ticker/observed Composite/observed Share Class subject over one exact S4 source-record scope.",
+  "partition_by": [],
+  "primary_key": [
+    "share_class_adjudication_id"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "schema_exact",
+      "description": "Fields, order, Arrow types and nullability must exactly match.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_null_or_duplicate_rows",
+      "description": "Decision IDs must be non-null and unique.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "append_only_version_chain_invalid_rows",
+      "description": "Versions must be contiguous and reference the immediate predecessor.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "decision_id_recomputation_mismatch_rows",
+      "description": "Subject, series, source-set and decision IDs must reproduce.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "provider_scope_invalid_rows",
+      "description": "Scope must remain exact massive/stocks/us and case-sensitive ticker.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "exact_source_scope_invalid_rows",
+      "description": "Composite, Share Class, interval, release and every source record must reconcile.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "unique_canonical_composite_precondition_invalid_rows",
+      "description": "A Share Class decision may apply only after one canonical Composite is uniquely resolved.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "canonical_share_class_target_evidence_invalid_rows",
+      "description": "The canonical Share Class target must have independent immutable evidence.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "approval_chain_invalid_rows",
+      "description": "Decision plan, request event and row receipt must bind the exact decision.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "availability_recomputation_mismatch_rows",
+      "description": "Availability must be max(candidate, evidence, approval).",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "overlapping_share_class_adjudication_rows",
+      "description": "One source row may match at most one effective Share Class decision.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "unapproved_share_class_override_rows",
+      "description": "Only approved decision rows may enter a release.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "share_class_adjudication_changed_composite_rows",
+      "description": "A Share Class decision cannot change canonical Composite identity.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "share_class_adjudication_changed_asset_id_rows",
+      "description": "A Share Class decision cannot create or change asset_id.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "share_class_adjudication_changed_issuer_rows",
+      "description": "A Share Class decision cannot create, merge or change issuer identity.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "share_class_adjudication_membership_mutation_rows",
+      "description": "A Share Class decision cannot alter membership or active status.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "share_class_adjudication_tradability_rows",
+      "description": "A Share Class decision alone cannot set final tradability.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "observed_hierarchy_lineage_mutated_rows",
+      "description": "Observed Share Class and source lineage must remain unchanged.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_quality_forced_liquidation_signal_rows",
+      "description": "A hierarchy correction cannot trigger liquidation.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "outcome_or_backtest_evidence_rows",
+      "description": "Returns, factors and backtests are prohibited evidence.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "multi_share_class_adjudication_collision_rows",
+      "description": "Report raw multi-decision matches with reason counts and examples.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "multi_share_class_adjudication_collision_eligible_rows",
+      "description": "A hierarchy collision must not remain identity eligible.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "multi_share_class_adjudication_collision_resolved_rows",
+      "description": "A hierarchy collision must not auto-resolve.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "multi_share_class_adjudication_collision_alias_rows",
+      "description": "A hierarchy collision must not emit an alias.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    }
+  ],
+  "schema_version": 1,
+  "sort_by": [
+    "observed_ticker",
+    "valid_from_session",
+    "decision_version"
+  ],
+  "source_datasets": [
+    "identity_exact_group_history_review_slot",
+    "identity_external_evidence",
+    "identity_approval_receipt"
+  ],
+  "table": "share_class_adjudication"
+}

@@ -98,9 +98,7 @@ def _approved_override(
         ticker="AZPN",
         share_class_figi=SHARE_CLASS_FIGI,
         observed_foreign_composite_figi=FOREIGN_FIGI,
-        disposition=(
-            CrossMarketAdjudicationDisposition.CONFIRMED_PROVIDER_CONTAMINATION
-        ),
+        disposition=(CrossMarketAdjudicationDisposition.CONFIRMED_PROVIDER_CONTAMINATION),
         canonical_us_composite_figi=US_FIGI,
         observed_composite_market_code="GR",
         canonical_composite_market_code="US",
@@ -187,9 +185,7 @@ def test_append_only_withdrawal_keeps_subject_series_and_changes_effective_scope
         approved_at_utc=datetime(2026, 7, 20, 15, tzinfo=UTC),
         approval_available_session=date(2026, 7, 21),
         decision_version=2,
-        supersedes_cross_market_adjudication_id=(
-            approved.cross_market_adjudication_id
-        ),
+        supersedes_cross_market_adjudication_id=(approved.cross_market_adjudication_id),
         reason_code="withdraw_cross_market_mapping",
         reason_detail=(
             "Later reviewed evidence withdraws the canonical mapping while preserving "
@@ -209,9 +205,7 @@ def test_append_only_withdrawal_keeps_subject_series_and_changes_effective_scope
     )
     assert before_withdrawal.decisions[0].canonical_composite_figi == US_FIGI
     assert before_withdrawal.decisions[0].backtest_identity_eligible is True
-    assert before_withdrawal.decisions[1].identity_disposition == (
-        "pending_cross_market_review"
-    )
+    assert before_withdrawal.decisions[1].identity_disposition == ("pending_cross_market_review")
 
     after_withdrawal = resolve_cross_market_identity(
         (first, second),
@@ -311,8 +305,7 @@ def test_foreign_us_foreign_inverse_keeps_us_middle_direct_and_not_genuine() -> 
 
 def test_long_lived_foreign_composite_is_found_without_a_bounce_and_fails_closed() -> None:
     rows = tuple(
-        _observation(f"long-{index}", date(2022, 2, 8 + index), FOREIGN_FIGI)
-        for index in range(3)
+        _observation(f"long-{index}", date(2022, 2, 8 + index), FOREIGN_FIGI) for index in range(3)
     )
 
     result = resolve_cross_market_identity(
@@ -325,11 +318,32 @@ def test_long_lived_foreign_composite_is_found_without_a_bounce_and_fails_closed
     }
     assert len(result.audit.us_locale_non_us_bounded_examples) == 3
     assert all(
-        item.identity_disposition == "pending_cross_market_review"
-        for item in result.decisions
+        item.identity_disposition == "pending_cross_market_review" for item in result.decisions
     )
     assert all(item.backtest_identity_eligible is False for item in result.decisions)
     assert result.audit.unapproved_cross_market_composite_eligible_rows == 0
+
+
+def test_unknown_reference_preserves_membership_but_blocks_identity_and_alias() -> None:
+    row = _observation("unknown-reference", date(2022, 2, 9), US_FIGI)
+
+    result = resolve_cross_market_identity((row,), (), (), cutoff_session=date(2026, 7, 20))
+    decision = result.decisions[0]
+
+    assert decision.active_on_date is True
+    assert decision.observed_composite_figi == US_FIGI
+    assert decision.canonical_composite_figi is None
+    assert decision.cross_market_classification_status == "not_classified"
+    assert decision.identity_resolution_status == "unresolved"
+    assert decision.identity_resolution_method == ("cross_market_composite_pending_unresolved")
+    assert decision.identity_disposition == "pending_cross_market_review"
+    assert decision.backtest_identity_eligible is False
+    assert decision.alias_emitted is False
+    assert decision.identity_quality_membership_mutated is False
+    assert decision.identity_quality_liquidation_signal is False
+    assert result.audit.figi_market_classification_uncovered_rows == 1
+    assert result.audit.identity_quality_membership_mutation_rows == 0
+    assert result.audit.identity_quality_liquidation_signal_rows == 0
 
 
 def test_same_foreign_composite_in_real_foreign_locale_is_never_globally_overridden() -> None:
@@ -367,16 +381,16 @@ def test_fixture_methods_dispositions_and_lineage_are_legal_in_derived_contracts
     universe = TableContract.from_dict(
         json.loads(
             (
-                ROOT
-                / "docs/silver/contracts/reference/universe_daily.schema-v1.candidate.json"
+                ROOT / "docs/silver/contracts/reference/"
+                "universe_daily.schema-v1.registry-v4.candidate.json"
             ).read_text()
         )
     )
     alias = TableContract.from_dict(
         json.loads(
             (
-                ROOT
-                / "docs/silver/contracts/identity/ticker_alias.schema-v1.candidate.json"
+                ROOT / "docs/silver/contracts/identity/"
+                "ticker_alias.schema-v1.registry-v4.candidate.json"
             ).read_text()
         )
     )
@@ -438,9 +452,7 @@ def test_fixture_methods_dispositions_and_lineage_are_legal_in_derived_contracts
         approved_at_utc=datetime(2026, 7, 20, 15, tzinfo=UTC),
         approval_available_session=date(2026, 7, 21),
         decision_version=2,
-        supersedes_cross_market_adjudication_id=(
-            approved.cross_market_adjudication_id
-        ),
+        supersedes_cross_market_adjudication_id=(approved.cross_market_adjudication_id),
         reason_code="withdraw_cross_market_mapping",
         reason_detail="Withdraw the mapping without changing the provider observation.",
     )
@@ -458,23 +470,18 @@ def test_fixture_methods_dispositions_and_lineage_are_legal_in_derived_contracts
         withdrawn_decision,
     )
     for item in decisions:
-        assert item.identity_resolution_method in universe_columns[
-            "identity_resolution_method"
-        ]
+        assert item.identity_resolution_method in universe_columns["identity_resolution_method"]
         assert item.identity_disposition in universe_columns["identity_disposition"]
-        assert item.cross_market_classification_status in universe_columns[
-            "cross_market_classification_status"
-        ]
+        assert (
+            item.cross_market_classification_status
+            in universe_columns["cross_market_classification_status"]
+        )
         if item.alias_emitted:
-            assert item.identity_resolution_method in alias_columns[
-                "alias_resolution_method"
-            ]
+            assert item.identity_resolution_method in alias_columns["alias_resolution_method"]
             assert item.identity_disposition in alias_columns["identity_disposition"]
 
     assert inverse_decision.identity_case_id == inverse_case
-    assert inverse_decision.identity_case_resolution_role == (
-        "inverse_middle_is_canonical_us"
-    )
+    assert inverse_decision.identity_case_resolution_role == ("inverse_middle_is_canonical_us")
     assert inverse_decision.canonical_override is False
     assert pending_decision.alias_emitted is False
     assert withdrawn_decision.alias_emitted is False

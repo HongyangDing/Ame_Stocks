@@ -7,3 +7,10 @@ docs/silver/evidence/s7-cross-market/*-submission.txt binary
 docs/silver/evidence/s7-cross-market/openfigi-*.request.json binary
 docs/silver/evidence/s7-cross-market/openfigi-*.response.json binary
 docs/silver/evidence/s7-cross-market/*.pdf binary
+
+# Preserve the exact-group evidence package with the same byte-for-byte rules.
+docs/silver/evidence/s7-exact-groups/*.html binary
+docs/silver/evidence/s7-exact-groups/*.response.headers.txt binary
+docs/silver/evidence/s7-exact-groups/openfigi-*.request.json binary
+docs/silver/evidence/s7-exact-groups/openfigi-*.response.json binary
+docs/silver/evidence/s7-exact-groups/*.pdf binary

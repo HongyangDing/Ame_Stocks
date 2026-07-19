@@ -1,0 +1,632 @@
+{
+  "columns": [
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 from stable_digest of the exact-key payload {anchor_type: cik_normalized, anchor_value: cik_normalized, namespace: ame_stocks.identity.issuer, rule_version: ame_stocks_issuer_id_from_normalized_cik_v1}; raw CIK must be an untrimmed ASCII digit string of length 1 through 10 and is left-padded before hashing.",
+      "name": "issuer_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Validated digits-only SEC CIK left-padded to exactly ten characters; original raw values remain upstream.",
+      "name": "cik_normalized",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed ame_stocks_issuer_id_from_normalized_cik_v1 rule using json.dumps with allow_nan=false, ensure_ascii=true, separators comma/colon, sort_keys=true; UTF-8, no newline, and SHA-256 lowercase hex.",
+      "name": "issuer_id_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed v1 active_reference state; not exchange trading status. A future supersession state requires a separately approved source, contract version, and release binding.",
+      "name": "issuer_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Reserved replacement issuer identity; always null in v1 because the fixed six-release bundle has no approved supersession source.",
+      "name": "superseded_by_issuer_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Single deterministic provider reference name only when the approved consensus rule permits; it is not labeled a legal issuer name and never treated as historical vintage.",
+      "name": "reference_name",
+      "nullable": true
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Distinct non-null exact provider security/name variants observed for the CIK.",
+      "name": "reference_name_variant_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact domain unique_reference_name, multiple_reference_names, or missing_reference_name.",
+      "name": "reference_name_resolution_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Single retrospective S6 SIC code only when all usable observations agree; null on missing or conflict.",
+      "name": "sic_code_current_reference",
+      "nullable": true
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Distinct non-null S6 SIC code values observed for the CIK.",
+      "name": "sic_code_variant_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact domain unique_reference_sic, multiple_reference_sic, or missing_reference_sic.",
+      "name": "sic_resolution_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Earliest accepted S4 session or S6 lifecycle carrying this normalized CIK after excluding evidence carried only by a confirmed provider-contamination episode. A contamination-only CIK does not create an issuer row.",
+      "name": "first_observed_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Latest accepted S4 session or S6 lifecycle carrying this normalized CIK after excluding evidence carried only by a confirmed provider-contamination episode. A contamination-only CIK does not extend issuer lifetime.",
+      "name": "last_observed_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Distinct canonical strongly resolved asset IDs linked by independently accepted CIK evidence. A provider-contamination adjudication cannot attach its observed-only CIK to the canonical asset; the count may legitimately be much greater than one.",
+      "name": "observed_asset_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Distinct exact tickers observed for the issuer.",
+      "name": "observed_ticker_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Total accepted S4 selected rows, accepted S6 Overview rows, and accepted S5 ticker_change_event occurrences attached through exact security identity to an issuer CIK independently anchored by non-contamination S4/S6 evidence. Rows carried only by confirmed provider-contamination episodes, S5-only issuer evidence, and S5 request-status rows are excluded.",
+      "name": "source_evidence_row_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of otherwise valid S4/S5/S6 evidence rows excluded from issuer identity, counts, name/SIC consensus, and lifetime because they are carried only by confirmed provider-contamination episodes and lack independent corroboration for this CIK relationship.",
+      "name": "excluded_contamination_evidence_row_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of known cross-market-contaminated rows excluded from issuer reference consensus.",
+      "name": "excluded_cross_market_contamination_evidence_row_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false in S7 because name and SIC returned at source capture are not historical PIT classifications.",
+      "name": "backtest_classification_eligible",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed retrospective_issuer_reference_not_pit_classification_v1 marker.",
+      "name": "reference_time_scope",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Maximum availability of accepted source rows and every episode/cross-market include-or-exclude control and registry release.",
+      "name": "reference_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Explicit research cutoff used to select the exact identity-adjudication registry release and mask case decisions. No case or adjudication with availability after this session may affect issuer creation, evidence exclusion, counts, consensus, or relationships.",
+      "name": "identity_resolution_cutoff_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed s7_issuer_master_reference_consensus_with_registry_isolation_v4.",
+      "name": "resolution_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact protected S4 release-set ID.",
+      "name": "source_s4_release_set_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S5 ticker-event request-status release ID used only for coverage and 404 semantics.",
+      "name": "source_s5_status_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S5 ticker-change-event release ID.",
+      "name": "source_s5_event_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S6 ticker-overview-safe release ID.",
+      "name": "source_s6_overview_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact content-addressed identity-case candidate manifest ID used to identify pending episodes and determine which observed CIK/name/SIC evidence may enter or must be excluded from issuer reference consensus.",
+      "name": "source_identity_case_candidate_manifest_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 of the exact immutable identity-case candidate manifest bytes.",
+      "name": "source_identity_case_candidate_manifest_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact independently published identity_adjudication release ID used only to exclude contaminated episode evidence and bind the coordinated graph; it may not create, merge, or rewrite issuer identity.",
+      "name": "source_identity_adjudication_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Availability session of the exact source_identity_adjudication_release_id, independently verified from its trusted release chain. It must not exceed identity_resolution_cutoff_session.",
+      "name": "source_identity_adjudication_release_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact full-sequence market-consistency candidate manifest ID.",
+      "name": "source_identity_market_consistency_candidate_manifest_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "SHA-256 of exact market-consistency candidate manifest bytes.",
+      "name": "source_identity_market_consistency_candidate_manifest_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact published cross-market adjudication release ID.",
+      "name": "source_identity_cross_market_adjudication_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session on which the exact cross-market registry release was available.",
+      "name": "source_identity_cross_market_adjudication_release_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact independently published provider_composite_override registry release ID bound for reproducibility; it cannot modify issuer identity or CIK evidence.",
+      "name": "source_provider_composite_override_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session on which the exact provider_composite_override registry release was available.",
+      "name": "source_provider_composite_override_release_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact independently published share_class_adjudication registry release ID bound for reproducibility; it cannot modify issuer identity or CIK evidence.",
+      "name": "source_share_class_adjudication_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session on which the exact share_class_adjudication registry release was available.",
+      "name": "source_share_class_adjudication_release_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact independently published relation-only asset_transition registry release ID bound for reproducibility; it cannot merge or supersede issuers.",
+      "name": "source_asset_transition_release_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First XNYS session on which the exact asset_transition registry release was available.",
+      "name": "source_asset_transition_release_available_session",
+      "nullable": false
+    }
+  ],
+  "contract_id": "0e46c0e939989205b4dcd48f11e3443ec5c3e72b366dcd5684c417bb134d6b70",
+  "contract_schema_version": 1,
+  "description": "Issuer references keyed only by independently valid normalized CIK evidence. Asset-level FIGI adjudication cannot create, merge, or rewrite an issuer; hierarchy/name/SIC evidence carried only by confirmed provider-contamination rows is excluded unless independently corroborated. Issuer metadata remains retrospective reference evidence and never an asset identity key or PIT industry signal. Cross-market-contaminated rows remain observed lineage but cannot migrate foreign CIK/name/SIC evidence onto the canonical US asset.",
+  "domain": "identity",
+  "grain": "One active v1 issuer identity per validated ten-digit normalized CIK anchored by accepted S4 or S6 evidence, with conservative scalar name and SIC consensus fields.",
+  "partition_by": [],
+  "primary_key": [
+    "issuer_id"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "schema_exact",
+      "description": "Every output field, order, Arrow type, and nullability must equal this contract.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "published_source_trust_chain_invalid",
+      "description": "Every fixed S4 release-set member, fixed S5/S6 release, and exact independently published identity_adjudication release must pass its complete trust chain before use.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_release_binding_invalid",
+      "description": "Every row and coordinated member build must bind the exact six market-evidence releases, one content-addressed identity-case candidate manifest, and one exact identity_adjudication release; all four derived builds share this binding and latest-by-time discovery is forbidden.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_null_or_duplicate_rows",
+      "description": "issuer_id must be non-null and unique.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "cik_normalization_invalid_rows",
+      "description": "Every raw CIK must be an untrimmed ASCII digit string of length 1 through 10, not all zero, and exactly ten digits after left-padding.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "issuer_id_recomputation_mismatch_rows",
+      "description": "Every issuer_id must reproduce from the exact compact sorted-JSON payload, strict raw-to-ten-digit CIK normalization, immutable namespace, and approved fixed vector.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "id_rule_or_domain_invalid_rows",
+      "description": "issuer_id and superseded_by_issuer_id must be lowercase 64-hex values generated under the exact issuer rule; raw CIK accepts only untrimmed ASCII digits of length 1 through 10, rejects all-zero, and normalizes with left zero padding.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "cik_to_multiple_issuer_id_rows",
+      "description": "One normalized CIK may not map to multiple live issuer IDs.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "state_domain_invalid_rows",
+      "description": "issuer_status must be active_reference; reference_name_resolution_status must be unique_reference_name, multiple_reference_names, or missing_reference_name; sic_resolution_status must be unique_reference_sic, multiple_reference_sic, or missing_reference_sic; reference_time_scope and rule fields must equal retrospective_issuer_reference_not_pit_classification_v1, ame_stocks_issuer_id_from_normalized_cik_v1, and s7_issuer_resolution_with_adjudication_v2.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "state_matrix_invalid_rows",
+      "description": "Issuer state, evidence include/exclude counts, reference eligibility, and both adjudication registry bindings must satisfy the exact v3 matrix.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "negative_evidence_count_rows",
+      "description": "All variant, observed, accepted-source, and excluded-contamination evidence count columns must be non-negative native int64 values.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "evidence_count_recomputation_mismatch_rows",
+      "description": "Name/SIC variant counts, observed canonical asset/ticker counts, source_evidence_row_count, and excluded_contamination_evidence_row_count must exactly recompute at normalized-CIK grain from raw S4 selected rows, accepted S6 Overview rows, attach-only S5 events, detector cases, and adjudications available by the cutoff. Evidence carried only by confirmed provider-contamination episodes is excluded from identity, relationships, lifetime, and consensus and counted exactly once in the exclusion count. S5-only issuer evidence and request-status rows are excluded from both accepted and contamination-exclusion counts.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "contamination_exclusion_count_recomputation_mismatch_rows",
+      "description": "excluded_contamination_evidence_row_count must exactly equal distinct otherwise-valid evidence rows excluded solely because they are bound to effective confirmed-provider-contamination cases and lack independent CIK corroboration. Each excluded row must retain exact case/adjudication/source lineage and may be counted once only.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "reference_availability_recomputation_mismatch_rows",
+      "description": "reference_available_session must include source, case/episode, market-consistency, cross-market decision, and both registry-release availability.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "date_range_invalid_rows",
+      "description": "first_observed_session must not exceed last_observed_session.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "supersession_invalid_rows",
+      "description": "The fixed v1 six-release bundle has no approved supersession source: issuer_status must always be active_reference and superseded_by_issuer_id must be null on every row. Any future supersession requires a separately approved source, contract version, and release binding.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "name_consensus_invalid_rows",
+      "description": "A scalar issuer name may be populated only under the approved deterministic consensus rule and matching status.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "sic_consensus_invalid_rows",
+      "description": "A scalar SIC may be populated only when all usable S6 values agree and status is unique_reference_sic.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "s5_status_identity_effect_invalid_rows",
+      "description": "S5 request-status rows, including HTTP 404, may measure endpoint coverage only and may never create, delete, merge, supersede, or date-bound an issuer identity.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "s5_event_created_issuer_rows",
+      "description": "An accepted S5 ticker_change_event may contribute issuer evidence only after its exact normalized CIK and security attach to an issuer anchor independently present in accepted S4 selected membership or accepted S6 Overview. No S5-only event evidence may create an issuer, asset relationship, alias, or universe resolution.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "asset_id_derived_from_cik_rows",
+      "description": "No asset ID or asset merge may be caused by issuer CIK equality.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "backtest_classification_enabled_rows",
+      "description": "S7 current-reference name and SIC must remain backtest_classification_eligible=false.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "row_funnel_unreconciled",
+      "description": "Every distinct syntactically valid normalized CIK with independently accepted non-contamination S4 or S6 evidence must reconcile to exactly one issuer row. Excluded contamination evidence for an issuer that otherwise exists reconciles through excluded_contamination_evidence_row_count; a contamination-only CIK creates no row and instead reconciles through an exact build-level contamination-only CIK count and bounded lineage examples. S5-only issuer evidence remains outside the issuer funnel and reconciles through unattached_s5_event_issuer_rows; no synthetic CIK, silent drop, or duplicate is allowed.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "contamination_only_cik_created_issuer_rows",
+      "description": "A normalized CIK whose complete accepted evidence set consists only of confirmed provider-contamination episode rows may not create an issuer, populate issuer lifetime, or enter name/SIC consensus. It remains raw observed lineage and the numerator must be zero.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "coordinated_group_build_invalid",
+      "description": "The four derived sibling outputs share one graph, identical six market releases, the exact identity-case candidate manifest, one independently published adjudication release, and passing cross-table QA; sibling staging or unpublished outputs are not sources.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "adjudication_changed_issuer_identity_rows",
+      "description": "No FIGI adjudication may create, merge, replace, or supersede issuer_id or CIK. Issuer identity continues to derive only from independently valid normalized CIK evidence.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "contaminated_issuer_evidence_leak_rows",
+      "description": "CIK, name, SIC, asset, ticker, lifetime, or relationship evidence present only on confirmed provider-contamination rows must remain observed lineage, increment the exact exclusion count, and may not enter issuer creation, accepted counts, canonical relationships, or consensus unless independently corroborated outside the contaminated episode.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_resolution_cutoff_invalid_rows",
+      "description": "Every detector case and adjudication used to include or exclude issuer evidence must be available on or before identity_resolution_cutoff_session. Decisions after the cutoff are masked, and one coordinated build may not mix cutoff sessions.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_identity_adjudication_release_availability_invalid_rows",
+      "description": "source_identity_adjudication_release_available_session must exactly reproduce from the trusted bound registry release, be identical on every coordinated output row, and not exceed identity_resolution_cutoff_session.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "reference_scope_invalid_rows",
+      "description": "Every row must retain the retrospective non-PIT scope, explicit identity_resolution_cutoff_session, exact registry-release availability, and conservative source/case/adjudication availability. None of the reference fields is a historical factor signal.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "unattached_s5_event_issuer_rows",
+      "description": "Build-level count of accepted S5 ticker_change_event rows whose exact normalized CIK and security cannot attach to any issuer anchor independently present in accepted S4 selected membership or accepted S6 Overview. These rows remain upstream event evidence, create no issuer/asset relationship/alias/universe identity, and require bounded review rather than DATA-row quarantine.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "multiple_reference_name_rows",
+      "description": "Multiple exact names for one CIK remain visible and suppress the scalar reference name.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "medium"
+    },
+    {
+      "check_id": "multiple_reference_sic_rows",
+      "description": "Multiple SIC values for one CIK remain visible and suppress the scalar reference SIC.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "cross_market_contamination_exclusion_count_mismatch_rows",
+      "description": "Excluded cross-market issuer evidence counts must reproduce from exact classified rows.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "cross_market_contaminated_issuer_evidence_leak_rows",
+      "description": "Foreign-locale hierarchy evidence from a contaminated US-provider row cannot alter canonical issuer identity or reference consensus.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "new_registry_release_binding_invalid_rows",
+      "description": "Every issuer row and the coordinated build must bind the exact three new registry releases and their cutoff-valid availability sessions.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "provider_composite_override_changed_issuer_rows",
+      "description": "A provider Composite correction may select a canonical security identity but may not copy contaminated CIK, name, or SIC evidence into issuer_master without independent issuer evidence.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "share_class_adjudication_changed_issuer_rows",
+      "description": "A share_class_adjudication may change only canonical Share Class lineage and may never create, merge, or modify issuer_id or CIK consensus.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "asset_transition_changed_issuer_rows",
+      "description": "asset_transition is security-level relation lineage only and may not imply issuer succession, merge issuer rows, or modify reference consensus.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    }
+  ],
+  "schema_version": 1,
+  "sort_by": [
+    "cik_normalized"
+  ],
+  "source_datasets": [
+    "asset_observation_daily",
+    "asset_observation_version",
+    "universe_source_daily",
+    "ticker_event_request_status",
+    "ticker_change_event",
+    "ticker_overview_safe",
+    "identity_case_candidate_manifest",
+    "identity_adjudication",
+    "identity_market_consistency_candidate_manifest",
+    "identity_cross_market_adjudication",
+    "provider_composite_override",
+    "share_class_adjudication",
+    "asset_transition"
+  ],
+  "table": "issuer_master"
+}

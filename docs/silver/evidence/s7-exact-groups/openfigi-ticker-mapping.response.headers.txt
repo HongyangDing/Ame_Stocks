@@ -1,0 +1,9 @@
+HTTP/1.1 200 Connection established
+HTTP/1.1 200 OK
+x-request-id: 615e0a3e-3f51-4964-b59c-1cf0f9f24e48
+ratelimit-policy: 25;w=60
+ratelimit-limit: 25
+ratelimit-remaining: 22
+ratelimit-reset: 26
+content-type: application/json; charset=utf-8
+date: Sun, 19 Jul 2026 16:17:28 GMT

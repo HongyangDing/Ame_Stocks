@@ -1,0 +1,557 @@
+{
+  "artifacts": [
+    {
+      "bytes": 710903,
+      "captured_at_utc": "2026-07-16T15:33:52.739943Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "application/pdf",
+      "path": "docs/silver/evidence/s7-cross-market/figi-allocation-rules.pdf",
+      "publication_basis": "document_version_page",
+      "publication_precision": "month",
+      "sha256": "b9f12e02140ca1d82e724c108f7bd304adefe97cb860eb9319ce603ed9d621a2",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": null,
+      "source_published_raw": "August 2025",
+      "source_url": "https://www.openfigi.com/docs/figi-allocation-rules.pdf"
+    },
+    {
+      "bytes": 243311,
+      "captured_at_utc": "2026-07-16T15:33:51.941510Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "text/html",
+      "path": "docs/silver/evidence/s7-cross-market/openfigi-api-documentation.html",
+      "publication_basis": "not_exposed_by_source",
+      "publication_precision": "unknown",
+      "sha256": "5d15743045f83595a1eb1fe853279017e1820bd309c6cbcb1ea8379e1568dcd5",
+      "source_available_session": "2026-07-17",
+      "source_published_at_utc": null,
+      "source_published_raw": null,
+      "source_url": "https://www.openfigi.com/api/documentation"
+    },
+    {
+      "bytes": 8277,
+      "captured_at_utc": "2026-07-19T16:19:38Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "text/html",
+      "path": "docs/silver/evidence/s7-exact-groups/anab-2026-04-20-ex99-1.html",
+      "publication_basis": "issuer_release_date",
+      "publication_precision": "date",
+      "sha256": "d47457b2657213394d61e1f9b099d5253bcb83c04cc1238720e19c7d224f97fd",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": "2026-04-20",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1370053/000119312526164330/d120122dex991.htm"
+    },
+    {
+      "bytes": 174,
+      "captured_at_utc": "2026-07-19T16:19:38Z",
+      "content_scope": "allowlisted_response_headers_without_cookie_or_credentials",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-exact-groups/anab-2026-04-20-ex99-1.response.headers.txt",
+      "publication_basis": "issuer_release_date",
+      "publication_precision": "date",
+      "sha256": "defd80d9ee54e2578ec4123d00113edd5f63da8a290dd716829051f428c3211b",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": "2026-04-20",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1370053/000119312526164330/d120122dex991.htm"
+    },
+    {
+      "bytes": 125912,
+      "captured_at_utc": "2026-07-19T16:18:32Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "text/html",
+      "path": "docs/silver/evidence/s7-exact-groups/anab-2026-04-20-spin-completion-8k.html",
+      "publication_basis": "edgar_filing_date",
+      "publication_precision": "date",
+      "sha256": "c58e68593557afd68f2974701b41b15a2b81bdbf2254c219bbfb43894e0c4ead",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": "2026-04-20",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1370053/000119312526164330/d120122d8k.htm"
+    },
+    {
+      "bytes": 153,
+      "captured_at_utc": "2026-07-19T16:18:32Z",
+      "content_scope": "allowlisted_response_headers_without_cookie_or_credentials",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-exact-groups/anab-2026-04-20-spin-completion-8k.response.headers.txt",
+      "publication_basis": "edgar_filing_date",
+      "publication_precision": "date",
+      "sha256": "2246760729b6f6980382b48e3f079c5398c1c59d55bd5842f3e41db945bc6433",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": "2026-04-20",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1370053/000119312526164330/d120122d8k.htm"
+    },
+    {
+      "bytes": 29182,
+      "captured_at_utc": "2026-07-19T16:18:30Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "text/html",
+      "path": "docs/silver/evidence/s7-exact-groups/anabv-2026-04-02-first-tracks-8k.html",
+      "publication_basis": "edgar_filing_date",
+      "publication_precision": "date",
+      "sha256": "9755f5071b4787212eb285e0dfe22318d5f52f6e9e6b171a513f905473ed184b",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": "2026-04-02",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/2091349/000119312526140835/d111394d8k.htm"
+    },
+    {
+      "bytes": 175,
+      "captured_at_utc": "2026-07-19T16:18:30Z",
+      "content_scope": "allowlisted_response_headers_without_cookie_or_credentials",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-exact-groups/anabv-2026-04-02-first-tracks-8k.response.headers.txt",
+      "publication_basis": "edgar_filing_date",
+      "publication_precision": "date",
+      "sha256": "e9ff7dff39187844f173b81cf6d22c74ab9a2cd9698971464cfccc6a055eca5f",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": "2026-04-02",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/2091349/000119312526140835/d111394d8k.htm"
+    },
+    {
+      "bytes": 582,
+      "captured_at_utc": "2026-07-19T16:26:49Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "application/json",
+      "path": "docs/silver/evidence/s7-exact-groups/openfigi-composite-mapping.request.json",
+      "publication_basis": "not_exposed_by_source",
+      "publication_precision": "unknown",
+      "sha256": "dd731a0a3fff44f11a27b695001c66bd4d7fdb865cf30acdecc3397b9c5ea9c6",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": null,
+      "source_url": "https://api.openfigi.com/v3/mapping"
+    },
+    {
+      "bytes": 275,
+      "captured_at_utc": "2026-07-19T16:26:49Z",
+      "content_scope": "allowlisted_response_headers_without_cookie_or_credentials",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-exact-groups/openfigi-composite-mapping.response.headers.txt",
+      "publication_basis": "not_exposed_by_source",
+      "publication_precision": "unknown",
+      "sha256": "deac1c32ca9e9441e982e6ba4f8b33830705eea53b52d8ad046181fb5f66306f",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": null,
+      "source_url": "https://api.openfigi.com/v3/mapping"
+    },
+    {
+      "bytes": 30307,
+      "captured_at_utc": "2026-07-19T16:26:49Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "application/json",
+      "path": "docs/silver/evidence/s7-exact-groups/openfigi-composite-mapping.response.json",
+      "publication_basis": "not_exposed_by_source",
+      "publication_precision": "unknown",
+      "sha256": "4b0ac229dc296b5fb5ce49336fa348b07acf4edabb3f93984117c54655d0ac7e",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": null,
+      "source_url": "https://api.openfigi.com/v3/mapping"
+    },
+    {
+      "bytes": 842,
+      "captured_at_utc": "2026-07-19T16:17:30Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "application/json",
+      "path": "docs/silver/evidence/s7-exact-groups/openfigi-share-class-mapping.request.json",
+      "publication_basis": "not_exposed_by_source",
+      "publication_precision": "unknown",
+      "sha256": "e2c2349a45ef7b10984fbe6d6aea52406985621121cd1c65d4fa2c6cac3a95fb",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": null,
+      "source_url": "https://api.openfigi.com/v3/mapping"
+    },
+    {
+      "bytes": 275,
+      "captured_at_utc": "2026-07-19T16:17:30Z",
+      "content_scope": "allowlisted_response_headers_without_cookie_or_credentials",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-exact-groups/openfigi-share-class-mapping.response.headers.txt",
+      "publication_basis": "not_exposed_by_source",
+      "publication_precision": "unknown",
+      "sha256": "6e3cc492b02ecd4c440c9960fa007e39b04938f3acf0029b7f54609b87438d67",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": null,
+      "source_url": "https://api.openfigi.com/v3/mapping"
+    },
+    {
+      "bytes": 1661,
+      "captured_at_utc": "2026-07-19T16:17:30Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "application/json",
+      "path": "docs/silver/evidence/s7-exact-groups/openfigi-share-class-mapping.response.json",
+      "publication_basis": "not_exposed_by_source",
+      "publication_precision": "unknown",
+      "sha256": "9f307a6c56361b13ffb4e5d88cb6a6875579cb266b90559a40ce4dfa98917108",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": null,
+      "source_url": "https://api.openfigi.com/v3/mapping"
+    },
+    {
+      "bytes": 433,
+      "captured_at_utc": "2026-07-19T16:17:28Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "application/json",
+      "path": "docs/silver/evidence/s7-exact-groups/openfigi-ticker-mapping.request.json",
+      "publication_basis": "not_exposed_by_source",
+      "publication_precision": "unknown",
+      "sha256": "5a0eca13ce93bbfa82c56506b2f8db9755d4457e32a56edb9a3beb52771b422a",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": null,
+      "source_url": "https://api.openfigi.com/v3/mapping"
+    },
+    {
+      "bytes": 275,
+      "captured_at_utc": "2026-07-19T16:17:28Z",
+      "content_scope": "allowlisted_response_headers_without_cookie_or_credentials",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-exact-groups/openfigi-ticker-mapping.response.headers.txt",
+      "publication_basis": "not_exposed_by_source",
+      "publication_precision": "unknown",
+      "sha256": "e8328bc768ce083fc42e225d4ab627b54d00ad9e9bf445e9004784835d693b33",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": null,
+      "source_url": "https://api.openfigi.com/v3/mapping"
+    },
+    {
+      "bytes": 1079,
+      "captured_at_utc": "2026-07-19T16:17:28Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "application/json",
+      "path": "docs/silver/evidence/s7-exact-groups/openfigi-ticker-mapping.response.json",
+      "publication_basis": "not_exposed_by_source",
+      "publication_precision": "unknown",
+      "sha256": "6884b6a7c0a0455d04ffb4e0d46ce077b0caa173ecf1580aff9a22a5f5b88682",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": null,
+      "source_url": "https://api.openfigi.com/v3/mapping"
+    },
+    {
+      "bytes": 20177,
+      "captured_at_utc": "2026-07-19T16:18:16Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "text/html",
+      "path": "docs/silver/evidence/s7-exact-groups/sor-2024-11-19-8k.html",
+      "publication_basis": "edgar_filing_date",
+      "publication_precision": "date",
+      "sha256": "c444a1eb82e6c567f8755421fc2594a09b8eb3378cd902ce7227491b3804e717",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": "2024-11-19",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/91847/000110465924120436/tm2428756d1_8k.htm"
+    },
+    {
+      "bytes": 175,
+      "captured_at_utc": "2026-07-19T16:18:16Z",
+      "content_scope": "allowlisted_response_headers_without_cookie_or_credentials",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-exact-groups/sor-2024-11-19-8k.response.headers.txt",
+      "publication_basis": "edgar_filing_date",
+      "publication_precision": "date",
+      "sha256": "b17acec243fd1d14982370047b798840e8cb7bb3a3612e07767ed117c364cfa8",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": "2024-11-19",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/91847/000110465924120436/tm2428756d1_8k.htm"
+    },
+    {
+      "bytes": 130452,
+      "captured_at_utc": "2026-07-19T16:18:38Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "application/pdf",
+      "path": "docs/silver/evidence/s7-exact-groups/sor-2024-11-19-issuer-release.pdf",
+      "publication_basis": "issuer_document_date",
+      "publication_precision": "date",
+      "sha256": "172c21b73b018f1ab683a7332860c218f9df06a6b8b7e2b8850015924c861539",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": "2024-11-19",
+      "source_url": "https://fpa.com/wp-content/uploads/2025/09/press-release-2024-11.pdf"
+    },
+    {
+      "bytes": 205,
+      "captured_at_utc": "2026-07-19T16:18:38Z",
+      "content_scope": "allowlisted_response_headers_without_cookie_or_credentials",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-exact-groups/sor-2024-11-19-issuer-release.response.headers.txt",
+      "publication_basis": "issuer_document_date",
+      "publication_precision": "date",
+      "sha256": "da765c60db8ecaa250e007efbb64fd3e374005d061fd863775cbff4a762465b9",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": "2024-11-19",
+      "source_url": "https://fpa.com/wp-content/uploads/2025/09/press-release-2024-11.pdf"
+    },
+    {
+      "bytes": 1581498,
+      "captured_at_utc": "2026-07-19T16:18:19Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "text/html",
+      "path": "docs/silver/evidence/s7-exact-groups/sor-2025-03-07-ncsr.html",
+      "publication_basis": "edgar_filing_date",
+      "publication_precision": "date",
+      "sha256": "bdfcf54859ad7ea3d7cd695346394e71ca5707809b73acaeb7847afbe6cd5735",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": "2025-03-07",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/91847/000110465925021647/tm255164d1_ncsr.htm"
+    },
+    {
+      "bytes": 153,
+      "captured_at_utc": "2026-07-19T16:18:19Z",
+      "content_scope": "allowlisted_response_headers_without_cookie_or_credentials",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-exact-groups/sor-2025-03-07-ncsr.response.headers.txt",
+      "publication_basis": "edgar_filing_date",
+      "publication_precision": "date",
+      "sha256": "eedb83ff388067a2e5b6b85d8515e9a74c89184afc0dcbc61382a8d7947b284c",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": "2025-03-07",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/91847/000110465925021647/tm255164d1_ncsr.htm"
+    },
+    {
+      "bytes": 32233,
+      "captured_at_utc": "2026-07-19T16:18:24Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "text/html",
+      "path": "docs/silver/evidence/s7-exact-groups/xzo-2025-11-06-8k.html",
+      "publication_basis": "edgar_filing_date",
+      "publication_precision": "date",
+      "sha256": "c050a14bf20dc34b4c6240fc8665006729fa33102e746e6d480e580a2a02a8f0",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": "2025-11-06",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1873951/000119312525270136/d77578d8k.htm"
+    },
+    {
+      "bytes": 175,
+      "captured_at_utc": "2026-07-19T16:18:24Z",
+      "content_scope": "allowlisted_response_headers_without_cookie_or_credentials",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-exact-groups/xzo-2025-11-06-8k.response.headers.txt",
+      "publication_basis": "edgar_filing_date",
+      "publication_precision": "date",
+      "sha256": "56e2615fd0ce9eddf593b4f2c64fb8ff0e82eaff47ed01aedeeb4a7d39836051",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": "2025-11-06",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1873951/000119312525270136/d77578d8k.htm"
+    },
+    {
+      "bytes": 5655,
+      "captured_at_utc": "2026-07-19T16:19:57Z",
+      "content_scope": "exact_raw_bytes",
+      "media_type": "text/html",
+      "path": "docs/silver/evidence/s7-exact-groups/xzo-2025-11-06-ex99-2.html",
+      "publication_basis": "issuer_release_date",
+      "publication_precision": "date",
+      "sha256": "1639d982d7be6deb96e1beba296b430cbd23b5a1e5b17ba531c89d35c2dcc2a4",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": "2025-11-06",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1873951/000119312525270136/d77578dex992.htm"
+    },
+    {
+      "bytes": 174,
+      "captured_at_utc": "2026-07-19T16:19:57Z",
+      "content_scope": "allowlisted_response_headers_without_cookie_or_credentials",
+      "media_type": "text/plain",
+      "path": "docs/silver/evidence/s7-exact-groups/xzo-2025-11-06-ex99-2.response.headers.txt",
+      "publication_basis": "issuer_release_date",
+      "publication_precision": "date",
+      "sha256": "7e811d28186912833c2db6d654de052f995811d1bf7f0d66cec3e45481249a53",
+      "source_available_session": "2026-07-20",
+      "source_published_at_utc": null,
+      "source_published_raw": "2025-11-06",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1873951/000119312525270136/d77578dex992.htm"
+    }
+  ],
+  "availability": {
+    "available_session": "2026-07-20",
+    "rule": "first_xnys_open_strictly_after_latest_actual_capture_v1"
+  },
+  "case_scope_binding": {
+    "scope_set_id": "18bf273175177a87208a61e345ca855d1275d5a3602aebe9df12545ed81c0442",
+    "scope_set_sha256": "2b88bf92f6a95a0e280d540f0d2fed8b74608d6de2dbb9ff0aa47dd9c45098d4",
+    "source_row_interval_finalized": false,
+    "tickers": [
+      "ANABV",
+      "SOR",
+      "XZO"
+    ]
+  },
+  "cases": [
+    {
+      "candidate_adjudication_status": "not_planned_not_approved",
+      "case": "SOR",
+      "evidence_facts": [
+        {
+          "assertion": "Source Capital announced reorganization after the 2024-12-31 close, continued NYSE trading as SOR, and subsequently reported that the Delaware Trust reorganization became effective 2025-01-01.",
+          "source_paths": [
+            "docs/silver/evidence/s7-exact-groups/sor-2024-11-19-8k.html",
+            "docs/silver/evidence/s7-exact-groups/sor-2024-11-19-issuer-release.pdf",
+            "docs/silver/evidence/s7-exact-groups/sor-2025-03-07-ncsr.html"
+          ]
+        }
+      ],
+      "openfigi_assertions": [
+        {
+          "expected": {
+            "compositeFIGI": "BBG01RK6N4M5",
+            "exchCode": "US",
+            "shareClassFIGI": "BBG01RK6N5G9",
+            "ticker": "SOR"
+          },
+          "request_job_index": 1,
+          "request_path": "docs/silver/evidence/s7-exact-groups/openfigi-composite-mapping.request.json",
+          "response_path": "docs/silver/evidence/s7-exact-groups/openfigi-composite-mapping.response.json"
+        },
+        {
+          "expected": {
+            "compositeFIGI": "BBG000KMY6N2",
+            "exchCode": "US",
+            "shareClassFIGI": "BBG01RK6N5G9",
+            "ticker": "XSORX"
+          },
+          "request_job_index": 0,
+          "request_path": "docs/silver/evidence/s7-exact-groups/openfigi-composite-mapping.request.json",
+          "response_path": "docs/silver/evidence/s7-exact-groups/openfigi-composite-mapping.response.json"
+        },
+        {
+          "expected": {
+            "compositeFIGI": "BBG000BTBNC7",
+            "exchCode": "US",
+            "shareClassFIGI": "BBG001S5W848",
+            "ticker": "2538080D"
+          },
+          "request_job_index": 0,
+          "request_path": "docs/silver/evidence/s7-exact-groups/openfigi-share-class-mapping.request.json",
+          "response_path": "docs/silver/evidence/s7-exact-groups/openfigi-share-class-mapping.response.json"
+        }
+      ],
+      "review_recommendation": "Model a genuine predecessor/successor asset transition at the official reorganization boundary and a separate provider-scoped stale Composite correction only for exact post-transition SOR source rows. Never globally rewrite BBG000KMY6N2 because OpenFIGI currently uses it for XSORX."
+    },
+    {
+      "candidate_adjudication_status": "not_planned_not_approved",
+      "case": "XZO",
+      "evidence_facts": [
+        {
+          "assertion": "One class of Exzeo common stock began NYSE trading as XZO on 2025-11-05 and the IPO closed on 2025-11-06; the frozen official sources contain no intervening share-class corporate action.",
+          "source_paths": [
+            "docs/silver/evidence/s7-exact-groups/xzo-2025-11-06-8k.html",
+            "docs/silver/evidence/s7-exact-groups/xzo-2025-11-06-ex99-2.html"
+          ]
+        }
+      ],
+      "openfigi_assertions": [
+        {
+          "expected": {
+            "compositeFIGI": "BBG01XL8FHT0",
+            "exchCode": "US",
+            "shareClassFIGI": "BBG01227MF17",
+            "ticker": "XZO"
+          },
+          "request_job_index": 2,
+          "request_path": "docs/silver/evidence/s7-exact-groups/openfigi-composite-mapping.request.json",
+          "response_path": "docs/silver/evidence/s7-exact-groups/openfigi-composite-mapping.response.json"
+        },
+        {
+          "expected_warning": "No identifier found.",
+          "queried_share_class_figi": "BBG01XL8FJS7",
+          "request_job_index": 3,
+          "request_path": "docs/silver/evidence/s7-exact-groups/openfigi-share-class-mapping.request.json",
+          "response_path": "docs/silver/evidence/s7-exact-groups/openfigi-share-class-mapping.response.json"
+        }
+      ],
+      "review_recommendation": "Keep Composite BBG01XL8FHT0 and exact-scope map observed Share Class BBG01XL8FJS7 to BBG01227MF17 without changing asset_id or deleting the 2025-11-04 membership row."
+    },
+    {
+      "candidate_adjudication_status": "not_planned_not_approved",
+      "case": "ANABV",
+      "evidence_facts": [
+        {
+          "assertion": "ANABV was a genuine ex-distribution market in AnaptysBio common stock without the First Tracks entitlement, distinct from regular-way ANAB with the entitlement; the spin-off completed on 2026-04-20 and ANAB continued while TRAX began regular-way trading.",
+          "source_paths": [
+            "docs/silver/evidence/s7-exact-groups/anabv-2026-04-02-first-tracks-8k.html",
+            "docs/silver/evidence/s7-exact-groups/anab-2026-04-20-spin-completion-8k.html",
+            "docs/silver/evidence/s7-exact-groups/anab-2026-04-20-ex99-1.html"
+          ]
+        }
+      ],
+      "openfigi_assertions": [
+        {
+          "expected": {
+            "compositeFIGI": "BBG021DMXXT2",
+            "exchCode": "US",
+            "shareClassFIGI": "BBG021GNPBR6",
+            "ticker": "ANABV"
+          },
+          "request_job_index": 3,
+          "request_path": "docs/silver/evidence/s7-exact-groups/openfigi-composite-mapping.request.json",
+          "response_path": "docs/silver/evidence/s7-exact-groups/openfigi-composite-mapping.response.json"
+        },
+        {
+          "expected": {
+            "compositeFIGI": "BBG0026ZDHR0",
+            "exchCode": "US",
+            "shareClassFIGI": "BBG0026ZDHT8",
+            "ticker": "ANAB"
+          },
+          "request_job_index": 4,
+          "request_path": "docs/silver/evidence/s7-exact-groups/openfigi-composite-mapping.request.json",
+          "response_path": "docs/silver/evidence/s7-exact-groups/openfigi-composite-mapping.response.json"
+        }
+      ],
+      "review_recommendation": "Represent ANABV as an independent temporary asset with BBG021DMXXT2/BBG021GNPBR6. Correct only exact ANABV rows carrying the ordinary ANAB Share Class; do not merge prices, delisting state, or liquidation semantics into ANAB."
+    }
+  ],
+  "limitations": [
+    "OpenFIGI is a current 2026-07-19 snapshot, not a point-in-time archive; no OpenFIGI field is backdated to the historical event session.",
+    "Issuer and SEC event dates establish event semantics, not the exact provider-staleness interval; exact source-row intervals remain pending bounded full-history review.",
+    "A no-identifier warning is evidence only for this exact frozen OpenFIGI response and cannot prove that an identifier never existed.",
+    "This package does not approve an identity override, asset transition, Share Class adjudication, tradability decision, forced liquidation, S7 Full run, or Publish."
+  ],
+  "manifest_id": "30e3cd9f009c995ce594fd19344ce551ea39133a9c60caea661a7c7211743fdd",
+  "manifest_schema_version": 1,
+  "manifest_status": "candidate_not_approved",
+  "manifest_type": "identity_exact_group_external_evidence",
+  "non_executable_capabilities": {
+    "adjudication_plan_authorized": false,
+    "asset_transition_authorized": false,
+    "full_run_authorized": false,
+    "provider_composite_override_authorized": false,
+    "publish_authorized": false,
+    "share_class_adjudication_authorized": false
+  },
+  "openfigi_capture": {
+    "api_version": "v3",
+    "endpoint": "https://api.openfigi.com/v3/mapping",
+    "request_authentication": "none",
+    "response_fields_admitted": [
+      "figi",
+      "name",
+      "ticker",
+      "exchCode",
+      "compositeFIGI",
+      "shareClassFIGI",
+      "securityType",
+      "securityType2",
+      "marketSector",
+      "securityDescription"
+    ],
+    "response_name_ticker_historical_truth": false
+  }
+}

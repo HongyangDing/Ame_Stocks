@@ -28,9 +28,7 @@ _FIGI = re.compile(r"^BBG[0-9A-Z]{9}$")
 _CODE = re.compile(r"^[A-Z0-9]{2,8}$")
 
 POSITION_CONTINUITY_RESOLVED = "resolved_identity"
-POSITION_CONTINUITY_UNCERTAIN = (
-    "identity_uncertain_no_new_trade_no_forced_exit_run_incomplete"
-)
+POSITION_CONTINUITY_UNCERTAIN = "identity_uncertain_no_new_trade_no_forced_exit_run_incomplete"
 
 
 class CrossMarketIdentityError(SilverContractError):
@@ -71,9 +69,7 @@ class CompositeMarketReference:
             raise CrossMarketIdentityError("reference market code is invalid")
         if not isinstance(self.market_class, CompositeMarketClass):
             raise CrossMarketIdentityError("reference market class is invalid")
-        if (self.market_class is CompositeMarketClass.US) != (
-            self.composite_market_code == "US"
-        ):
+        if (self.market_class is CompositeMarketClass.US) != (self.composite_market_code == "US"):
             raise CrossMarketIdentityError(
                 "US market classification must be represented by exact code US"
             )
@@ -136,9 +132,7 @@ class CrossMarketIdentityObservation:
         _digest(self.source_s4_release_set_id, "source S4 release-set ID")
         if type(self.relationship_conflict) is not bool:
             raise CrossMarketIdentityError("relationship_conflict must be a native bool")
-        if (self.identity_case_id is None) != (
-            self.identity_case_resolution_role is None
-        ):
+        if (self.identity_case_id is None) != (self.identity_case_resolution_role is None):
             raise CrossMarketIdentityError(
                 "identity case ID and cross-market case role must be jointly null"
             )
@@ -208,10 +202,7 @@ class ApprovedCrossMarketAdjudication:
             or self.observed_composite_market_code == "US"
         ):
             raise CrossMarketIdentityError("observed market code must be non-US")
-        if (
-            self.disposition
-            is CrossMarketAdjudicationDisposition.CONFIRMED_PROVIDER_CONTAMINATION
-        ):
+        if self.disposition is CrossMarketAdjudicationDisposition.CONFIRMED_PROVIDER_CONTAMINATION:
             _figi(self.canonical_us_composite_figi, "canonical US Composite FIGI")
             if self.observed_foreign_composite_figi == self.canonical_us_composite_figi:
                 raise CrossMarketIdentityError(
@@ -277,12 +268,8 @@ class ApprovedCrossMarketAdjudication:
             raise CrossMarketIdentityError("approval availability is backdated")
         if type(self.decision_version) is not int or self.decision_version <= 0:
             raise CrossMarketIdentityError("decision version must be positive")
-        if (self.decision_version == 1) != (
-            self.supersedes_cross_market_adjudication_id is None
-        ):
-            raise CrossMarketIdentityError(
-                "only decision version 1 may have a null predecessor"
-            )
+        if (self.decision_version == 1) != (self.supersedes_cross_market_adjudication_id is None):
+            raise CrossMarketIdentityError("only decision version 1 may have a null predecessor")
         if self.supersedes_cross_market_adjudication_id is not None:
             _digest(
                 self.supersedes_cross_market_adjudication_id,
@@ -356,9 +343,7 @@ class ApprovedCrossMarketAdjudication:
                 "reason_code": self.reason_code,
                 "reason_detail": self.reason_detail,
                 "rule_version": "s7_cross_market_adjudication_id_v1",
-                "source_external_evidence_manifest_id": (
-                    self.source_external_evidence_manifest_id
-                ),
+                "source_external_evidence_manifest_id": (self.source_external_evidence_manifest_id),
                 "supersedes_cross_market_adjudication_id": (
                     self.supersedes_cross_market_adjudication_id
                 ),
@@ -406,8 +391,7 @@ class ApprovedCrossMarketAdjudication:
             and row.source_s4_release_set_id == self.source_s4_release_set_id
             and any(
                 item.identity_case_id == row.identity_case_id
-                and item.role
-                is IdentityCaseResolutionRole.INVERSE_MIDDLE_IS_CANONICAL_US
+                and item.role is IdentityCaseResolutionRole.INVERSE_MIDDLE_IS_CANONICAL_US
                 for item in self.linked_identity_cases
             )
         )
@@ -556,22 +540,16 @@ def resolve_cross_market_identity(
                     adjudication.disposition
                     is CrossMarketAdjudicationDisposition.CONFIRMED_PROVIDER_CONTAMINATION
                 ):
-                    decisions.append(
-                        _approved_foreign_decision(row, reference, adjudication)
-                    )
+                    decisions.append(_approved_foreign_decision(row, reference, adjudication))
                 else:
                     decisions.append(
-                        _unresolved_foreign_decision(
-                            row, reference, adjudication=adjudication
-                        )
+                        _unresolved_foreign_decision(row, reference, adjudication=adjudication)
                     )
             else:
                 decisions.append(_unresolved_foreign_decision(row, reference))
             continue
 
-        inverse_links = [
-            item for item in effective.values() if item.linked_inverse_case(row)
-        ]
+        inverse_links = [item for item in effective.values() if item.linked_inverse_case(row)]
         if len(inverse_links) > 1:
             raise CrossMarketIdentityError("one inverse case links to multiple overrides")
         if (
@@ -603,6 +581,9 @@ def resolve_cross_market_identity(
             and row.provider_locale != "us"
             else "not_classified"
         )
+        if reference is None:
+            decisions.append(_unclassified_decision(row))
+            continue
         decisions.append(
             _direct_decision(
                 row,
@@ -654,20 +635,14 @@ def _effective_adjudications(
     effective: dict[str, ApprovedCrossMarketAdjudication] = {}
     for versions in by_series.values():
         ordered = sorted(versions, key=lambda item: item.decision_version)
-        if [item.decision_version for item in ordered] != list(
-            range(1, len(ordered) + 1)
-        ):
+        if [item.decision_version for item in ordered] != list(range(1, len(ordered) + 1)):
             raise CrossMarketIdentityError("cross-market versions are not contiguous")
         for index, item in enumerate(ordered):
-            predecessor = (
-                None if index == 0 else ordered[index - 1].cross_market_adjudication_id
-            )
+            predecessor = None if index == 0 else ordered[index - 1].cross_market_adjudication_id
             if item.supersedes_cross_market_adjudication_id != predecessor:
                 raise CrossMarketIdentityError("cross-market predecessor chain is invalid")
         available = [
-            item
-            for item in ordered
-            if item.adjudication_available_session <= cutoff_session
+            item for item in ordered if item.adjudication_available_session <= cutoff_session
         ]
         if not available:
             continue
@@ -701,18 +676,14 @@ def _validate_adjudication_references(
             )
         if (
             foreign.evidence_available_session > cutoff_session
-            or foreign.external_evidence_manifest_id
-            != item.source_external_evidence_manifest_id
+            or foreign.external_evidence_manifest_id != item.source_external_evidence_manifest_id
             or foreign.external_evidence_manifest_sha256
             != item.source_external_evidence_manifest_sha256
         ):
             raise CrossMarketIdentityError(
                 "cross-market identifier evidence is unavailable or differently bound"
             )
-        if (
-            item.disposition
-            is CrossMarketAdjudicationDisposition.CONFIRMED_PROVIDER_CONTAMINATION
-        ):
+        if item.disposition is CrossMarketAdjudicationDisposition.CONFIRMED_PROVIDER_CONTAMINATION:
             assert item.canonical_us_composite_figi is not None
             try:
                 canonical = references[item.canonical_us_composite_figi]
@@ -722,8 +693,7 @@ def _validate_adjudication_references(
                 ) from exc
             if (
                 canonical.market_class is not CompositeMarketClass.US
-                or canonical.composite_market_code
-                != item.canonical_composite_market_code
+                or canonical.composite_market_code != item.canonical_composite_market_code
                 or canonical.share_class_figi != item.share_class_figi
                 or canonical.evidence_available_session > cutoff_session
                 or canonical.external_evidence_manifest_id
@@ -802,9 +772,7 @@ def _unresolved_foreign_decision(
         canonical_composite_market_code=None,
         canonical_override=False,
         cross_market_classification_status=(
-            "known_non_us_adjudicated_unresolved"
-            if withdrawn
-            else "known_non_us_pending"
+            "known_non_us_adjudicated_unresolved" if withdrawn else "known_non_us_pending"
         ),
         identity_resolution_status="unresolved",
         identity_resolution_method=(
@@ -827,10 +795,45 @@ def _unresolved_foreign_decision(
             None if adjudication is None else adjudication.cross_market_scope_id
         ),
         cross_market_adjudication_id=(
-            None
-            if adjudication is None
-            else adjudication.cross_market_adjudication_id
+            None if adjudication is None else adjudication.cross_market_adjudication_id
         ),
+        backtest_identity_eligible=False,
+        alias_emitted=False,
+        position_continuity_status=POSITION_CONTINUITY_UNCERTAIN,
+    )
+
+
+def _unclassified_decision(
+    row: CrossMarketIdentityObservation,
+) -> CrossMarketResolutionDecision:
+    """Retain membership but fail closed when the Composite reference is unknown."""
+
+    return CrossMarketResolutionDecision(
+        session_date=row.session_date,
+        provider_id=row.provider_id,
+        provider_market=row.provider_market,
+        provider_locale=row.provider_locale,
+        ticker=row.ticker,
+        active_on_date=row.active_on_date,
+        source_record_id=row.source_record_id,
+        observed_composite_figi=row.observed_composite_figi,
+        observed_share_class_figi=row.observed_share_class_figi,
+        observed_composite_market_code=None,
+        canonical_composite_figi=None,
+        canonical_composite_market_code=None,
+        canonical_override=False,
+        cross_market_classification_status="not_classified",
+        identity_resolution_status="unresolved",
+        identity_resolution_method="cross_market_composite_pending_unresolved",
+        identity_disposition="pending_cross_market_review",
+        identity_case_id=row.identity_case_id,
+        identity_case_resolution_role=(
+            None
+            if row.identity_case_resolution_role is None
+            else row.identity_case_resolution_role.value
+        ),
+        cross_market_scope_id=None,
+        cross_market_adjudication_id=None,
         backtest_identity_eligible=False,
         alias_emitted=False,
         position_continuity_status=POSITION_CONTINUITY_UNCERTAIN,
@@ -878,9 +881,7 @@ def _direct_decision(
             None if linked_override is None else linked_override.cross_market_scope_id
         ),
         cross_market_adjudication_id=(
-            None
-            if linked_override is None
-            else linked_override.cross_market_adjudication_id
+            None if linked_override is None else linked_override.cross_market_adjudication_id
         ),
         backtest_identity_eligible=eligible,
         alias_emitted=eligible,
@@ -937,8 +938,7 @@ def _audit(
             for item in decisions
         ),
         figi_market_classification_uncovered_rows=sum(
-            item.cross_market_classification_status == "not_classified"
-            for item in decisions
+            item.cross_market_classification_status == "not_classified" for item in decisions
         ),
         identity_quality_membership_mutation_rows=sum(
             item.identity_quality_membership_mutated for item in decisions

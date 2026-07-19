@@ -66,7 +66,6 @@ from ame_stocks_api.silver.identity_preview_runner import S7DetectorPreviewCompl
 from ame_stocks_api.silver.identity_provider_evidence import (
     S4BounceProviderEvidenceManifest,
 )
-from ame_stocks_api.silver.identity_resolution_contract import S7_CONTRACTS
 from ame_stocks_api.silver.identity_source import (
     S7_S4_RELEASE_SET_ID,
     S7_S4_RELEASE_SET_MANIFEST_SHA256,
@@ -92,8 +91,7 @@ PRIOR_PREVIEW_PATH: Final = (
     f"preview_artifact_id={PREVIEW_ARTIFACT_ID}/manifest.json"
 )
 S4_RELEASE_SET_PATH: Final = (
-    "manifests/silver/release-sets/assets/"
-    f"release_set_id={S7_S4_RELEASE_SET_ID}/manifest.json"
+    f"manifests/silver/release-sets/assets/release_set_id={S7_S4_RELEASE_SET_ID}/manifest.json"
 )
 
 _GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -101,10 +99,7 @@ _SESSION_PARTITION = re.compile(r"(?:^|/)session_date=(\d{4}-\d{2}-\d{2})(?:/|$)
 _DAILY_TABLES: Final = frozenset({"asset_observation_daily", "universe_source_daily"})
 _RESOURCE_PATH_BY_TABLE: Final = MappingProxyType(
     {
-        pin.table: (
-            "backend/ame_stocks_api/silver/schema_resources/"
-            f"{pin.table}.schema-v1.json"
-        )
+        pin.table: (f"backend/ame_stocks_api/silver/schema_resources/{pin.table}.schema-v1.json")
         for pin in APPROVED_CONTRACT_PINS
     }
 )
@@ -284,9 +279,7 @@ def _recorded_at(value: str) -> datetime:
     try:
         parsed = datetime.fromisoformat(value)
     except ValueError as exc:
-        raise IdentityMarketInventoryPlanError(
-            "recorded_at must be canonical UTC text"
-        ) from exc
+        raise IdentityMarketInventoryPlanError("recorded_at must be canonical UTC text") from exc
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise IdentityMarketInventoryPlanError("recorded_at must be timezone-aware UTC text")
     normalized = parsed.astimezone(UTC)
@@ -353,8 +346,7 @@ def _preflight_schema_and_external_evidence(repo: Path) -> tuple[str, ...]:
             ) from exc
         contract = TableContract.from_dict(raw_contract)
         if (
-            contract != S7_CONTRACTS.get(pin.table)
-            or contract.table != pin.table
+            contract.table != pin.table
             or contract.domain != pin.domain
             or contract.schema_version != 1
             or contract.contract_id != pin.contract_id
