@@ -321,6 +321,66 @@ def test_capture_resumes_classifies_multivenue_and_materializes_full_lineage(
     ).idempotent
 
 
+def test_materialization_handles_values_after_polars_inference_window(
+    tmp_path: Path, exact_calendar
+) -> None:
+    figis = _figis(203)
+    prepared = _prepare(tmp_path, figis, exact_calendar)
+
+    def post(url: str, body: bytes, headers: dict[str, str]) -> HttpResult:
+        del url, headers
+        results: list[dict[str, object]] = []
+        for job in json.loads(body):
+            query = job["idValue"]
+            ordinal = int(query.removeprefix("BBG"))
+            if ordinal == 101:
+                results.append(
+                    {
+                        "data": [
+                            _mapping_row(
+                                query,
+                                market="US",
+                                share="BBG000000999",
+                            )
+                        ]
+                    }
+                )
+            elif ordinal == 202:
+                results.append({"error": "No identifier found."})
+            else:
+                results.append({"data": []})
+        return HttpResult(200, {}, json.dumps(results).encode())
+
+    _execute_complete(tmp_path, prepared, post=post)
+    candidate = materialize_market_classification_candidate(
+        tmp_path,
+        run_id=prepared.run_id,
+        materialized_at_utc="2026-07-19T16:05:00+00:00",
+        materialized_by="test_late_schema_values",
+    )
+
+    table = pq.read_table(tmp_path / candidate.data_path)
+    rows = {row["composite_figi"]: row for row in table.to_pylist()}
+    late_mapping = rows[figis[101]]
+    late_error = rows[figis[202]]
+    assert late_mapping["selected_figi"] == figis[101]
+    assert late_mapping["selected_share_class_figi"] == "BBG000000999"
+    assert late_mapping["returned_figis"] == [figis[101]]
+    assert late_error["classification"] == "unresolved_no_mapping"
+    assert late_error["job_error"] == "No identifier found."
+    assert table.schema.field("job_error").type == pa.large_string()
+    assert table.schema.field("returned_figis").type == pa.large_list(pa.large_string())
+
+    verified = verify_market_classification_candidate(
+        tmp_path,
+        candidate_path=candidate.manifest_path,
+        candidate_id=candidate.candidate_id,
+        candidate_sha256=sha256_file(tmp_path / candidate.manifest_path),
+        require_production_approval=False,
+    )
+    assert verified.candidate_id == candidate.candidate_id
+
+
 def test_attempt_ledger_rate_limits_retries_and_ignores_partial_staging(
     tmp_path: Path, exact_calendar
 ) -> None:

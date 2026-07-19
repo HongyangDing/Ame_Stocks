@@ -2090,7 +2090,6 @@ def _candidate_columns() -> tuple[str, ...]:
 
 
 def _candidate_frame(rows: Sequence[Mapping[str, object]]) -> pl.DataFrame:
-    frame = pl.DataFrame(rows).select(*_candidate_columns())
     optional_strings = (
         "inventory_completion_id",
         "inventory_completion_sha256",
@@ -2118,6 +2117,11 @@ def _candidate_frame(rows: Sequence[Mapping[str, object]]) -> pl.DataFrame:
         "returned_security_types2",
         "returned_share_class_figis",
     )
+    schema_overrides = {
+        **{name: pl.String for name in optional_strings},
+        **{name: pl.List(pl.String) for name in list_strings},
+    }
+    frame = pl.DataFrame(rows, schema_overrides=schema_overrides).select(*_candidate_columns())
     return frame.with_columns(
         *(pl.col(name).cast(pl.String) for name in optional_strings),
         *(pl.col(name).cast(pl.List(pl.String)) for name in list_strings),
