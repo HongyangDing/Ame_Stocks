@@ -4,7 +4,7 @@ import json
 import sys
 import time
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -265,6 +265,108 @@ def _empty_operation_counts() -> dict[str, int]:
         "source_lstat_bytes": 0,
         "source_rows": 0,
     }
+
+
+def _calendar_document(sessions: tuple[date, ...]) -> dict[str, object]:
+    return {
+        "calendar_artifact_id": m.CALENDAR_ARTIFACT_ID,
+        "end_session": sessions[-1].isoformat(),
+        "session_count": len(sessions),
+        "sessions": [{"session_date": item.isoformat()} for item in sessions],
+        "start_session": sessions[0].isoformat(),
+    }
+
+
+def _exact_calendar_projection() -> tuple[date, ...]:
+    # Only ordering/count/range is under direct test here. The caller still
+    # reconciles every selected date against both pinned release manifests.
+    return (
+        *(
+            m.START_SESSION + timedelta(days=index)
+            for index in range(m.SESSION_COUNT - 1)
+        ),
+        m.END_SESSION,
+    )
+
+
+def test_calendar_superset_projects_exact_s7_source_interval() -> None:
+    expected = _exact_calendar_projection()
+    superset = (
+        m.START_SESSION - timedelta(days=3),
+        *expected,
+        m.END_SESSION + timedelta(days=3),
+    )
+
+    assert m._project_calendar_sessions(_calendar_document(superset)) == expected
+
+
+def test_calendar_exact_range_and_right_superset_project_identically() -> None:
+    expected = _exact_calendar_projection()
+
+    assert m._project_calendar_sessions(_calendar_document(expected)) == expected
+    assert m._project_calendar_sessions(
+        _calendar_document((*expected, m.END_SESSION + timedelta(days=3)))
+    ) == expected
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("missing_start", "calendar projection differs"),
+        ("missing_end", "calendar projection differs"),
+        ("missing_internal", "calendar projection differs"),
+        ("duplicate", "calendar sessions repeat"),
+        ("out_of_order", "not strictly ordered"),
+    ],
+)
+def test_calendar_projection_fails_closed_on_incomplete_or_noncanonical_sessions(
+    mutation: str,
+    message: str,
+) -> None:
+    exact = _exact_calendar_projection()
+    sessions = [m.START_SESSION - timedelta(days=3), *exact, m.END_SESSION + timedelta(days=3)]
+    if mutation == "missing_start":
+        sessions.remove(m.START_SESSION)
+    elif mutation == "missing_end":
+        sessions.remove(m.END_SESSION)
+    elif mutation == "missing_internal":
+        sessions.remove(exact[100])
+    elif mutation == "duplicate":
+        sessions.insert(101, sessions[100])
+    else:
+        sessions[100], sessions[101] = sessions[101], sessions[100]
+
+    with pytest.raises(m.IdentityExactGroupHistoryManifestError, match=message):
+        m._project_calendar_sessions(_calendar_document(tuple(sessions)))
+
+
+def test_calendar_projection_rejects_metadata_endpoint_drift() -> None:
+    expected = _exact_calendar_projection()
+    superset = (
+        m.START_SESSION - timedelta(days=3),
+        *expected,
+        m.END_SESSION + timedelta(days=3),
+    )
+    document = _calendar_document(superset)
+    document["start_session"] = m.START_SESSION.isoformat()
+
+    with pytest.raises(
+        m.IdentityExactGroupHistoryManifestError,
+        match="range endpoints differ",
+    ):
+        m._project_calendar_sessions(document)
+
+
+def test_calendar_projection_rejects_session_count_metadata_drift() -> None:
+    expected = _exact_calendar_projection()
+    document = _calendar_document(expected)
+    document["session_count"] = len(expected) + 1
+
+    with pytest.raises(
+        m.IdentityExactGroupHistoryManifestError,
+        match="calendar lineage differs",
+    ):
+        m._project_calendar_sessions(document)
 
 
 def _binding(

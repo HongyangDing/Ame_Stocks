@@ -3024,22 +3024,8 @@ def _read_and_bind_sources(
             )
         )
     calendar = by_kind["xnys_calendar_manifest"][1]
-    sessions_raw = calendar.get("sessions")
-    if (
-        calendar.get("calendar_artifact_id") != CALENDAR_ARTIFACT_ID
-        or calendar.get("session_count") != SESSION_COUNT
-        or calendar.get("start_session") != START_SESSION.isoformat()
-        or calendar.get("end_session") != END_SESSION.isoformat()
-        or not isinstance(sessions_raw, list)
-        or len(sessions_raw) != SESSION_COUNT
-    ):
-        raise IdentityExactGroupHistoryManifestError("calendar lineage differs")
-    session_set = {
-        _date(_mapping(item, "calendar session").get("session_date"), "calendar session")
-        for item in sessions_raw
-    }
-    if len(session_set) != SESSION_COUNT:
-        raise IdentityExactGroupHistoryManifestError("calendar sessions repeat")
+    projected_sessions = _project_calendar_sessions(calendar)
+    session_set = set(projected_sessions)
 
     inventory_candidate = by_kind["inventory_candidate_manifest"][1]
     inventory_completion = by_kind["inventory_completion_manifest"][1]
@@ -3098,8 +3084,16 @@ def _read_and_bind_sources(
             if key in release_outputs:
                 raise IdentityExactGroupHistoryManifestError("release table/session repeats")
             release_outputs[key] = output
-    if {session for _, session in release_outputs} != session_set:
-        raise IdentityExactGroupHistoryManifestError("release/calendar sessions differ")
+    for table in _TABLES:
+        table_sessions = {
+            session
+            for release_table, session in release_outputs
+            if release_table == table
+        }
+        if table_sessions != session_set:
+            raise IdentityExactGroupHistoryManifestError(
+                f"{table} release/calendar sessions differ"
+            )
 
     raw_sources = []
     for inventory_raw in inventory_refs:
@@ -3175,6 +3169,59 @@ def _read_and_bind_sources(
     ):
         raise IdentityExactGroupHistoryManifestError("source-binding totals differ")
     return tuple(sorted(refs)), sources
+
+
+def _project_calendar_sessions(calendar: Mapping[str, object]) -> tuple[date, ...]:
+    """Validate a pinned calendar superset and select the exact S7 source interval."""
+
+    sessions_raw = calendar.get("sessions")
+    session_count = calendar.get("session_count")
+    if (
+        calendar.get("calendar_artifact_id") != CALENDAR_ARTIFACT_ID
+        or not isinstance(sessions_raw, list)
+        or not sessions_raw
+        or type(session_count) is not int
+        or session_count != len(sessions_raw)
+    ):
+        raise IdentityExactGroupHistoryManifestError("calendar lineage differs")
+
+    calendar_start = _date(calendar.get("start_session"), "calendar start session")
+    calendar_end = _date(calendar.get("end_session"), "calendar end session")
+    sessions = tuple(
+        _date(
+            _mapping(item, f"calendar session {index}").get("session_date"),
+            f"calendar session {index}",
+        )
+        for index, item in enumerate(sessions_raw)
+    )
+    if len(set(sessions)) != len(sessions):
+        raise IdentityExactGroupHistoryManifestError("calendar sessions repeat")
+    if any(left >= right for left, right in pairwise(sessions)):
+        raise IdentityExactGroupHistoryManifestError(
+            "calendar sessions are not strictly ordered"
+        )
+    if sessions[0] != calendar_start or sessions[-1] != calendar_end:
+        raise IdentityExactGroupHistoryManifestError(
+            "calendar range endpoints differ from its sessions"
+        )
+    if calendar_start > START_SESSION or calendar_end < END_SESSION:
+        raise IdentityExactGroupHistoryManifestError(
+            "calendar does not cover the exact S7 source interval"
+        )
+
+    projected = tuple(
+        session for session in sessions if START_SESSION <= session <= END_SESSION
+    )
+    if (
+        len(projected) != SESSION_COUNT
+        or not projected
+        or projected[0] != START_SESSION
+        or projected[-1] != END_SESSION
+    ):
+        raise IdentityExactGroupHistoryManifestError(
+            "calendar projection differs from the exact S7 source interval"
+        )
+    return projected
 
 
 def _read_exact_json(
