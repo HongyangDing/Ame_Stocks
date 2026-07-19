@@ -1,0 +1,805 @@
+{
+  "columns": [
+    {
+      "arrow_type": "string",
+      "description": "Stable digest of one exact provider, market, locale, ticker, and observed Composite FIGI review group. It is not an adjudication or canonical asset ID.",
+      "name": "review_group_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Content-addressed ID of the frozen three-group full-S4-release scope.",
+      "name": "review_scope_set_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact source provider namespace, fixed to massive.",
+      "name": "provider_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact source provider market, fixed to stocks.",
+      "name": "provider_market",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact source provider locale, fixed to us without normalization.",
+      "name": "provider_locale",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact case-sensitive provider ticker: SOR, XZO, or ANABV.",
+      "name": "ticker",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact provider-observed Composite FIGI used by the bounded group filter. It is observed lineage, never a canonical target.",
+      "name": "exact_group_observed_composite_figi",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact full-history S4 release-set ID bound by the future candidate.",
+      "name": "s4_release_set_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact Composite-inventory completion ID used to select the reviewed conflict facts.",
+      "name": "inventory_completion_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact directional raw-preview candidate ID that established the sampled direction requiring this review.",
+      "name": "directional_preview_candidate_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact directional raw-preview completion ID that fixed the prior awaiting-review result.",
+      "name": "directional_preview_completion_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "XNYS session with at least one exact-group asset_observation_daily row. Sessions without exact-group Asset evidence are not synthesized.",
+      "name": "session_date",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Previous observed session in this review group; null only for the first observed session. This is not an override boundary.",
+      "name": "previous_observed_session",
+      "nullable": true
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Whether the previous observed session is the immediately preceding frozen XNYS session; null only for the first observation.",
+      "name": "previous_observed_session_is_adjacent_xnys",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Stable evidence-only ID for one maximal XNYS-adjacent run of exact-group observations. It is not a registry interval ID.",
+      "name": "exact_observed_run_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Zero-based run ordinal within the review group, ordered by observed session.",
+      "name": "exact_observed_run_ordinal",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Zero-based session ordinal within the exact observed run.",
+      "name": "observed_session_ordinal_in_run",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First actually observed session in this exact observed run; never extrapolated backward.",
+      "name": "exact_observed_run_start_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Last actually observed session in this exact observed run; never extrapolated forward.",
+      "name": "exact_observed_run_end_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of observed XNYS sessions in this exact observed run.",
+      "name": "exact_observed_run_session_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First session in the full release containing exact-group Asset evidence.",
+      "name": "group_first_observed_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Last session in the full release containing exact-group Asset evidence.",
+      "name": "group_last_observed_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Total distinct observed sessions for the review group in the full S4 release.",
+      "name": "group_observed_session_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Total maximal XNYS-adjacent exact observed runs for the review group.",
+      "name": "group_exact_observed_run_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of every Asset source version matching the exact group on this session; it must be positive.",
+      "name": "exact_asset_observation_match_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "json_string",
+      "description": "Canonical JSON array of every matching Asset ProviderRowAttestation v2 ID in deterministic physical order, without version selection or deduplication.",
+      "name": "exact_asset_observation_attestation_ids_json",
+      "nullable": false
+    },
+    {
+      "arrow_type": "json_string",
+      "description": "Canonical JSON array of distinct observed Share Class FIGI values, including null when observed, across all exact-group versions. Share Class never filters input.",
+      "name": "exact_group_observed_share_class_figis_json",
+      "nullable": false
+    },
+    {
+      "arrow_type": "json_string",
+      "description": "Canonical JSON array of distinct observed CIK values, including null when observed, across all exact-group versions.",
+      "name": "exact_group_observed_ciks_json",
+      "nullable": false
+    },
+    {
+      "arrow_type": "json_string",
+      "description": "Canonical JSON array of distinct observed primary exchange MIC values, including null when observed, across all exact-group versions.",
+      "name": "exact_group_observed_primary_exchange_mics_json",
+      "nullable": false
+    },
+    {
+      "arrow_type": "json_string",
+      "description": "Canonical JSON array of distinct observed type codes, including null when observed, across all exact-group versions.",
+      "name": "exact_group_observed_type_codes_json",
+      "nullable": false
+    },
+    {
+      "arrow_type": "json_string",
+      "description": "Canonical JSON array of distinct provider_active values across every exact-group Asset version for this session.",
+      "name": "exact_group_provider_active_values_json",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of exact-group Asset versions not selected by the same-session universe parent. They remain fully attested.",
+      "name": "nonselected_exact_group_asset_observation_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of additional distinct Share Class, CIK, MIC, type, or active projections among same-session exact-group versions.",
+      "name": "same_session_exact_group_identity_variant_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of exact same-ticker/session universe_source_daily rows, constrained to zero or one and never filtered by Composite or Share Class.",
+      "name": "universe_membership_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact derived domain present_active, present_inactive, or absent_source_membership. Identity quality cannot change membership.",
+      "name": "membership_status",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Exact universe active_on_date when membership exists; null when source membership is absent. It is not final tradability.",
+      "name": "active_on_date",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "ProviderRowAttestation v2 ID for the exact universe row; null only when membership is absent.",
+      "name": "universe_row_attestation_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact selected_source_record_id from the universe row; null only when membership is absent.",
+      "name": "selected_source_record_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Exact universe source_version_count; null only when membership is absent.",
+      "name": "source_version_count",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact universe version_group_id; nullable for singleton or absent membership.",
+      "name": "version_group_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact universe selection_status; null only when membership is absent.",
+      "name": "selection_status",
+      "nullable": true
+    },
+    {
+      "arrow_type": "int64",
+      "description": "Count of all same-ticker/session Asset rows whose source_record_id equals selected_source_record_id; one when membership exists, zero otherwise.",
+      "name": "selected_parent_asset_match_count",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "ProviderRowAttestation v2 ID of the selected Asset parent, even when that parent has another Composite; null only for absent membership.",
+      "name": "selected_parent_attestation_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "True only when the selected Asset parent exactly reproduces the frozen S4 universe projection; null for absent membership.",
+      "name": "selected_parent_projection_match",
+      "nullable": true
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Whether the selected Asset parent is one of this session's exact-group versions; null for absent membership. False remains review evidence.",
+      "name": "selected_parent_matches_exact_group",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact observed Composite FIGI on the selected Asset parent; nullable source value or absent membership is preserved.",
+      "name": "selected_parent_observed_composite_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact observed Share Class FIGI on the selected Asset parent; nullable source value or absent membership is preserved.",
+      "name": "selected_parent_observed_share_class_figi",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact observed CIK on the selected Asset parent; nullable source value or absent membership is preserved.",
+      "name": "selected_parent_observed_cik",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact observed primary exchange MIC on the selected Asset parent; nullable source value or absent membership is preserved.",
+      "name": "selected_parent_observed_primary_exchange_mic",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact observed type code on the selected Asset parent; nullable source value or absent membership is preserved.",
+      "name": "selected_parent_observed_type_code",
+      "nullable": true
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Exact source_available_session on the selected Asset parent; null only for absent membership and never replaced by universe availability.",
+      "name": "selected_parent_source_available_session",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Content-addressed ID of the immutable per-group manifest retaining all exact-group Asset attestations and every used universe/parent attestation.",
+      "name": "exact_group_evidence_manifest_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Normalized relative path to the immutable exact-group evidence manifest.",
+      "name": "exact_group_evidence_manifest_path",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Lowercase SHA-256 of the exact evidence manifest bytes.",
+      "name": "exact_group_evidence_manifest_sha256",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed exact_full_release_observed_runs_only. Observed run endpoints are facts and never become effective override boundaries.",
+      "name": "observed_interval_state",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Fixed not_evaluated. No identity, cross-market, provider-Composite, Share Class, or transition registry is loaded.",
+      "name": "registry_evaluation_state",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false. Observed history is not an adjudication plan.",
+      "name": "adjudication_eligible",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false. Observed history cannot create canonical identity.",
+      "name": "canonical_candidate_eligible",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false. A history review cannot create a predecessor/successor transition.",
+      "name": "transition_candidate_eligible",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false. Exact observed runs are not effective provider override intervals.",
+      "name": "exact_override_interval_eligible",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false. The review-only output cannot authorize S7 Full materialization.",
+      "name": "full_run_eligible",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "Always false. The review-only output cannot be published.",
+      "name": "publication_eligible",
+      "nullable": false
+    }
+  ],
+  "contract_id": "cdf406e869c06c2942588a043f6e50dd429f1d6a8818d05e4d01a75fb8a92765",
+  "contract_schema_version": 1,
+  "description": "Review-only S7 table containing one row for each full-S4-release session with Asset evidence matching one of three exact provider, market, locale, ticker, and observed Composite FIGI groups. It preserves every matching source version, selected universe-parent reconciliation, and exact XNYS-adjacent observed runs while forbidding Share Class filtering, interval inference, canonicalization, adjudication, transition, tradability decisions, Full, and publication.",
+  "domain": "identity",
+  "grain": "One row for one review_group_id and XNYS session_date with at least one exact-group asset_observation_daily source row in the full S4 release; no row is synthesized for a session without exact-group Asset evidence.",
+  "partition_by": [],
+  "primary_key": [
+    "review_group_id",
+    "session_date"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "schema_exact",
+      "description": "Output field order, Arrow types, nullability, and JSON-string fields must exactly match this review-only contract.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "fixed_review_group_scope_invalid",
+      "description": "Scope must be exactly massive/stocks/us SOR+BBG000KMY6N2, XZO+BBG01XL8FHT0, and ANABV+BBG021DMXXT2 over the full frozen S4 release.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "upstream_review_binding_invalid",
+      "description": "The exact inventory candidate/completion and directional preview candidate/completion bindings must validate before any scan.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "s4_source_binding_invalid",
+      "description": "The exact full S4 release set, two table releases, 2016-07-11 through 2026-07-09 XNYS calendar, and immutable source pins must validate.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_artifact_integrity_invalid",
+      "description": "All 5,026 full-release daily source artifacts must match path, SHA-256, bytes, rows, contract, and Arrow schema.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "source_scan_count_mismatch",
+      "description": "Physical artifact, row, and byte scan totals must equal the complete bound S4 release, independent of bounded logical output counts.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "exact_group_scope_leakage_rows",
+      "description": "No retained Asset row or output slot may fall outside the three exact provider/market/locale/ticker/Composite groups.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "exact_group_asset_omission_rows",
+      "description": "Every Asset source version matching an exact group anywhere in the full S4 release must be retained and attested.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "exact_group_asset_match_count_invalid_rows",
+      "description": "Every emitted slot must contain at least one exact-group Asset attestation and counts must equal the evidence manifest.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "share_class_filter_attempt_rows",
+      "description": "Share Class FIGI must never participate in source selection, scope membership, version retention, or run segmentation.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "duplicate_universe_membership_rows",
+      "description": "Each same-ticker/session universe lookup may match at most one universe_source_daily row.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "selected_parent_missing_rows",
+      "description": "Every present universe membership must resolve selected_source_record_id to exactly one same-ticker/session Asset parent, even if it has another Composite.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "selected_parent_multiple_rows",
+      "description": "No present universe membership may resolve selected_source_record_id to more than one Asset parent.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "selected_parent_projection_mismatch_rows",
+      "description": "Every present universe row and selected Asset parent must reproduce the frozen S4 projection and keep their availability timelines distinct.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "provider_row_attestation_schema_invalid_rows",
+      "description": "Every retained source row must use ProviderRowAttestation schema version 2 with a full contracted snapshot and physical locator.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "row_attestation_replay_invalid_rows",
+      "description": "Every attestation must replay from its exact release, artifact, row group, and row index without mutation.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "orphan_or_duplicate_attestation_rows",
+      "description": "Evidence may not omit a used attestation, retain an unused attestation, duplicate an ID, or reuse a physical locator.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "observed_source_row_mutation_rows",
+      "description": "Composite, Share Class, CIK, market, locale, MIC, type, activity, membership, and lineage must equal the source snapshots.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "observed_run_segmentation_invalid_rows",
+      "description": "Runs must be maximal sequences of exact-group observed sessions adjacent on the frozen XNYS calendar and must break across every gap.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "observed_run_metadata_mismatch_rows",
+      "description": "Run IDs, ordinals, endpoints, counts, previous-session fields, and group summaries must exactly reconcile to retained observed sessions.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "membership_mutation_rows",
+      "description": "Identity quality must not synthesize, delete, activate, deactivate, or relabel source membership.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "identity_quality_forced_liquidation_signal_rows",
+      "description": "No identity-quality finding may emit or imply a forced-liquidation signal.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "observed_interval_state_invalid_rows",
+      "description": "Every row must remain exact_full_release_observed_runs_only; evidence endpoints cannot become effective override dates.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "interval_boundary_inference_rows",
+      "description": "No effective_from, effective_to, validity range, or extrapolated boundary may be generated from exact observed runs.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "registry_resolution_attempt_rows",
+      "description": "The review must not load, match, rank, prioritize, or apply any Composite, Share Class, or transition registry.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "canonical_identity_output_rows",
+      "description": "No canonical Composite, canonical Share Class, asset ID, issuer ID, override target, or equivalent identity result may appear.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "adjudication_or_transition_decision_rows",
+      "description": "No disposition, adjudication, provider override, Share Class correction, or asset transition decision may be emitted.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "tradability_decision_rows",
+      "description": "No final or intermediate tradability eligibility, strategy-pool inclusion, entitlement decision, or liquidation decision may be emitted.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "capability_true_rows",
+      "description": "Every row-level adjudication, canonical, transition, override-interval, Full, and publication capability marker must be false.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "primary_key_duplicate_excess",
+      "description": "No review_group_id and session_date primary key may be duplicated.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "output_sort_invalid",
+      "description": "Rows must be sorted by ticker and session_date, with run ordinals reproducing the frozen XNYS segmentation.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "output_artifact_readback_invalid",
+      "description": "Candidate, data, QA, sequence, evidence, bounded examples, and completion artifacts must pass exact immutable readback.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "resource_cap_exceeded",
+      "description": "Execution must fail closed before candidate commit if any approved artifact, row, byte, wall-time, memory, disk, temporary, or output cap is exceeded.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "nonselected_exact_group_asset_versions",
+      "description": "Exact-group Asset versions not selected by the universe parent remain visible with reason counts and bounded examples.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "exact_group_asset_only_sessions",
+      "description": "Sessions with exact-group Asset evidence but no universe membership remain evidence-only and require review.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "selected_parent_other_composite_sessions",
+      "description": "Sessions whose unique selected universe parent uses another Composite remain reconciled evidence and require review.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "same_session_exact_group_identity_variant_groups",
+      "description": "Same-session exact-group versions with different Share Class, CIK, MIC, type, or active values remain separate evidence.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "observed_share_class_change_edges",
+      "description": "Changes in the exact-group observed Share Class value sets between adjacent observed sessions are reported for review.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "observed_cik_change_edges",
+      "description": "Changes in exact-group observed CIK value sets between adjacent observed sessions are reported for review.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "observed_primary_exchange_mic_change_edges",
+      "description": "Changes in exact-group observed primary exchange MIC value sets between adjacent observed sessions are reported for review.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "observed_type_code_change_edges",
+      "description": "Changes in exact-group observed type-code value sets between adjacent observed sessions are reported for review.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "observed_active_status_change_edges",
+      "description": "Changes in provider or universe active state between adjacent observed sessions are reported without deciding tradability.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "exact_observed_run_gap_edges",
+      "description": "Every nonadjacent pair of observed sessions is reported as an exact run break with bounded edge examples.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "multiple_exact_observed_run_groups",
+      "description": "Groups containing more than one maximal exact observed run are reported with run counts and boundaries.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    },
+    {
+      "check_id": "release_boundary_touching_groups",
+      "description": "Groups observed on the first or last session of the frozen release are reported because an observed endpoint is release-censored.",
+      "failure_status": "warning",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    }
+  ],
+  "schema_version": 1,
+  "sort_by": [
+    "ticker",
+    "session_date"
+  ],
+  "source_datasets": [
+    "composite_figi_inventory",
+    "identity_directional_raw_preview_slot",
+    "asset_observation_daily",
+    "universe_source_daily"
+  ],
+  "table": "identity_exact_group_history_review_slot"
+}

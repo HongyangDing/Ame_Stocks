@@ -10,15 +10,18 @@ Bronze 已具备进入 Silver 的条件。最终 Bronze v9 已证明冻结范围
 编号 S1–S34 中，S7、S14、S15 是跨数据集派生审批点；其余 31 项与 31 个 Bronze family
 一一对应。
 
-截至 2026-07-17，S1–S6 已分别发布；S7 已完成一次 exact approved bounded S4 detector preview并停在
+截至 2026-07-19，S1–S6 已分别发布；S7 已完成一次 exact approved bounded S4 detector preview并停在
 `awaiting_review`：19 cases、89 suspected rows、50 artifacts、1,471,768 physically attested rows。外部复核
 确认其中 9 个 ticker 是 Massive US-locale 记录混入同 Share Class 的 non-US Composite：79 行 foreign
 observation，另 10 行是 inverse case 中正确的 US observation。当前 schema 修订保留 19 case 和全部 raw
 lineage，新增独立 `identity_cross_market_adjudication` registry、full-sequence market-consistency QA，以及
 不可变 OpenFIGI/SEC/issuer evidence；原 `identity_adjudication` 继续处理 episode transition。六份
 schema contracts 与 external evidence manifest 已按 exact ID/SHA 批准，但该批准仅接纳
-schema/evidence，不授权任何数据任务。当前没有生成这 19 个 case 的 adjudication plan，也没有运行
-Composite inventory、market-consistency scan、四表 transform、FullRunPlan、PublishPlan 或 S7 release。
+schema/evidence，不授权任何数据任务。完整 S4 Composite inventory 已按独立 exact approval 执行并停在
+`awaiting_review`；随后 11 个固定日期的三案例 directional raw preview 也已完成：22 个 source artifacts、
+756,532 行、11 个 review slots，Critical QA 为 0。当前没有生成这 19 个 case 的 adjudication plan，也没有
+运行 exact-group 全历史补读、market-consistency scan、四表 transform、FullRunPlan、PublishPlan 或 S7
+release。
 不能描述成“全部 Silver 数据已处理”：
 
 - S1 exchanges、S2 ticker types 和 S3 condition codes 已正式发布；
@@ -520,8 +523,9 @@ quarantine issue 只在 full/publish 审批中按 ID 接受。169 条仍是 `pen
 
 ### S7 — 两类 adjudication registries + `asset_master` / `ticker_alias` / `issuer_master` / `universe_daily`
 
-**状态（2026-07-17）：`detector preview awaiting_review / schema+evidence approved / Composite inventory
-plan-request checkpoint / no inventory execution / no adjudication / no Full or Publish`。** 既有 bounded
+**状态（2026-07-19）：`detector preview awaiting_review / schema+evidence approved / Composite inventory
+awaiting_review / directional raw preview awaiting_review / exact-group history package code_ready awaiting
+preparation approval / no adjudication / no Full or Publish`。** 既有 bounded
 preview、19 case 和 source-attested evidence 保持不变。最新设计、9 个 group、immutable external
 evidence、六份 exact contracts 与 hashes 见
 [`silver-s7-identity-resolution-schema-review.md`](silver-s7-identity-resolution-schema-review.md)。全市场
@@ -529,9 +533,10 @@ reference 的三门前置控制见
 [`silver-s7-market-reference-prerequisite-plan.md`](silver-s7-market-reference-prerequisite-plan.md)。
 `identity_adjudication` 继续处理 genuine episode transition；新增
 `identity_cross_market_adjudication` 以 provider+market+locale+ticker+Share Class+foreign/canonical Composite+
-date+source release+source record 的 exact scope 处理 cross-market contamination。当前没有创建
-Composite inventory、market-classification reference、market-consistency candidate、任何 adjudication
-plan/approval/registry release、四表 materialization、FullRunPlan 或 PublishPlan。
+date+source release+source record 的 exact scope 处理 cross-market contamination。Composite inventory 与
+三案例 directional raw preview 已创建但均未发布；当前没有创建 market-classification reference、
+market-consistency candidate、任何 adjudication plan/approval/registry release、四表 materialization、
+FullRunPlan 或 PublishPlan。
 
 S7 必须在 S4–S6 分别验收后单独审批：
 
@@ -877,21 +882,25 @@ quarantine 并等待人工 review；Medium/Low 保留标志，不能从分母中
 
 ## 15. 推荐的下一步
 
-S0–S6 已分别通过独立审批并完成；S7 bounded detector preview 已完成并停在 review，六份 contract 与
-external evidence package 已于 2026-07-17 按 exact ID/SHA 批准。该 approval 只接纳 schema/evidence，
-不授权任何数据任务。后续严格拆成：
+S0–S6 已分别通过独立审批并完成；S7 bounded detector preview、完整 S4 Composite inventory 和三案例
+11 日期 directional raw preview 均已完成并停在 review。六份 contract 与 external evidence package 已于
+2026-07-17 按 exact ID/SHA 批准，但不授权 adjudication、registry、Full 或 Publish。下一段严格拆成：
 
-1. Gate A 只生成 full S4 Composite inventory 的 exact Plan 与 Request，并停在
-   `awaiting_literal_human_approval`；输入固定为 2,513 sessions、5,026 daily artifacts、
-   138,757,511 rows 和 15,910,278,169 bytes；
-2. literal 单独批准后才可 streaming 枚举完整 Composite denominator，并停在 `awaiting_review`；
-3. Gate A release 审批后，Gate B 才能为每个 valid Composite 生成 100% attempted-coverage 的
+1. 固化三个 exact group 的全历史 bounded review package：`SOR/BBG000KMY6N2`、
+   `XZO/BBG01XL8FHT0`、`ANABV/BBG021DMXXT2`；逻辑 scope 只有三组，物理输入仍绑定完整
+   2,513 sessions、5,026 daily artifacts、138,757,511 rows 和 15,910,278,169 bytes；
+2. 先独立批准 package，再由 manifest-only gate 绑定 inventory、directional preview 与完整 S4 source
+   artifacts；只有新的 exact execution literal 再次批准后才可读取 Parquet 并停在 `awaiting_review`；
+3. review 三组完整 observed runs 后，固化对应 SEC、issuer 与 OpenFIGI evidence，并分别设计
+   `provider_composite_override`、`share_class_adjudication` 与只表达关系的 `asset_transition`；在此之前
+   不推断 registry `effective_from/effective_to`；
+4. Gate A inventory review/release 审批后，Gate B 才能为每个 valid Composite 生成 100% attempted-coverage 的
    `composite_market_reference_release`；unknown 必须显式保留且 identity-ineligible；
-4. Gate B release 审批后，Gate C 才能提出真正的 full-sequence market-consistency scan Plan，发现 bounce
+5. Gate B release 审批后，Gate C 才能提出真正的 full-sequence market-consistency scan Plan，发现 bounce
    与长期 foreign Composite，并再次单独批准；
-5. review 79/10 及 Gate C 新 findings 后，才可另行提出 group-level exact adjudication plan；19 个 bounce
+6. review 79/10 及 Gate C 新 findings 后，才可另行提出 group-level exact adjudication plan；19 个 bounce
    case 只作为 preserved lineage，不逐案静默改写；
-6. 两个 registry snapshots 仍需显式批准，四张派生表再按 bounded preview → review → 单独批准
+7. 各 registry snapshots 仍需显式批准，四张派生表再按 bounded preview → review → 单独批准
    Full/Publish 推进。
 
 当 S4–S15（身份、公司行动、三套行情、复权和收益）完成并发布后，price-derived Barra 和
