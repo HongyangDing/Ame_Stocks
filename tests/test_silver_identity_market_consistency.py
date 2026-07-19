@@ -998,6 +998,39 @@ def test_fixed_evidence_replays_18_relationship_keys_and_tnxp_exception() -> Non
     }
 
 
+def test_v3_recovery_slot_is_distinct_and_preserves_capture_versions() -> None:
+    legacy_slot_id = "f39167969acee0a41e0069fcd6531c00b27469bd2265deef614a4e076aa03455"
+    legacy_basis = {
+        "approval_slot_version": "s7_gate_b_standing_approval_slot_v2",
+        "authorized_actions": list(market_module._AUTHORIZED_ACTIONS),
+        "continuing_authorization_sha256": S7_CONTINUING_AUTHORIZATION_SHA256,
+        "production_data_root": "/mnt/HC_Volume_106309665/american_stocks",
+        "reaffirmation_sha256": market_module.S7_REAFFIRMATION_SHA256,
+    }
+    predecessor = {
+        "approval_slot_id": legacy_slot_id,
+        "capture_run_id": ("c9d4ef9973878126036e0f4d5e398dd160424e09ad8a6a7e99a263c31f0d6584"),
+        "disposition": (
+            "capture_complete_not_consumed_due_to_candidate_frame_schema_inference_failure"
+        ),
+        "runtime_commit": "609ac20fe13f63e7ceb76cf738f4d6b55b78b466",
+    }
+
+    assert stable_digest(legacy_basis) == legacy_slot_id
+    assert market_module.DIRECT_APPROVAL_SLOT_VERSION == (
+        "s7_gate_b_standing_approval_slot_v3_schema_inference_recovery"
+    )
+    assert legacy_slot_id != market_module.DIRECT_APPROVAL_SLOT_ID
+    assert predecessor == market_module._GATE_B_RECOVERY_PREDECESSOR
+    assert market_module._DIRECT_APPROVAL_SLOT_BASIS["recovery_predecessor"] == predecessor
+    assert market_module.MARKET_CONSISTENCY_RUN_VERSION == (
+        "s7_openfigi_market_consistency_capture_v3"
+    )
+    assert market_module.MARKET_CLASSIFICATION_VERSION == (
+        "s7_openfigi_composite_market_classification_v2"
+    )
+
+
 def test_direct_approval_receipt_is_replayable_and_literal_pinned(
     tmp_path: Path, exact_calendar, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1075,7 +1108,15 @@ def test_direct_approval_receipt_is_replayable_and_literal_pinned(
     )
     assert approval["false_capabilities"] == market_module._FALSE_CAPABILITIES
     assert approval["approval_slot_id"] == market_module.DIRECT_APPROVAL_SLOT_ID
+    assert approval["recovery_predecessor"] == market_module._GATE_B_RECOVERY_PREDECESSOR
     assert receipt["path"] == market_module._direct_approval_path()
+    legacy_slot = (
+        tmp_path
+        / "manifests/silver/identity/openfigi-market-consistency-direct-approvals"
+        / "slot_id=f39167969acee0a41e0069fcd6531c00b27469bd2265deef614a4e076aa03455"
+        / "manifest.json"
+    )
+    assert not legacy_slot.exists()
     assert approval["runtime_binding"] == runtime_binding
     assert request["runtime_binding"] == runtime_binding
     assert approval["resource_caps"]["max_total_attempts"] == 8
@@ -1089,6 +1130,7 @@ def test_direct_approval_receipt_is_replayable_and_literal_pinned(
         market_module.PRODUCTION_DISK_FREE_HARD_FLOOR_BYTES
     )
     assert stable_digest(market_module._direct_approval_scope(approval)) == approval["approval_id"]
+    assert result.run_id != market_module._GATE_B_RECOVERY_PREDECESSOR["capture_run_id"]
 
     replay = prepare_approved_market_consistency_run(
         tmp_path,
@@ -1139,6 +1181,26 @@ def test_direct_approval_receipt_is_replayable_and_literal_pinned(
             prepared_by="test_preparer",
             authenticated=False,
             now=_Clock(datetime(2026, 7, 22, 3, 0, tzinfo=UTC)),
+        )
+
+    drifted_predecessor = {
+        **market_module._GATE_B_RECOVERY_PREDECESSOR,
+        "disposition": "tampered_recovery_disposition",
+    }
+    monkeypatch.setattr(
+        market_module,
+        "_GATE_B_RECOVERY_PREDECESSOR",
+        drifted_predecessor,
+    )
+    with pytest.raises(IdentityMarketConsistencyError, match="fixed-slot binding differs"):
+        prepare_approved_market_consistency_run(
+            tmp_path,
+            authorization_text=S7_CONTINUING_AUTHORIZATION_TEXT,
+            reaffirmation_text=market_module.S7_REAFFIRMATION_TEXT,
+            approved_by="test_approver",
+            prepared_by="test_preparer",
+            authenticated=True,
+            now=_Clock(datetime(2026, 7, 22, 4, 0, tzinfo=UTC)),
         )
 
 

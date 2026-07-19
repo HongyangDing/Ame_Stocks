@@ -55,7 +55,9 @@ from ame_stocks_api.silver.calendar_artifact import (
 OPENFIGI_MAPPING_ENDPOINT: Final = "https://api.openfigi.com/v3/mapping"
 MARKET_CONSISTENCY_RUN_VERSION: Final = "s7_openfigi_market_consistency_capture_v3"
 MARKET_CLASSIFICATION_VERSION: Final = "s7_openfigi_composite_market_classification_v2"
-DIRECT_APPROVAL_SLOT_VERSION: Final = "s7_gate_b_standing_approval_slot_v2"
+DIRECT_APPROVAL_SLOT_VERSION: Final = (
+    "s7_gate_b_standing_approval_slot_v3_schema_inference_recovery"
+)
 ATTEMPT_INTENT_VERSION: Final = "s7_openfigi_http_attempt_intent_v1"
 INVENTORY_COLUMN: Final = "observed_composite_figi"
 ANONYMOUS_JOBS_PER_REQUEST: Final = 10
@@ -144,12 +146,21 @@ _AUTHORIZED_ACTIONS: Final = (
     "resume_exact_capture_under_rate_and_resource_caps",
     "materialize_offline_market_classification_candidate_to_awaiting_review",
 )
+_GATE_B_RECOVERY_PREDECESSOR: Final = {
+    "approval_slot_id": "f39167969acee0a41e0069fcd6531c00b27469bd2265deef614a4e076aa03455",
+    "capture_run_id": "c9d4ef9973878126036e0f4d5e398dd160424e09ad8a6a7e99a263c31f0d6584",
+    "disposition": (
+        "capture_complete_not_consumed_due_to_candidate_frame_schema_inference_failure"
+    ),
+    "runtime_commit": "609ac20fe13f63e7ceb76cf738f4d6b55b78b466",
+}
 _DIRECT_APPROVAL_SLOT_BASIS: Final = {
     "approval_slot_version": DIRECT_APPROVAL_SLOT_VERSION,
     "authorized_actions": list(_AUTHORIZED_ACTIONS),
     "continuing_authorization_sha256": S7_CONTINUING_AUTHORIZATION_SHA256,
     "production_data_root": PRODUCTION_DATA_ROOT.as_posix(),
     "reaffirmation_sha256": S7_REAFFIRMATION_SHA256,
+    "recovery_predecessor": dict(_GATE_B_RECOVERY_PREDECESSOR),
 }
 DIRECT_APPROVAL_SLOT_ID: Final = stable_digest(_DIRECT_APPROVAL_SLOT_BASIS)
 _FALSE_CAPABILITIES: Final = {
@@ -419,6 +430,7 @@ def prepare_approved_market_consistency_run(
         "external_evidence_binding": evidence,
         "false_capabilities": dict(_FALSE_CAPABILITIES),
         "inventory_binding": inventory,
+        "recovery_predecessor": dict(_GATE_B_RECOVERY_PREDECESSOR),
         "resource_caps": caps,
         "runtime_binding": runtime_binding,
     }
@@ -2243,6 +2255,7 @@ def _verify_direct_approval(
             "false_capabilities",
             "inventory_binding",
             "prepared_by",
+            "recovery_predecessor",
             "resource_caps",
             "runtime_binding",
         },
@@ -2290,6 +2303,7 @@ def _verify_direct_approval(
         or document.get("inventory_binding") != request.get("inventory_binding")
         or document.get("external_evidence_binding") != request.get("external_evidence_binding")
         or document.get("calendar_binding") != request.get("calendar_binding")
+        or document.get("recovery_predecessor") != _GATE_B_RECOVERY_PREDECESSOR
         or document.get("runtime_binding") != request.get("runtime_binding")
         or document.get("prepared_by") != request.get("prepared_by")
     ):
@@ -2314,6 +2328,7 @@ def _direct_approval_scope(document: Mapping[str, object]) -> dict[str, object]:
         "external_evidence_binding": document.get("external_evidence_binding"),
         "false_capabilities": document.get("false_capabilities"),
         "inventory_binding": document.get("inventory_binding"),
+        "recovery_predecessor": document.get("recovery_predecessor"),
         "resource_caps": document.get("resource_caps"),
         "runtime_binding": document.get("runtime_binding"),
     }
@@ -2347,6 +2362,7 @@ def _verify_direct_approval_slot_document(
             "false_capabilities",
             "inventory_binding",
             "prepared_by",
+            "recovery_predecessor",
             "resource_caps",
             "runtime_binding",
         },
