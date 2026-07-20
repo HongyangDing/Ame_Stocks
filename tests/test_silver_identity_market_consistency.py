@@ -195,6 +195,59 @@ def _execute_complete(root: Path, prepared, *, post=None, api_key: str | None = 
     return result, clock
 
 
+def _install_offline_replay_fixture(
+    root: Path,
+    exact_calendar,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[object, object, dict[str, object], list[Path]]:
+    """Bind the fixed replay controls to one local capture without production data."""
+
+    prepared = _prepare(root, _figis(3), exact_calendar)
+    completed, _clock = _execute_complete(root, prepared)
+    assert completed.final_manifest_path is not None
+    request_path = root / prepared.request_manifest_path
+    final_path = root / completed.final_manifest_path
+    runtime = _fake_runtime_binding()
+    source_binding = {
+        "batch_count": completed.batch_count,
+        "composite_count": completed.composite_count,
+        "final_manifest": {
+            "bytes": final_path.stat().st_size,
+            "path": completed.final_manifest_path,
+            "sha256": sha256_file(final_path),
+        },
+        "request_manifest": {
+            "bytes": request_path.stat().st_size,
+            "path": prepared.request_manifest_path,
+            "sha256": sha256_file(request_path),
+        },
+        "source_run_id": prepared.run_id,
+    }
+    frozen_reads: list[Path] = []
+
+    def verify_frozen_capture(actual_root: Path):
+        frozen_reads.append(actual_root)
+        return (
+            json.loads(request_path.read_text()),
+            json.loads(final_path.read_text()),
+        )
+
+    monkeypatch.setattr(market_module, "_require_canonical_production_root", lambda _root: None)
+    monkeypatch.setattr(market_module, "PRODUCTION_REPLAY_RUN_ID", prepared.run_id)
+    monkeypatch.setattr(
+        market_module,
+        "_production_replay_source_binding",
+        lambda: source_binding,
+    )
+    monkeypatch.setattr(market_module, "_repository_runtime_binding", lambda: runtime)
+    monkeypatch.setattr(
+        market_module,
+        "_verify_frozen_replay_capture",
+        verify_frozen_capture,
+    )
+    return prepared, completed, runtime, frozen_reads
+
+
 def test_prepare_is_network_free_and_binds_fixed_evidence_and_calendar(
     tmp_path: Path, exact_calendar
 ) -> None:
@@ -721,11 +774,18 @@ def test_classification_states_and_unique_self_row_rule(tmp_path: Path, exact_ca
         "unresolved_no_mapping",
         "unresolved_job_error",
         "unresolved_mixed_market",
-        "unresolved_share_class_conflict",
+        "us_composite",
         "unresolved_invalid_projection",
     ]
     assert rows[0].market_codes == ("US",)
     assert rows[0].returned_exchange_codes == ("UN", "US")
+    assert rows[5].market_codes == ("US",)
+    assert rows[5].selected_share_class_figi == "BBG000000105"
+    assert rows[5].relation_share_class_conflict is True
+    assert rows[5].projection_reason_codes == (
+        "multiple_relation_share_classes",
+        "unique_exact_self_row",
+    )
 
 
 def test_tnxp_is_the_only_frozen_no_self_relation_exception(tmp_path: Path, exact_calendar) -> None:
@@ -1027,7 +1087,7 @@ def test_v3_recovery_slot_is_distinct_and_preserves_capture_versions() -> None:
         "s7_openfigi_market_consistency_capture_v3"
     )
     assert market_module.MARKET_CLASSIFICATION_VERSION == (
-        "s7_openfigi_composite_market_classification_v2"
+        "s7_openfigi_composite_market_classification_v3"
     )
 
 
@@ -1277,6 +1337,343 @@ def test_production_runtime_source_drift_fails_before_network(
         )
 
 
+def test_offline_replay_succeeds_idempotently_without_network_or_capture_entrypoints(
+    tmp_path: Path, exact_calendar, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prepared, _completed, runtime, frozen_reads = _install_offline_replay_fixture(
+        tmp_path,
+        exact_calendar,
+        monkeypatch,
+    )
+
+    def forbidden_entrypoint(*_args, **_kwargs):
+        pytest.fail("offline replay invoked a network/capture entrypoint")
+
+    monkeypatch.setattr(market_module, "_urllib_post", forbidden_entrypoint)
+    monkeypatch.setattr(
+        market_module,
+        "prepare_market_consistency_run",
+        forbidden_entrypoint,
+    )
+    monkeypatch.setattr(
+        market_module,
+        "prepare_approved_market_consistency_run",
+        forbidden_entrypoint,
+    )
+    monkeypatch.setattr(
+        market_module,
+        "execute_market_consistency_run",
+        forbidden_entrypoint,
+    )
+    clock = _Clock(datetime(2026, 7, 20, 2, 0, tzinfo=UTC))
+    first = market_module.execute_approved_market_classification_replay(
+        tmp_path,
+        approved_by="test_approver",
+        prepared_by="test_preparer",
+        materialized_by="test_materializer",
+        now=clock,
+    )
+    assert first.idempotent is False
+    assert first.candidate.idempotent is True
+    assert first.candidate.composite_count == 3
+    assert first.replay_id
+    assert first.approval_id
+    assert first.completion_id
+    assert frozen_reads == [tmp_path.resolve(), tmp_path.resolve()]
+
+    completion = json.loads((tmp_path / first.completion_path).read_text())
+    assert completion["network_request_count"] == 0
+    assert completion["source_mutation"] is False
+    assert completion["capabilities"] == market_module._FALSE_CAPABILITIES
+    candidate = json.loads((tmp_path / first.candidate.manifest_path).read_text())
+    assert candidate["replay_id"] == first.replay_id
+    assert candidate["offline_replay_approval"]["approval_id"] == first.approval_id
+    assert candidate["candidate_basis"]["source_run_id"] == prepared.run_id
+    assert candidate["candidate_basis"]["offline_replay"] == {
+        "approval_id": first.approval_id,
+        "approval_sha256": candidate["offline_replay_approval"]["sha256"],
+        "classifier_algorithm_digest": market_module.CLASSIFIER_ALGORITHM_DIGEST,
+        "classifier_qa_digest": market_module.CLASSIFIER_QA_DIGEST,
+        "replay_id": first.replay_id,
+        "source_capture_binding_digest": stable_digest(
+            market_module._production_replay_source_binding()
+        ),
+        "transform_runtime_binding_digest": stable_digest(runtime),
+    }
+
+    second = market_module.execute_approved_market_classification_replay(
+        tmp_path,
+        approved_by="test_approver",
+        prepared_by="test_preparer",
+        materialized_by="ignored_on_idempotent_replay",
+        now=_Clock(datetime(2026, 7, 21, 2, 0, tzinfo=UTC)),
+    )
+    assert second.idempotent is True
+    assert second.replay_id == first.replay_id
+    assert second.completion_id == first.completion_id
+    assert second.candidate.candidate_id == first.candidate.candidate_id
+    assert frozen_reads == [tmp_path.resolve()] * 3
+
+
+def test_offline_replay_transform_runtime_drift_fails_before_frozen_source_read(
+    tmp_path: Path, exact_calendar, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _prepared, _completed, _runtime, frozen_reads = _install_offline_replay_fixture(
+        tmp_path,
+        exact_calendar,
+        monkeypatch,
+    )
+    market_module.execute_approved_market_classification_replay(
+        tmp_path,
+        approved_by="test_approver",
+        prepared_by="test_preparer",
+        materialized_by="test_materializer",
+        now=_Clock(datetime(2026, 7, 20, 2, 0, tzinfo=UTC)),
+    )
+    frozen_reads.clear()
+    monkeypatch.setattr(
+        market_module,
+        "_repository_runtime_binding",
+        lambda: _fake_runtime_binding("b"),
+    )
+
+    with pytest.raises(IdentityMarketConsistencyError, match="fixed scope differs"):
+        market_module.execute_approved_market_classification_replay(
+            tmp_path,
+            approved_by="test_approver",
+            prepared_by="test_preparer",
+            materialized_by="test_materializer",
+            now=_Clock(datetime(2026, 7, 21, 2, 0, tzinfo=UTC)),
+        )
+    assert frozen_reads == []
+
+
+@pytest.mark.parametrize("tamper_target", ["source", "candidate", "approval"])
+def test_offline_replay_source_candidate_and_approval_tamper_fail_closed(
+    tmp_path: Path,
+    exact_calendar,
+    monkeypatch: pytest.MonkeyPatch,
+    tamper_target: str,
+) -> None:
+    _prepared, completed, _runtime, _frozen_reads = _install_offline_replay_fixture(
+        tmp_path,
+        exact_calendar,
+        monkeypatch,
+    )
+    replay = market_module.execute_approved_market_classification_replay(
+        tmp_path,
+        approved_by="test_approver",
+        prepared_by="test_preparer",
+        materialized_by="test_materializer",
+        now=_Clock(datetime(2026, 7, 20, 2, 0, tzinfo=UTC)),
+    )
+    if tamper_target == "source":
+        assert completed.final_manifest_path is not None
+        path = tmp_path / completed.final_manifest_path
+        document = json.loads(path.read_text())
+        document["tampered_after_replay"] = True
+    elif tamper_target == "candidate":
+        path = tmp_path / replay.candidate.manifest_path
+        document = json.loads(path.read_text())
+        document["created_by"] = "tampered_materializer"
+    else:
+        path = tmp_path / market_module._offline_replay_approval_path()
+        document = json.loads(path.read_text())
+        document["approved_by"] = "tampered_approver"
+    path.chmod(0o644)
+    path.write_text(json.dumps(document, sort_keys=True, separators=(",", ":")))
+
+    with pytest.raises(IdentityMarketConsistencyError):
+        market_module.execute_approved_market_classification_replay(
+            tmp_path,
+            approved_by="test_approver",
+            prepared_by="test_preparer",
+            materialized_by="test_materializer",
+            now=_Clock(datetime(2026, 7, 21, 2, 0, tzinfo=UTC)),
+        )
+
+
+@pytest.mark.parametrize(
+    "tamper_target",
+    ["intent_as_candidate_qa", "transform_runtime_digest", "candidate_qa_as_intent"],
+)
+def test_offline_replay_resigned_completion_receipt_swaps_fail_closed(
+    tmp_path: Path,
+    exact_calendar,
+    monkeypatch: pytest.MonkeyPatch,
+    tamper_target: str,
+) -> None:
+    _install_offline_replay_fixture(tmp_path, exact_calendar, monkeypatch)
+    replay = market_module.execute_approved_market_classification_replay(
+        tmp_path,
+        approved_by="test_approver",
+        prepared_by="test_preparer",
+        materialized_by="test_materializer",
+        now=_Clock(datetime(2026, 7, 20, 2, 0, tzinfo=UTC)),
+    )
+    completion_path = tmp_path / replay.completion_path
+    completion = json.loads(completion_path.read_text())
+    if tamper_target == "intent_as_candidate_qa":
+        completion["intent"] = completion["candidate_qa"]
+    elif tamper_target == "transform_runtime_digest":
+        completion["transform_runtime_binding_digest"] = "f" * 64
+    else:
+        completion["candidate_qa"] = completion["intent"]
+    payload = dict(completion)
+    payload.pop("completion_id")
+    completion["completion_id"] = stable_digest(payload)
+    completion_path.chmod(0o644)
+    completion_path.write_text(json.dumps(completion, sort_keys=True, separators=(",", ":")))
+
+    with pytest.raises(IdentityMarketConsistencyError):
+        market_module.execute_approved_market_classification_replay(
+            tmp_path,
+            approved_by="test_approver",
+            prepared_by="test_preparer",
+            materialized_by="test_materializer",
+            now=_Clock(datetime(2026, 7, 21, 2, 0, tzinfo=UTC)),
+        )
+
+
+def test_offline_replay_resigned_completion_cannot_predate_candidate(
+    tmp_path: Path, exact_calendar, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _install_offline_replay_fixture(tmp_path, exact_calendar, monkeypatch)
+    replay_times = iter(
+        (
+            datetime(2026, 7, 20, 2, 0, tzinfo=UTC),
+            datetime(2026, 7, 20, 2, 5, tzinfo=UTC),
+            datetime(2026, 7, 20, 2, 10, tzinfo=UTC),
+        )
+    )
+    replay = market_module.execute_approved_market_classification_replay(
+        tmp_path,
+        approved_by="test_approver",
+        prepared_by="test_preparer",
+        materialized_by="test_materializer",
+        now=lambda: next(replay_times),
+    )
+    completion_path = tmp_path / replay.completion_path
+    completion = json.loads(completion_path.read_text())
+    candidate = json.loads((tmp_path / replay.candidate.manifest_path).read_text())
+    approval_path = tmp_path / market_module._offline_replay_approval_path()
+    approval = json.loads(approval_path.read_text())
+    completion["completed_at_utc"] = "2026-07-20T02:03:00+00:00"
+    assert approval["approved_at_utc"] < completion["completed_at_utc"]
+    assert completion["completed_at_utc"] < candidate["created_at_utc"]
+    payload = dict(completion)
+    payload.pop("completion_id")
+    completion["completion_id"] = stable_digest(payload)
+    completion_path.chmod(0o644)
+    completion_path.write_text(json.dumps(completion, sort_keys=True, separators=(",", ":")))
+
+    with pytest.raises(IdentityMarketConsistencyError):
+        market_module.execute_approved_market_classification_replay(
+            tmp_path,
+            approved_by="test_approver",
+            prepared_by="test_preparer",
+            materialized_by="test_materializer",
+            now=_Clock(datetime(2026, 7, 21, 2, 0, tzinfo=UTC)),
+        )
+
+
+def test_offline_replay_resigned_candidate_cannot_predate_approval(
+    tmp_path: Path, exact_calendar, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _prepared, completed, _runtime, _frozen_reads = _install_offline_replay_fixture(
+        tmp_path,
+        exact_calendar,
+        monkeypatch,
+    )
+    replay_times = iter(
+        (
+            datetime(2026, 7, 20, 2, 0, tzinfo=UTC),
+            datetime(2026, 7, 20, 2, 5, tzinfo=UTC),
+            datetime(2026, 7, 20, 2, 10, tzinfo=UTC),
+        )
+    )
+    replay = market_module.execute_approved_market_classification_replay(
+        tmp_path,
+        approved_by="test_approver",
+        prepared_by="test_preparer",
+        materialized_by="test_materializer",
+        now=lambda: next(replay_times),
+    )
+    assert completed.final_manifest_path is not None
+    capture = json.loads((tmp_path / completed.final_manifest_path).read_text())
+    approval_path = tmp_path / market_module._offline_replay_approval_path()
+    approval = json.loads(approval_path.read_text())
+    candidate_path = tmp_path / replay.candidate.manifest_path
+    candidate = json.loads(candidate_path.read_text())
+    candidate["created_at_utc"] = "2026-07-20T01:00:00+00:00"
+    assert capture["latest_response_received_at_utc"] < candidate["created_at_utc"]
+    assert candidate["created_at_utc"] < approval["approved_at_utc"]
+    candidate_payload = dict(candidate)
+    candidate_payload.pop("manifest_id")
+    candidate["manifest_id"] = stable_digest(candidate_payload)
+    candidate_path.chmod(0o644)
+    candidate_path.write_text(json.dumps(candidate, sort_keys=True, separators=(",", ":")))
+
+    completion_path = tmp_path / replay.completion_path
+    completion = json.loads(completion_path.read_text())
+    completion["candidate"] = {
+        "bytes": candidate_path.stat().st_size,
+        "candidate_id": replay.candidate.candidate_id,
+        "path": replay.candidate.manifest_path,
+        "sha256": sha256_file(candidate_path),
+    }
+    completion_payload = dict(completion)
+    completion_payload.pop("completion_id")
+    completion["completion_id"] = stable_digest(completion_payload)
+    completion_path.chmod(0o644)
+    completion_path.write_text(json.dumps(completion, sort_keys=True, separators=(",", ":")))
+
+    with pytest.raises(IdentityMarketConsistencyError):
+        market_module.execute_approved_market_classification_replay(
+            tmp_path,
+            approved_by="test_approver",
+            prepared_by="test_preparer",
+            materialized_by="test_materializer",
+            now=_Clock(datetime(2026, 7, 21, 2, 0, tzinfo=UTC)),
+        )
+
+
+def test_ordinary_candidate_verification_never_falls_back_to_offline_replay(
+    tmp_path: Path, exact_calendar, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prepared = _prepare(tmp_path, _figis(3), exact_calendar)
+    _execute_complete(tmp_path, prepared)
+    candidate = materialize_market_classification_candidate(
+        tmp_path,
+        run_id=prepared.run_id,
+        materialized_at_utc="2026-07-19T16:05:00+00:00",
+        materialized_by="test_ordinary_materializer",
+    )
+
+    def forbidden_frozen_replay(_root: Path):
+        pytest.fail("ordinary candidate verification entered the offline replay verifier")
+
+    monkeypatch.setattr(
+        market_module,
+        "_verify_frozen_replay_capture",
+        forbidden_frozen_replay,
+    )
+    request_path = tmp_path / prepared.request_manifest_path
+    request = json.loads(request_path.read_text())
+    request["prepared_by"] = "tampered_ordinary_preparer"
+    request_path.chmod(0o644)
+    request_path.write_text(json.dumps(request, sort_keys=True, separators=(",", ":")))
+
+    with pytest.raises(IdentityMarketConsistencyError, match="ID recomputation failed"):
+        verify_market_classification_candidate(
+            tmp_path,
+            candidate_path=candidate.manifest_path,
+            candidate_id=candidate.candidate_id,
+            candidate_sha256=sha256_file(tmp_path / candidate.manifest_path),
+            require_production_approval=False,
+        )
+
+
 def test_production_cli_has_fixed_inventory_key_and_availability_surfaces() -> None:
     parser = build_parser()
     prepare = parser.parse_args(
@@ -1314,6 +1711,48 @@ def test_production_cli_has_fixed_inventory_key_and_availability_surfaces() -> N
     )
     assert not hasattr(classify, "source_available_session")
     assert not hasattr(classify, "materialized_at_utc")
+    replay = parser.parse_args(
+        [
+            "replay-classify",
+            "--data-root",
+            "/tmp/data",
+            "--approved-by",
+            "reviewer",
+            "--prepared-by",
+            "builder",
+            "--materialized-by",
+            "materializer",
+        ]
+    )
+    assert set(vars(replay)) == {
+        "approved_by",
+        "command",
+        "data_root",
+        "materialized_by",
+        "prepared_by",
+    }
+    for forbidden_flag in (
+        "--api-key-env",
+        "--run-id",
+        "--source-available-session",
+        "--source-data-root",
+    ):
+        with pytest.raises(SystemExit):
+            parser.parse_args(
+                [
+                    "replay-classify",
+                    "--data-root",
+                    "/tmp/data",
+                    "--approved-by",
+                    "reviewer",
+                    "--prepared-by",
+                    "builder",
+                    "--materialized-by",
+                    "materializer",
+                    forbidden_flag,
+                    "forbidden",
+                ]
+            )
 
 
 def test_production_preparation_rejects_a_second_data_root(tmp_path: Path) -> None:

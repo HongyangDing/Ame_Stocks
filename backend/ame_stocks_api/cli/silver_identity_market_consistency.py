@@ -9,8 +9,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ame_stocks_api.silver.identity_market_consistency import (
+    PRODUCTION_REPLAY_RUN_ID,
     IdentityMarketConsistencyError,
     classify_market_consistency_run,
+    execute_approved_market_classification_replay,
     execute_market_consistency_run,
     materialize_market_classification_candidate,
     prepare_approved_market_consistency_run,
@@ -40,6 +42,12 @@ def build_parser() -> argparse.ArgumentParser:
     classify.add_argument("--run-id", required=True)
     classify.add_argument("--materialize", action="store_true")
     classify.add_argument("--materialized-by")
+
+    replay = subparsers.add_parser("replay-classify")
+    replay.add_argument("--data-root", type=Path, required=True)
+    replay.add_argument("--approved-by", required=True)
+    replay.add_argument("--prepared-by", required=True)
+    replay.add_argument("--materialized-by", required=True)
     return parser
 
 
@@ -81,6 +89,31 @@ def main(argv: list[str] | None = None) -> int:
                 "idempotent": result.idempotent,
                 "mode": "approved_production_network_capture",
                 "run_id": result.run_id,
+            }
+        elif arguments.command == "replay-classify":
+            replay = execute_approved_market_classification_replay(
+                arguments.data_root,
+                approved_by=arguments.approved_by,
+                prepared_by=arguments.prepared_by,
+                materialized_by=arguments.materialized_by,
+            )
+            output = {
+                "approval_id": replay.approval_id,
+                "candidate_id": replay.candidate.candidate_id,
+                "composite_count": replay.candidate.composite_count,
+                "completion_id": replay.completion_id,
+                "completion_path": replay.completion_path,
+                "idempotent": replay.idempotent,
+                "manifest_path": replay.candidate.manifest_path,
+                "mode": "approved_production_offline_capture_reclassification",
+                "network_request_count": 0,
+                "non_us_composite_count": replay.candidate.non_us_composite_count,
+                "non_us_provider_row_count": replay.candidate.non_us_provider_row_count,
+                "replay_id": replay.replay_id,
+                "run_id": PRODUCTION_REPLAY_RUN_ID,
+                "unresolved_composite_count": replay.candidate.unresolved_composite_count,
+                "unresolved_provider_row_count": replay.candidate.unresolved_provider_row_count,
+                "us_composite_count": replay.candidate.us_composite_count,
             }
         elif arguments.materialize:
             if not arguments.materialized_by:

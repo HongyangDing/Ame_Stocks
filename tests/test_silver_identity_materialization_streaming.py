@@ -232,6 +232,7 @@ def _fixture(
     root: Path,
     *,
     rows_by_session: tuple[tuple[dict[str, object], ...], ...] | None = None,
+    gate_b_overrides: dict[str, dict[str, object]] | None = None,
 ) -> tuple[S7StreamingSourceBinding, _FakeRegistrySet, dict[str, object]]:
     calendar = build_xnys_calendar_artifact(_SESSIONS[0], _SESSIONS[-1])
     write_xnys_calendar_artifact(root, calendar)
@@ -267,6 +268,7 @@ def _fixture(
         )
     membership = []
     composites: set[str] = set()
+    shares_by_composite: dict[str, str] = {}
     for session, rows in zip(_SESSIONS, rows_by_session, strict=True):
         table = pa.Table.from_pylist(
             [dict(row) for row in rows], schema=UNIVERSE_SOURCE_DAILY_CONTRACT.arrow_schema
@@ -278,6 +280,11 @@ def _fixture(
         pin = ExactFilePin(relative, stream.sha256_file(path), path.stat().st_size)
         membership.append(SessionArtifactPin(session, table.num_rows, pin))
         composites.update(str(row["composite_figi"]) for row in rows)
+        for row in rows:
+            shares_by_composite.setdefault(
+                str(row["composite_figi"]),
+                str(row["share_class_figi"]),
+            )
     s4_manifest = _write_json(root, "manifests/test/s4.json", {"fixture": "s4"})
     gate_b_id = stable_digest({"fixture": "gate-b"})
     gate_b_manifest = _write_json(
@@ -285,15 +292,19 @@ def _fixture(
         "manifests/test/gate-b.json",
         {"candidate_id": gate_b_id, "state": "awaiting_review"},
     )
-    gate_rows = [
-        {
+    gate_rows = []
+    for composite in sorted(composites):
+        gate_row = {
             "classification": ("known_non_us" if composite == "BBG000000099" else "known_us"),
             "composite_figi": composite,
+            "relation_share_class_conflict": False,
             "selected_market_code": ("GB" if composite == "BBG000000099" else "US"),
+            "selected_share_class_figi": shares_by_composite[composite],
             "source_available_session": _SESSIONS[0],
         }
-        for composite in sorted(composites)
-    ]
+        if gate_b_overrides is not None:
+            gate_row.update(gate_b_overrides.get(composite, {}))
+        gate_rows.append(gate_row)
     gate_b_path = root / "silver/test/gate-b.parquet"
     gate_b_path.parent.mkdir(parents=True, exist_ok=True)
     pq.write_table(pa.Table.from_pylist(gate_rows), gate_b_path)
@@ -529,6 +540,215 @@ def test_frozen_production_adapter_runs_real_parquet_fixture(tmp_path: Path) -> 
         row["identity_resolution_method"] == "source_composite_figi_exact" for row in universe
     )
     assert all(row["backtest_identity_eligible"] is True for row in universe)
+
+
+def test_gate_b_share_conflict_preserves_matching_self_share_eligibility(
+    tmp_path: Path,
+) -> None:
+    composite = "BBG000000001"
+    binding, registries, _ = _fixture(
+        tmp_path,
+        gate_b_overrides={
+            composite: {
+                "relation_share_class_conflict": True,
+                "selected_share_class_figi": "BBG000000011",
+            }
+        },
+    )
+    gate_b = stream._load_gate_b_reference(tmp_path, binding.gate_b)
+    source = _source_row(_SESSIONS[0], "AAA", composite, share="BBG000000011")
+
+    projection = stream._frozen_registry_projection(
+        source,
+        gate_b_by_composite=gate_b,
+        registries=registries,
+        binding=binding,
+    )
+    row = stream._build_and_validate_universe_row(
+        source,
+        projection,
+        gate_b=gate_b,
+        registries=registries,
+        binding=binding,
+    )
+
+    assert row["canonical_composite_figi"] == composite
+    assert row["canonical_share_class_figi"] == "BBG000000011"
+    assert row["identity_resolution_status"] == "resolved_strong"
+    assert row["identity_resolution_method"] == "source_composite_figi_exact"
+    assert row["backtest_identity_eligible"] is True
+
+
+def test_unadjudicated_gate_b_share_conflict_keeps_asset_but_has_no_alias(
+    tmp_path: Path,
+) -> None:
+    composite = "BBG000000001"
+    binding, registries, runtime = _fixture(
+        tmp_path,
+        gate_b_overrides={
+            composite: {
+                "relation_share_class_conflict": True,
+                "selected_share_class_figi": "BBG000000012",
+            }
+        },
+    )
+    result = _execute(
+        tmp_path,
+        binding,
+        registries,
+        runtime,
+        adapter=FrozenRegistryProjectionAdapter(),
+    )
+    universe = pq.read_table(
+        tmp_path / result.candidate_path / "data/universe_daily",
+        partitioning=None,
+    ).to_pylist()
+    conflicted = [row for row in universe if row["ticker"] == "AAA"]
+
+    assert len(conflicted) == 2
+    assert all(row["canonical_composite_figi"] == composite for row in conflicted)
+    assert all(row["asset_id"] == canonical_asset_id(composite) for row in conflicted)
+    assert all(row["canonical_share_class_figi"] is None for row in conflicted)
+    assert all(row["share_class_id"] is None for row in conflicted)
+    assert all(row["identity_resolution_status"] == "resolved_conflicted" for row in conflicted)
+    assert all(
+        row["identity_resolution_method"] == "source_composite_figi_exact" for row in conflicted
+    )
+    assert all(row["backtest_identity_eligible"] is False for row in conflicted)
+    assert all(row["ticker_alias_id"] is None for row in conflicted)
+    assert all(row["identity_quality_liquidation_signal"] is False for row in conflicted)
+
+    qa = json.loads((tmp_path / result.candidate_path / "qa/qa.json").read_text())
+    assert qa["gate_b_relation_share_class_conflict_rows"] == 2
+    assert qa["gate_b_relation_share_class_mismatch_rows"] == 2
+    assert qa["unadjudicated_gate_b_share_class_conflict_rows"] == 2
+    assert qa["unadjudicated_gate_b_share_class_conflict_eligible_rows"] == 0
+    assert len(qa["bounded_share_class_conflict_examples"]) == 2
+    assert qa["critical_failure_count"] == 0
+
+
+def test_missing_observed_share_under_gate_b_conflict_is_ineligible(
+    tmp_path: Path,
+) -> None:
+    composite = "BBG000000001"
+    binding, registries, _ = _fixture(
+        tmp_path,
+        gate_b_overrides={
+            composite: {
+                "relation_share_class_conflict": True,
+                "selected_share_class_figi": "BBG000000011",
+            }
+        },
+    )
+    gate_b = stream._load_gate_b_reference(tmp_path, binding.gate_b)
+    source = _source_row(_SESSIONS[0], "AAA", composite, share="BBG000000011")
+    source["share_class_figi"] = None
+
+    projection = stream._frozen_registry_projection(
+        source,
+        gate_b_by_composite=gate_b,
+        registries=registries,
+        binding=binding,
+    )
+    row = stream._build_and_validate_universe_row(
+        source,
+        projection,
+        gate_b=gate_b,
+        registries=registries,
+        binding=binding,
+    )
+
+    assert row["canonical_composite_figi"] == composite
+    assert row["asset_id"] == canonical_asset_id(composite)
+    assert row["canonical_share_class_figi"] is None
+    assert row["identity_resolution_status"] == "resolved_conflicted"
+    assert row["backtest_identity_eligible"] is False
+    assert row["ticker_alias_id"] is None
+    assert row["identity_quality_liquidation_signal"] is False
+
+
+def test_exact_share_adjudication_resolves_gate_b_relation_conflict(
+    tmp_path: Path,
+) -> None:
+    composite = "BBG000000001"
+    observed_share = "BBG000000099"
+    canonical_share = "BBG000000011"
+    rows = (
+        (_source_row(_SESSIONS[0], "AAA", composite, share=observed_share),),
+        (_source_row(_SESSIONS[1], "BBB", "BBG000000002", share="BBG000000022"),),
+        (_source_row(_SESSIONS[2], "CCC", "BBG000000003", share="BBG000000033"),),
+    )
+    binding, registries, _ = _fixture(
+        tmp_path,
+        rows_by_session=rows,
+        gate_b_overrides={
+            composite: {
+                "relation_share_class_conflict": True,
+                "selected_share_class_figi": canonical_share,
+            }
+        },
+    )
+    decision_id = "c" * 64
+    decision = {
+        "adjudication_available_session": _SESSIONS[0],
+        "canonical_share_class_figi": canonical_share,
+        "canonical_share_class_id": stream._share_class_id(canonical_share),
+        "required_unique_canonical_composite_figi": composite,
+    }
+    share_release = registries.by_name("share_class_adjudication")
+    share_release.decision_ids_for_exact_source_row = lambda *_args, **_kwargs: (decision_id,)
+    share_release.require_exact_source_row = lambda *_args, **_kwargs: decision
+    gate_b = stream._load_gate_b_reference(tmp_path, binding.gate_b)
+    source = rows[0][0]
+
+    projection = stream._frozen_registry_projection(
+        source,
+        gate_b_by_composite=gate_b,
+        registries=registries,
+        binding=binding,
+    )
+    row = stream._build_and_validate_universe_row(
+        source,
+        projection,
+        gate_b=gate_b,
+        registries=registries,
+        binding=binding,
+    )
+
+    assert row["canonical_composite_figi"] == composite
+    assert row["asset_id"] == canonical_asset_id(composite)
+    assert row["observed_share_class_figi"] == observed_share
+    assert row["canonical_share_class_figi"] == canonical_share
+    assert row["share_class_adjudication_id"] == decision_id
+    assert row["backtest_identity_eligible"] is True
+
+
+def test_non_us_composite_cannot_be_promoted_by_share_adjudication(
+    tmp_path: Path,
+) -> None:
+    composite = "BBG000000099"
+    observed_share = "BBG000000099"
+    rows = (
+        (_source_row(_SESSIONS[0], "FOREIGN", composite, share=observed_share),),
+        (_source_row(_SESSIONS[1], "BBB", "BBG000000002", share="BBG000000022"),),
+        (_source_row(_SESSIONS[2], "CCC", "BBG000000003", share="BBG000000033"),),
+    )
+    binding, registries, _ = _fixture(tmp_path, rows_by_session=rows)
+    decision_id = "d" * 64
+    share_release = registries.by_name("share_class_adjudication")
+    share_release.decision_ids_for_exact_source_row = lambda *_args, **_kwargs: (decision_id,)
+    gate_b = stream._load_gate_b_reference(tmp_path, binding.gate_b)
+
+    with pytest.raises(
+        S7StreamingMaterializationError,
+        match="ShareClass decision preceded unique Composite resolution",
+    ):
+        stream._frozen_registry_projection(
+            rows[0][0],
+            gate_b_by_composite=gate_b,
+            registries=registries,
+            binding=binding,
+        )
 
 
 def test_standing_approval_fixed_slot_replays_first_runtime_receipt(tmp_path: Path) -> None:

@@ -54,7 +54,7 @@ from ame_stocks_api.silver.calendar_artifact import (
 
 OPENFIGI_MAPPING_ENDPOINT: Final = "https://api.openfigi.com/v3/mapping"
 MARKET_CONSISTENCY_RUN_VERSION: Final = "s7_openfigi_market_consistency_capture_v3"
-MARKET_CLASSIFICATION_VERSION: Final = "s7_openfigi_composite_market_classification_v2"
+MARKET_CLASSIFICATION_VERSION: Final = "s7_openfigi_composite_market_classification_v3"
 DIRECT_APPROVAL_SLOT_VERSION: Final = (
     "s7_gate_b_standing_approval_slot_v3_schema_inference_recovery"
 )
@@ -140,6 +140,107 @@ S7_CONTINUING_AUTHORIZATION_SHA256: Final = hashlib.sha256(
 ).hexdigest()
 S7_REAFFIRMATION_TEXT: Final = "批准"
 S7_REAFFIRMATION_SHA256: Final = hashlib.sha256(S7_REAFFIRMATION_TEXT.encode("utf-8")).hexdigest()
+
+OFFLINE_REPLAY_SLOT_VERSION: Final = "s7_gate_b_offline_reclassification_slot_v1"
+OFFLINE_REPLAY_ACTION: Final = (
+    "materialize_exact_078a_capture_with_current_transform_once_without_network"
+)
+PRODUCTION_REPLAY_RUN_ID: Final = "078a13c5e2c7971dda18812598c2a1cda092aceef31d3780542eae5e62699521"
+PRODUCTION_REPLAY_REQUEST_SHA256: Final = (
+    "f410284a213ff66a67871ed653d9e213e1c71344cf5eab8c10862d822b62f8db"
+)
+PRODUCTION_REPLAY_REQUEST_BYTES: Final = 5_329
+PRODUCTION_REPLAY_FINAL_MANIFEST_ID: Final = (
+    "97545d2daf9fba547e14f29229cc05e7274eaa837ee389c85e0668d7c1681af9"
+)
+PRODUCTION_REPLAY_FINAL_SHA256: Final = (
+    "3e0c377a0622880540a6bbaca76452c57dce3a5a046234485b2feafbcc172093"
+)
+PRODUCTION_REPLAY_FINAL_BYTES: Final = 3_754_685
+PRODUCTION_REPLAY_BATCH_DIGEST: Final = (
+    "5179e04819e444152d278f27cd1fed2e7c96670d161eec7e2677e7e693f3e778"
+)
+PRODUCTION_REPLAY_CAPTURE_RUNTIME_DIGEST: Final = (
+    "9725e9836e3673e28ce550d8cb4afafc60d97a31a60747e168da867cdcd58d7b"
+)
+PRODUCTION_REPLAY_CAPTURE_RUNTIME_COMMIT: Final = "7239e03180b07df494880279514e01227dd84b38"
+PRODUCTION_REPLAY_CAPTURE_RUNTIME_FILE_SET_DIGEST: Final = (
+    "db140d2434b231a9eb5ff637d6b6dec910f6b16e634cbed6c733ea39526eeef8"
+)
+PRODUCTION_REPLAY_DIRECT_APPROVAL_ID: Final = (
+    "6c9c73eec534b95c6b15e6d6abcf529115d0042c85c84169ed7f73c808a6b163"
+)
+PRODUCTION_REPLAY_DIRECT_APPROVAL_SLOT_ID: Final = (
+    "2ef8ed60d9ff7e022c0db6825c3ee06ca8206ff9181d709a0553d02d61cde95f"
+)
+PRODUCTION_REPLAY_DIRECT_APPROVAL_SHA256: Final = (
+    "0ac717db3de8d7163ea3e2f91ec997e01d917ed8673071a194548e93af6f342b"
+)
+PRODUCTION_REPLAY_DIRECT_APPROVAL_BYTES: Final = 6_679
+_CLASSIFIER_ALGORITHM_BASIS: Final = {
+    "composite_market_rule": "unique_exact_self_row_v1",
+    "malformed_projection_rule": "fail_closed_v1",
+    "no_self_exception_rule": "frozen_tnxp_relation_only_v1",
+    "relation_share_class_rule": "orthogonal_conflict_attribute_v1",
+    "seed_rule": "frozen_external_relationship_assertions_v1",
+}
+CLASSIFIER_ALGORITHM_DIGEST: Final = stable_digest(_CLASSIFIER_ALGORITHM_BASIS)
+_CLASSIFIER_QA_BASIS: Final = {
+    "coverage": "all_inventory_composites_exactly_once_v1",
+    "relation_share_class_conflict": "high_bounded_examples_v1",
+    "seed_drift": "high_bounded_examples_v1",
+    "unique_self_selected_hierarchy": "critical_zero_v1",
+}
+CLASSIFIER_QA_DIGEST: Final = stable_digest(_CLASSIFIER_QA_BASIS)
+
+
+def _production_replay_source_binding() -> dict[str, object]:
+    return {
+        "batch_count": 1_843,
+        "batch_set_digest": PRODUCTION_REPLAY_BATCH_DIGEST,
+        "capture_runtime_commit": PRODUCTION_REPLAY_CAPTURE_RUNTIME_COMMIT,
+        "capture_runtime_file_set_digest": (PRODUCTION_REPLAY_CAPTURE_RUNTIME_FILE_SET_DIGEST),
+        "capture_runtime_binding_digest": PRODUCTION_REPLAY_CAPTURE_RUNTIME_DIGEST,
+        "composite_count": PRODUCTION_INVENTORY_ROW_COUNT,
+        "direct_approval": {
+            "approval_id": PRODUCTION_REPLAY_DIRECT_APPROVAL_ID,
+            "bytes": PRODUCTION_REPLAY_DIRECT_APPROVAL_BYTES,
+            "path": (
+                "manifests/silver/identity/openfigi-market-consistency-direct-approvals/"
+                f"slot_id={PRODUCTION_REPLAY_DIRECT_APPROVAL_SLOT_ID}/manifest.json"
+            ),
+            "sha256": PRODUCTION_REPLAY_DIRECT_APPROVAL_SHA256,
+        },
+        "final_manifest": {
+            "bytes": PRODUCTION_REPLAY_FINAL_BYTES,
+            "manifest_id": PRODUCTION_REPLAY_FINAL_MANIFEST_ID,
+            "path": (
+                "manifests/silver/identity/openfigi-market-consistency-runs/"
+                f"run_id={PRODUCTION_REPLAY_RUN_ID}/manifest.json"
+            ),
+            "sha256": PRODUCTION_REPLAY_FINAL_SHA256,
+        },
+        "request_manifest": {
+            "bytes": PRODUCTION_REPLAY_REQUEST_BYTES,
+            "path": (
+                "bronze/external/openfigi/s7-market-consistency/"
+                f"run_id={PRODUCTION_REPLAY_RUN_ID}/request-manifest.json"
+            ),
+            "sha256": PRODUCTION_REPLAY_REQUEST_SHA256,
+        },
+        "run_id": PRODUCTION_REPLAY_RUN_ID,
+    }
+
+
+_OFFLINE_REPLAY_SLOT_BASIS: Final = {
+    "approval_slot_version": OFFLINE_REPLAY_SLOT_VERSION,
+    "authorized_action": OFFLINE_REPLAY_ACTION,
+    "continuing_authorization_sha256": S7_CONTINUING_AUTHORIZATION_SHA256,
+    "production_data_root": PRODUCTION_DATA_ROOT.as_posix(),
+    "reaffirmation_sha256": S7_REAFFIRMATION_SHA256,
+    "source_capture_binding_digest": stable_digest(_production_replay_source_binding()),
+}
+OFFLINE_REPLAY_SLOT_ID: Final = stable_digest(_OFFLINE_REPLAY_SLOT_BASIS)
 
 _AUTHORIZED_ACTIONS: Final = (
     "capture_exact_approved_inventory_openfigi_attempts",
@@ -256,6 +357,7 @@ class MarketClassification:
     self_row_count: int = 0
     selected_figi: str | None = None
     selected_share_class_figi: str | None = None
+    relation_share_class_conflict: bool = False
     job_error: str | None = None
     projection_reason_codes: tuple[str, ...] = ()
     relationship_seed_status: str = "not_seed"
@@ -294,6 +396,17 @@ class MarketClassificationCandidate:
     unresolved_composite_count: int
     non_us_provider_row_count: int
     unresolved_provider_row_count: int
+    idempotent: bool
+
+
+@dataclass(frozen=True, slots=True)
+class OfflineMarketClassificationReplay:
+    replay_id: str
+    approval_id: str
+    intent_path: str
+    completion_id: str
+    completion_path: str
+    candidate: MarketClassificationCandidate
     idempotent: bool
 
 
@@ -938,6 +1051,20 @@ def classify_market_consistency_run(
         safe_relative_path(root, _final_manifest_path(run_id)),
         request_document=request,
     )
+    return _classify_verified_capture(root, request=request, final=final)
+
+
+def _classify_verified_capture(
+    root: Path,
+    *,
+    request: Mapping[str, object],
+    final: Mapping[str, object],
+) -> tuple[MarketClassification, ...]:
+    """Classify a capture only after its caller has verified both immutable controls."""
+
+    run_id = _digest(request.get("run_id"), "verified capture run ID")
+    if final.get("run_id") != run_id:
+        raise IdentityMarketConsistencyError("verified request/final run IDs differ")
     seeds = _relationship_seeds()
     output: list[MarketClassification] = []
     for raw_commit in _array(final.get("batches"), "capture batches"):
@@ -1138,6 +1265,7 @@ def _classify_job(
         for row in relation_rows
         if isinstance(row.get("shareClassFIGI"), str) and row["shareClassFIGI"]
     }
+    relation_share_class_conflict = len(share_classes) > 1
     if malformed:
         classification = _classification(
             query,
@@ -1148,17 +1276,7 @@ def _classify_job(
             reasons=("malformed_mapping_row",),
             seed=seed,
             returned=returned,
-        )
-    elif len(share_classes) > 1:
-        classification = _classification(
-            query,
-            "unresolved_share_class_conflict",
-            batch_index,
-            rows=rows,
-            self_rows=self_rows,
-            reasons=("multiple_relation_share_classes",),
-            seed=seed,
-            returned=returned,
+            relation_share_class_conflict=relation_share_class_conflict,
         )
     elif len(self_rows) == 1:
         selected = self_rows[0]
@@ -1175,6 +1293,7 @@ def _classify_job(
                 reasons=("self_row_missing_market_or_share_class",),
                 seed=seed,
                 returned=returned,
+                relation_share_class_conflict=relation_share_class_conflict,
             )
         else:
             classification = _classification(
@@ -1185,9 +1304,14 @@ def _classify_job(
                 self_rows=self_rows,
                 selected=selected,
                 market_codes=(market,),
-                reasons=("unique_exact_self_row",),
+                reasons=(
+                    ("multiple_relation_share_classes", "unique_exact_self_row")
+                    if relation_share_class_conflict
+                    else ("unique_exact_self_row",)
+                ),
                 seed=seed,
                 returned=returned,
+                relation_share_class_conflict=relation_share_class_conflict,
             )
     elif len(self_rows) > 1:
         codes = tuple(
@@ -1212,6 +1336,7 @@ def _classify_job(
             else ("multiple_self_rows",),
             seed=seed,
             returned=returned,
+            relation_share_class_conflict=relation_share_class_conflict,
         )
     else:
         exception = _FROZEN_NO_SELF_RELATION_EXCEPTIONS.get(query)
@@ -1237,6 +1362,7 @@ def _classify_job(
                 reasons=("frozen_tnxp_unique_relation_exception",),
                 seed=seed,
                 returned=returned,
+                relation_share_class_conflict=relation_share_class_conflict,
             )
         else:
             classification = _classification(
@@ -1248,6 +1374,7 @@ def _classify_job(
                 reasons=("no_unique_exact_self_row",),
                 seed=seed,
                 returned=returned,
+                relation_share_class_conflict=relation_share_class_conflict,
             )
     return _apply_seed_check(classification, seed, relation_rows)
 
@@ -1265,6 +1392,7 @@ def _classification(
     reasons: tuple[str, ...] = (),
     seed: Mapping[str, object] | None,
     returned: Mapping[str, tuple[str, ...]] | None = None,
+    relation_share_class_conflict: bool = False,
 ) -> MarketClassification:
     values = returned or {
         "figis": (),
@@ -1294,6 +1422,7 @@ def _classification(
             if selected is not None and isinstance(selected.get("shareClassFIGI"), str)
             else None
         ),
+        relation_share_class_conflict=relation_share_class_conflict,
         job_error=job_error,
         projection_reason_codes=tuple(sorted(set(reasons))),
         relationship_seed_status="pending_check" if seed is not None else "not_seed",
@@ -1409,6 +1538,622 @@ def _returned_fields(rows: Sequence[Mapping[str, object]]) -> dict[str, tuple[st
     }
 
 
+def execute_approved_market_classification_replay(
+    data_root: Path,
+    *,
+    approved_by: str,
+    prepared_by: str,
+    materialized_by: str,
+    now: Callable[[], datetime] = lambda: datetime.now(UTC),
+) -> OfflineMarketClassificationReplay:
+    """Reclassify the one frozen 078a capture without any network capability."""
+
+    root = _root(data_root)
+    _require_canonical_production_root(root)
+    transform_runtime = _repository_runtime_binding()
+    approval = _record_offline_replay_approval(
+        root,
+        transform_runtime=transform_runtime,
+        approved_by=approved_by,
+        prepared_by=prepared_by,
+        now=now,
+    )
+    replay_id = _digest(approval.get("replay_id"), "offline replay ID")
+    approval_id = _digest(approval.get("approval_id"), "offline replay approval ID")
+    approval_receipt = _mapping(approval.get("receipt"), "offline replay approval receipt")
+    intent_relative = _offline_replay_intent_path(replay_id)
+    completion_relative = _offline_replay_completion_path(replay_id)
+    lock_path = safe_relative_path(
+        root, f"tmp/s7-openfigi-market-consistency/offline-replay-{replay_id}.lock"
+    )
+    with _exclusive_nonblocking_lock(lock_path):
+        completion_path = safe_relative_path(root, completion_relative)
+        if completion_path.exists():
+            return _verify_offline_replay_completion(
+                root,
+                completion_path,
+                expected_replay=approval,
+                idempotent=True,
+            )
+
+        intent_payload = {
+            "approval": dict(approval_receipt),
+            "approval_id": approval_id,
+            "artifact_type": "s7_openfigi_market_consistency_offline_replay_intent",
+            "capabilities": dict(_FALSE_CAPABILITIES),
+            "capture_write": False,
+            "created_at_utc": approval["approved_at_utc"],
+            "created_by": _text(prepared_by, "offline replay preparer"),
+            "network_access": False,
+            "replay_id": replay_id,
+            "source_capture_binding": _production_replay_source_binding(),
+            "source_mutation": False,
+            "state": "running",
+            "transform_runtime_binding_digest": approval["transform_runtime_binding_digest"],
+        }
+        intent = {**intent_payload, "intent_id": stable_digest(intent_payload)}
+        intent_receipt = write_bytes_immutable(
+            root,
+            safe_relative_path(root, intent_relative),
+            _canonical_json(intent),
+        )
+
+        # The durable intent above is the last boundary before reading any frozen Bronze
+        # response.  The replay path contains no HTTP client and never imports an API key.
+        request, final = _verify_frozen_replay_capture(root)
+        classifications = _classify_verified_capture(root, request=request, final=final)
+        created_at = _now_utc(now, "offline replay materialized_at_utc")
+        candidate = _materialize_verified_market_classification_candidate(
+            root,
+            request=request,
+            final=final,
+            classifications=classifications,
+            created_at=created_at,
+            actor=_text(materialized_by, "offline replay materializer"),
+            source_available_session_assertion=None,
+            offline_replay={
+                "approval_id": approval_id,
+                "approval_receipt": dict(approval_receipt),
+                "approval_recorded_at_utc": approval["approved_at_utc"],
+                "replay_id": replay_id,
+                "transform_availability": approval["approval_availability"],
+                "transform_runtime_binding_digest": approval["transform_runtime_binding_digest"],
+            },
+        )
+        candidate_manifest_path = safe_relative_path(root, candidate.manifest_path)
+        candidate_manifest = _load_exact_json(
+            candidate_manifest_path, "offline replay candidate manifest"
+        )
+        qa_receipt = _mapping(candidate_manifest.get("qa"), "offline replay candidate QA")
+        qa_path = safe_relative_path(root, _text(qa_receipt.get("path"), "candidate QA path"))
+        qa = _load_exact_json(qa_path, "offline replay candidate QA")
+        checks = {
+            _text(item.get("check_id"), "Gate-B QA check ID"): item
+            for item in (
+                _mapping(value, "Gate-B QA result")
+                for value in _array(qa.get("results"), "Gate-B QA results")
+            )
+        }
+        if _nonnegative_int(qa.get("critical_failure_count"), "Gate-B Critical count") != 0:
+            raise IdentityMarketConsistencyError("offline replay candidate Critical QA is nonzero")
+        for check_id in ("approved_relationship_seed_drift", "exact_group_openfigi_seed_drift"):
+            check = _mapping(checks.get(check_id), f"Gate-B {check_id}")
+            if _nonnegative_int(check.get("numerator"), f"Gate-B {check_id} numerator") != 0:
+                raise IdentityMarketConsistencyError(
+                    f"offline replay candidate factual drift remains: {check_id}"
+                )
+
+        candidate_receipt = _file_receipt(root, candidate.manifest_path)
+        completed_at = _now_utc(now, "offline replay completed_at_utc")
+        completion_payload = {
+            "approval": dict(approval_receipt),
+            "approval_id": approval_id,
+            "artifact_type": "s7_openfigi_market_consistency_offline_replay_completion",
+            "candidate": {
+                **candidate_receipt,
+                "candidate_id": candidate.candidate_id,
+            },
+            "candidate_qa": dict(qa_receipt),
+            "capabilities": dict(_FALSE_CAPABILITIES),
+            "completed_at_utc": completed_at.isoformat(),
+            "intent": dict(intent_receipt),
+            "network_request_count": 0,
+            "replay_id": replay_id,
+            "source_capture_binding": _production_replay_source_binding(),
+            "source_mutation": False,
+            "state": "awaiting_review",
+            "transform_runtime_binding_digest": approval["transform_runtime_binding_digest"],
+        }
+        completion = {
+            **completion_payload,
+            "completion_id": stable_digest(completion_payload),
+        }
+        write_bytes_immutable(root, completion_path, _canonical_json(completion))
+        return _verify_offline_replay_completion(
+            root,
+            completion_path,
+            expected_replay=approval,
+            idempotent=False,
+        )
+
+
+def _expected_offline_replay_approval_scope(
+    transform_runtime: Mapping[str, object],
+) -> dict[str, object]:
+    """Build the only scope accepted by the fixed offline-replay approval slot."""
+
+    runtime = dict(transform_runtime)
+    return {
+        "approval_slot_id": OFFLINE_REPLAY_SLOT_ID,
+        "approval_slot_version": OFFLINE_REPLAY_SLOT_VERSION,
+        "artifact_type": "s7_openfigi_market_consistency_offline_replay_approval",
+        "authorized_action": OFFLINE_REPLAY_ACTION,
+        "authorization": {
+            "continuing_literal_text": S7_CONTINUING_AUTHORIZATION_TEXT,
+            "continuing_literal_text_sha256": S7_CONTINUING_AUTHORIZATION_SHA256,
+            "reaffirmation_literal_text": S7_REAFFIRMATION_TEXT,
+            "reaffirmation_literal_text_sha256": S7_REAFFIRMATION_SHA256,
+        },
+        "candidate_state": "awaiting_review",
+        "capture_write": False,
+        "classification_version": MARKET_CLASSIFICATION_VERSION,
+        "classifier_algorithm_digest": CLASSIFIER_ALGORITHM_DIGEST,
+        "classifier_qa_digest": CLASSIFIER_QA_DIGEST,
+        "false_capabilities": dict(_FALSE_CAPABILITIES),
+        "network_access": False,
+        "source_capture_binding": _production_replay_source_binding(),
+        "source_mutation": False,
+        "transform_runtime_binding": runtime,
+        "transform_runtime_binding_digest": stable_digest(runtime),
+    }
+
+
+def _offline_replay_id(*, approval_id: str, transform_runtime_binding_digest: str) -> str:
+    return stable_digest(
+        {
+            "approval_id": _digest(approval_id, "offline replay approval ID"),
+            "classification_version": MARKET_CLASSIFICATION_VERSION,
+            "source_capture_binding_digest": stable_digest(_production_replay_source_binding()),
+            "transform_runtime_binding_digest": _digest(
+                transform_runtime_binding_digest,
+                "transform runtime binding digest",
+            ),
+        }
+    )
+
+
+def _record_offline_replay_approval(
+    root: Path,
+    *,
+    transform_runtime: Mapping[str, object],
+    approved_by: str,
+    prepared_by: str,
+    now: Callable[[], datetime],
+) -> dict[str, object]:
+    runtime = dict(transform_runtime)
+    scope = _expected_offline_replay_approval_scope(runtime)
+    runtime_digest = _digest(
+        scope.get("transform_runtime_binding_digest"),
+        "transform runtime binding digest",
+    )
+    approval_id = stable_digest(scope)
+    replay_id = _offline_replay_id(
+        approval_id=approval_id,
+        transform_runtime_binding_digest=runtime_digest,
+    )
+    relative = _offline_replay_approval_path()
+    path = safe_relative_path(root, relative)
+    lock = safe_relative_path(
+        root,
+        f"tmp/s7-openfigi-market-consistency/offline-approval-{OFFLINE_REPLAY_SLOT_ID}.lock",
+    )
+    with _exclusive_nonblocking_lock(lock):
+        if path.exists():
+            document = _load_exact_json(path, "offline replay approval")
+            _verify_offline_replay_approval_document(
+                root,
+                document,
+                expected_scope=scope,
+                expected_approval_id=approval_id,
+                expected_replay_id=replay_id,
+            )
+            if (
+                document.get("approved_by") != approved_by
+                or document.get("prepared_by") != prepared_by
+            ):
+                raise IdentityMarketConsistencyError(
+                    "offline replay approval actors differ from the first receipt"
+                )
+        else:
+            approved_at = _now_utc(now, "offline replay approved_at_utc")
+            approval_availability = _derive_control_availability(
+                root,
+                approved_at,
+                controlling_field="offline_replay_approval_recorded_at_utc",
+                rule="first_bound_xnys_open_strictly_after_offline_replay_approval_v1",
+            )
+            document = {
+                **scope,
+                "approval_availability": approval_availability,
+                "approval_id": approval_id,
+                "approved_at_utc": approved_at.isoformat(),
+                "approved_by": _text(approved_by, "offline replay approver"),
+                "prepared_by": _text(prepared_by, "offline replay preparer"),
+                "replay_id": replay_id,
+            }
+            write_bytes_immutable(root, path, _canonical_json(document))
+            _verify_offline_replay_approval_document(
+                root,
+                document,
+                expected_scope=scope,
+                expected_approval_id=approval_id,
+                expected_replay_id=replay_id,
+            )
+    receipt = _file_receipt(root, relative)
+    return {**document, "receipt": {**receipt, "approval_id": approval_id}}
+
+
+def _verify_offline_replay_approval(root: Path, raw_receipt: object) -> dict[str, object]:
+    receipt = _mapping(raw_receipt, "offline replay approval receipt")
+    _expect_keys(
+        receipt,
+        {"approval_id", "bytes", "path", "sha256"},
+        "offline replay approval receipt",
+    )
+    if receipt.get("path") != _offline_replay_approval_path():
+        raise IdentityMarketConsistencyError("offline replay approval path is not canonical")
+    _verify_file_receipt(root, receipt)
+    document = _load_exact_json(
+        safe_relative_path(root, _text(receipt.get("path"), "offline replay approval path")),
+        "offline replay approval",
+    )
+    runtime = _repository_runtime_binding()
+    scope = _expected_offline_replay_approval_scope(runtime)
+    approval_id = _digest(document.get("approval_id"), "offline replay approval ID")
+    replay_id = _digest(document.get("replay_id"), "offline replay ID")
+    _verify_offline_replay_approval_document(
+        root,
+        document,
+        expected_scope=scope,
+        expected_approval_id=approval_id,
+        expected_replay_id=replay_id,
+    )
+    if receipt.get("approval_id") != approval_id:
+        raise IdentityMarketConsistencyError("offline replay approval receipt ID differs")
+    return {
+        **document,
+        "receipt": dict(receipt),
+    }
+
+
+def _verify_offline_replay_approval_document(
+    root: Path,
+    document: Mapping[str, object],
+    *,
+    expected_scope: Mapping[str, object],
+    expected_approval_id: str,
+    expected_replay_id: str,
+) -> None:
+    _expect_keys(
+        document,
+        {
+            *expected_scope.keys(),
+            "approval_availability",
+            "approval_id",
+            "approved_at_utc",
+            "approved_by",
+            "prepared_by",
+            "replay_id",
+        },
+        "offline replay approval",
+    )
+    if (
+        _offline_replay_approval_scope(document) != dict(expected_scope)
+        or stable_digest(expected_scope) != expected_approval_id
+        or document.get("approval_id") != expected_approval_id
+        or document.get("replay_id") != expected_replay_id
+        or document.get("approval_slot_id") != OFFLINE_REPLAY_SLOT_ID
+        or document.get("approval_slot_version") != OFFLINE_REPLAY_SLOT_VERSION
+    ):
+        raise IdentityMarketConsistencyError("offline replay approval fixed scope differs")
+    expected_replay = _offline_replay_id(
+        approval_id=expected_approval_id,
+        transform_runtime_binding_digest=_digest(
+            document.get("transform_runtime_binding_digest"),
+            "transform runtime binding digest",
+        ),
+    )
+    if expected_replay != expected_replay_id:
+        raise IdentityMarketConsistencyError("offline replay ID recomputation differs")
+    approved_at = _parse_timestamp(document.get("approved_at_utc"), "offline replay approval time")
+    expected_availability = _derive_control_availability(
+        root,
+        approved_at,
+        controlling_field="offline_replay_approval_recorded_at_utc",
+        rule="first_bound_xnys_open_strictly_after_offline_replay_approval_v1",
+    )
+    if document.get("approval_availability") != expected_availability:
+        raise IdentityMarketConsistencyError("offline replay approval availability differs")
+    _text(document.get("approved_by"), "offline replay approved_by")
+    _text(document.get("prepared_by"), "offline replay prepared_by")
+
+
+def _offline_replay_approval_scope(document: Mapping[str, object]) -> dict[str, object]:
+    return {
+        key: document.get(key)
+        for key in (
+            "approval_slot_id",
+            "approval_slot_version",
+            "artifact_type",
+            "authorized_action",
+            "authorization",
+            "candidate_state",
+            "capture_write",
+            "classification_version",
+            "classifier_algorithm_digest",
+            "classifier_qa_digest",
+            "false_capabilities",
+            "network_access",
+            "source_capture_binding",
+            "source_mutation",
+            "transform_runtime_binding",
+            "transform_runtime_binding_digest",
+        )
+    }
+
+
+def _offline_replay_candidate_basis(replay: Mapping[str, object]) -> dict[str, object]:
+    receipt = _mapping(replay.get("receipt"), "offline replay approval receipt")
+    return {
+        "approval_id": _digest(replay.get("approval_id"), "offline replay approval ID"),
+        "approval_sha256": _digest(receipt.get("sha256"), "offline replay approval SHA"),
+        "classifier_algorithm_digest": CLASSIFIER_ALGORITHM_DIGEST,
+        "classifier_qa_digest": CLASSIFIER_QA_DIGEST,
+        "replay_id": _digest(replay.get("replay_id"), "offline replay ID"),
+        "source_capture_binding_digest": stable_digest(_production_replay_source_binding()),
+        "transform_runtime_binding_digest": _digest(
+            replay.get("transform_runtime_binding_digest"),
+            "transform runtime binding digest",
+        ),
+    }
+
+
+def _verify_frozen_replay_capture(
+    root: Path,
+) -> tuple[dict[str, object], dict[str, object]]:
+    binding = _production_replay_source_binding()
+    request_ref = _mapping(binding.get("request_manifest"), "replay request receipt")
+    request_path = safe_relative_path(root, _text(request_ref.get("path"), "replay request path"))
+    _verify_regular_file(
+        request_path,
+        _digest(request_ref.get("sha256"), "replay request SHA"),
+        "replay request",
+    )
+    if request_path.stat().st_size != _nonnegative_int(
+        request_ref.get("bytes"), "replay request bytes"
+    ):
+        raise IdentityMarketConsistencyError("frozen replay request byte count differs")
+    request = _load_exact_json(request_path, "frozen replay request")
+    payload = dict(request)
+    claimed = payload.pop("run_id", None)
+    if claimed != PRODUCTION_REPLAY_RUN_ID or stable_digest(payload) != claimed:
+        raise IdentityMarketConsistencyError("frozen replay request ID differs")
+    runtime = _mapping(request.get("runtime_binding"), "capture runtime binding")
+    if (
+        stable_digest(runtime) != PRODUCTION_REPLAY_CAPTURE_RUNTIME_DIGEST
+        or runtime.get("repository_commit") != PRODUCTION_REPLAY_CAPTURE_RUNTIME_COMMIT
+        or runtime.get("runtime_file_set_digest")
+        != PRODUCTION_REPLAY_CAPTURE_RUNTIME_FILE_SET_DIGEST
+        or request.get("request_version") != MARKET_CONSISTENCY_RUN_VERSION
+        or request.get("endpoint") != OPENFIGI_MAPPING_ENDPOINT
+        or request.get("market_sector_description") != "Equity"
+        or request.get("source_capabilities") != _FALSE_CAPABILITIES
+        or request.get("direct_approval") != binding["direct_approval"]
+    ):
+        raise IdentityMarketConsistencyError("frozen replay request controls differ")
+    authenticated = _native_bool(request.get("authenticated"), "frozen capture authenticated")
+    inventory = _mapping(request.get("inventory_binding"), "frozen capture inventory")
+    data = _mapping(inventory.get("data"), "frozen capture inventory DATA")
+    if request.get("resource_caps") != _resource_caps(
+        authenticated,
+        inventory_row_count=_positive_int(data.get("row_count"), "inventory row count"),
+        production=True,
+    ):
+        raise IdentityMarketConsistencyError("frozen replay request resource caps differ")
+    if request.get("external_evidence_binding") != _load_external_evidence_binding():
+        raise IdentityMarketConsistencyError("frozen replay evidence binding differs")
+    if request.get("calendar_binding") != _calendar_binding(root):
+        raise IdentityMarketConsistencyError("frozen replay calendar binding differs")
+    if inventory != _verify_production_inventory_binding(root):
+        raise IdentityMarketConsistencyError("frozen replay inventory binding differs")
+    _verify_direct_approval(root, request.get("direct_approval"), request=request)
+
+    final_ref = _mapping(binding.get("final_manifest"), "replay final receipt")
+    final_path = safe_relative_path(root, _text(final_ref.get("path"), "replay final path"))
+    _verify_regular_file(
+        final_path,
+        _digest(final_ref.get("sha256"), "replay final SHA"),
+        "replay final manifest",
+    )
+    if final_path.stat().st_size != _nonnegative_int(final_ref.get("bytes"), "replay final bytes"):
+        raise IdentityMarketConsistencyError("frozen replay final byte count differs")
+    final = _verify_final_manifest(root, final_path, request_document=request)
+    if (
+        final.get("manifest_id") != PRODUCTION_REPLAY_FINAL_MANIFEST_ID
+        or final.get("batch_count") != 1_843
+        or final.get("composite_count") != PRODUCTION_INVENTORY_ROW_COUNT
+        or stable_digest(_array(final.get("batches"), "frozen capture batches"))
+        != PRODUCTION_REPLAY_BATCH_DIGEST
+    ):
+        raise IdentityMarketConsistencyError("frozen replay final coverage/digest differs")
+    return request, final
+
+
+def _verify_offline_replay_intent(
+    root: Path,
+    raw_receipt: object,
+    *,
+    expected_replay: Mapping[str, object],
+) -> dict[str, object]:
+    receipt = _mapping(raw_receipt, "offline replay intent receipt")
+    _expect_keys(receipt, {"bytes", "path", "sha256"}, "offline replay intent receipt")
+    replay_id = _digest(expected_replay.get("replay_id"), "offline replay ID")
+    if receipt.get("path") != _offline_replay_intent_path(replay_id):
+        raise IdentityMarketConsistencyError("offline replay intent path is not canonical")
+    _verify_file_receipt(root, receipt)
+    document = _load_exact_json(
+        safe_relative_path(root, _text(receipt.get("path"), "offline replay intent path")),
+        "offline replay intent",
+    )
+    _expect_keys(
+        document,
+        {
+            "approval",
+            "approval_id",
+            "artifact_type",
+            "capabilities",
+            "capture_write",
+            "created_at_utc",
+            "created_by",
+            "intent_id",
+            "network_access",
+            "replay_id",
+            "source_capture_binding",
+            "source_mutation",
+            "state",
+            "transform_runtime_binding_digest",
+        },
+        "offline replay intent",
+    )
+    payload = dict(document)
+    intent_id = payload.pop("intent_id", None)
+    approval_receipt = _mapping(expected_replay.get("receipt"), "offline replay approval receipt")
+    if (
+        stable_digest(payload) != intent_id
+        or document.get("artifact_type") != "s7_openfigi_market_consistency_offline_replay_intent"
+        or document.get("approval") != approval_receipt
+        or document.get("approval_id") != expected_replay.get("approval_id")
+        or document.get("capabilities") != _FALSE_CAPABILITIES
+        or document.get("capture_write") is not False
+        or document.get("created_at_utc") != expected_replay.get("approved_at_utc")
+        or document.get("created_by") != expected_replay.get("prepared_by")
+        or document.get("network_access") is not False
+        or document.get("replay_id") != replay_id
+        or document.get("source_capture_binding") != _production_replay_source_binding()
+        or document.get("source_mutation") is not False
+        or document.get("state") != "running"
+        or document.get("transform_runtime_binding_digest")
+        != expected_replay.get("transform_runtime_binding_digest")
+    ):
+        raise IdentityMarketConsistencyError("offline replay intent controls differ")
+    _digest(intent_id, "offline replay intent ID")
+    return document
+
+
+def _verify_offline_replay_completion(
+    root: Path,
+    path: Path,
+    *,
+    expected_replay: Mapping[str, object],
+    idempotent: bool,
+) -> OfflineMarketClassificationReplay:
+    document = _load_exact_json(path, "offline replay completion")
+    _expect_keys(
+        document,
+        {
+            "approval",
+            "approval_id",
+            "artifact_type",
+            "candidate",
+            "candidate_qa",
+            "capabilities",
+            "completed_at_utc",
+            "completion_id",
+            "intent",
+            "network_request_count",
+            "replay_id",
+            "source_capture_binding",
+            "source_mutation",
+            "state",
+            "transform_runtime_binding_digest",
+        },
+        "offline replay completion",
+    )
+    payload = dict(document)
+    completion_id = payload.pop("completion_id", None)
+    if stable_digest(payload) != completion_id:
+        raise IdentityMarketConsistencyError("offline replay completion ID differs")
+    approval_receipt = _mapping(expected_replay.get("receipt"), "offline replay approval receipt")
+    if (
+        document.get("artifact_type") != "s7_openfigi_market_consistency_offline_replay_completion"
+        or document.get("state") != "awaiting_review"
+        or document.get("replay_id") != expected_replay.get("replay_id")
+        or document.get("approval_id") != expected_replay.get("approval_id")
+        or document.get("approval") != approval_receipt
+        or document.get("source_capture_binding") != _production_replay_source_binding()
+        or document.get("network_request_count") != 0
+        or document.get("source_mutation") is not False
+        or document.get("capabilities") != _FALSE_CAPABILITIES
+        or document.get("transform_runtime_binding_digest")
+        != expected_replay.get("transform_runtime_binding_digest")
+    ):
+        raise IdentityMarketConsistencyError("offline replay completion controls differ")
+    intent_ref = _mapping(document.get("intent"), "offline replay intent receipt")
+    _verify_offline_replay_intent(root, intent_ref, expected_replay=expected_replay)
+    completed_at = _parse_timestamp(
+        document.get("completed_at_utc"), "offline replay completion time"
+    )
+    approved_at = _parse_timestamp(
+        expected_replay.get("approved_at_utc"), "offline replay approval time"
+    )
+    if completed_at < approved_at:
+        raise IdentityMarketConsistencyError("offline replay completion predates approval")
+    candidate_ref = _mapping(document.get("candidate"), "offline replay candidate receipt")
+    _expect_keys(
+        candidate_ref,
+        {"bytes", "candidate_id", "path", "sha256"},
+        "offline replay candidate receipt",
+    )
+    candidate = verify_market_classification_candidate(
+        root,
+        candidate_path=_text(candidate_ref.get("path"), "offline replay candidate path"),
+        candidate_id=_digest(candidate_ref.get("candidate_id"), "offline replay candidate ID"),
+        candidate_sha256=_digest(candidate_ref.get("sha256"), "offline replay candidate SHA"),
+        require_production_approval=True,
+    )
+    if (
+        candidate_ref.get("bytes")
+        != safe_relative_path(root, candidate.manifest_path).stat().st_size
+    ):
+        raise IdentityMarketConsistencyError("offline replay candidate bytes differ")
+    qa_ref = _mapping(document.get("candidate_qa"), "offline replay candidate QA")
+    _expect_keys(qa_ref, {"bytes", "path", "sha256"}, "offline replay candidate QA")
+    _verify_file_receipt(root, qa_ref)
+    candidate_manifest = _load_exact_json(
+        safe_relative_path(root, candidate.manifest_path),
+        "offline replay candidate manifest",
+    )
+    if candidate_manifest.get("qa") != qa_ref:
+        raise IdentityMarketConsistencyError("offline replay completion candidate QA differs")
+    candidate_created_at = _parse_timestamp(
+        candidate_manifest.get("created_at_utc"),
+        "offline replay candidate creation time",
+    )
+    if completed_at < candidate_created_at:
+        raise IdentityMarketConsistencyError("offline replay completion predates candidate")
+    return OfflineMarketClassificationReplay(
+        replay_id=_digest(document.get("replay_id"), "offline replay ID"),
+        approval_id=_digest(document.get("approval_id"), "offline replay approval ID"),
+        intent_path=_text(intent_ref.get("path"), "offline replay intent path"),
+        completion_id=_digest(completion_id, "offline replay completion ID"),
+        completion_path=_offline_replay_completion_path(
+            _digest(document.get("replay_id"), "offline replay ID")
+        ),
+        candidate=candidate,
+        idempotent=idempotent,
+    )
+
+
 def materialize_market_classification_candidate(
     data_root: Path,
     *,
@@ -1436,6 +2181,33 @@ def materialize_market_classification_candidate(
     final_relative = _final_manifest_path(run_id)
     final_path = safe_relative_path(root, final_relative)
     final = _verify_final_manifest(root, final_path, request_document=request)
+    classifications = _classify_verified_capture(root, request=request, final=final)
+    return _materialize_verified_market_classification_candidate(
+        root,
+        request=request,
+        final=final,
+        classifications=classifications,
+        created_at=created_at,
+        actor=actor,
+        source_available_session_assertion=source_available_session,
+        offline_replay=None,
+    )
+
+
+def _materialize_verified_market_classification_candidate(
+    root: Path,
+    *,
+    request: Mapping[str, object],
+    final: Mapping[str, object],
+    classifications: Sequence[MarketClassification],
+    created_at: datetime,
+    actor: str,
+    source_available_session_assertion: str | None,
+    offline_replay: Mapping[str, object] | None,
+) -> MarketClassificationCandidate:
+    run_id = _digest(request.get("run_id"), "classification source run ID")
+    final_relative = _final_manifest_path(run_id)
+    final_path = safe_relative_path(root, final_relative)
     latest_response = _parse_timestamp(
         final.get("latest_response_received_at_utc"), "latest response receipt"
     )
@@ -1444,17 +2216,60 @@ def materialize_market_classification_candidate(
             "materialized_at_utc cannot precede the latest accepted response"
         )
     availability = _derive_availability(root, latest_response)
-    derived_session = _text(availability.get("source_available_session"), "availability session")
-    if source_available_session is not None and source_available_session != derived_session:
+    capture_session = _text(
+        availability.get("source_available_session"), "capture availability session"
+    )
+    transform_availability: Mapping[str, object] | None = None
+    replay_basis: dict[str, object] | None = None
+    replay_id: str | None = None
+    transform_runtime_digest: str | None = None
+    offline_replay_receipt: Mapping[str, object] | None = None
+    if offline_replay is not None:
+        replay_id = _digest(offline_replay.get("replay_id"), "offline replay ID")
+        transform_runtime_digest = _digest(
+            offline_replay.get("transform_runtime_binding_digest"),
+            "transform runtime binding digest",
+        )
+        transform_availability = _mapping(
+            offline_replay.get("transform_availability"), "transform availability"
+        )
+        offline_replay_receipt = _mapping(
+            offline_replay.get("approval_receipt"), "offline replay approval receipt"
+        )
+        replay_approved_at = _parse_timestamp(
+            offline_replay.get("approval_recorded_at_utc"),
+            "offline replay approval time",
+        )
+        if created_at < replay_approved_at:
+            raise IdentityMarketConsistencyError(
+                "offline replay candidate predates replay approval"
+            )
+        replay_basis = {
+            "approval_id": _digest(offline_replay.get("approval_id"), "offline replay approval ID"),
+            "approval_sha256": _digest(
+                offline_replay_receipt.get("sha256"), "offline replay approval SHA"
+            ),
+            "classifier_algorithm_digest": CLASSIFIER_ALGORITHM_DIGEST,
+            "classifier_qa_digest": CLASSIFIER_QA_DIGEST,
+            "replay_id": replay_id,
+            "source_capture_binding_digest": stable_digest(_production_replay_source_binding()),
+            "transform_runtime_binding_digest": transform_runtime_digest,
+        }
+    transform_session = (
+        _text(transform_availability.get("source_available_session"), "transform session")
+        if transform_availability is not None
+        else capture_session
+    )
+    derived_session = max(capture_session, transform_session)
+    if (
+        source_available_session_assertion is not None
+        and source_available_session_assertion != derived_session
+    ):
         raise IdentityMarketConsistencyError(
-            "source_available_session differs from the calendar-derived value"
+            "source_available_session differs from the calendar-derived effective replay "
+            "availability"
         )
 
-    classifications = classify_market_consistency_run(
-        root,
-        run_id=run_id,
-        require_production_approval=require_production_approval,
-    )
     inventory = _mapping(request.get("inventory_binding"), "inventory binding")
     data_ref = _mapping(inventory.get("data"), "inventory DATA binding")
     inventory_rows = _read_inventory_details(
@@ -1470,6 +2285,8 @@ def materialize_market_classification_candidate(
         final=final,
         final_sha=sha256_file(final_path),
         availability=availability,
+        replay_id=replay_id,
+        transform_runtime_digest=transform_runtime_digest,
     )
     row_digest = stable_digest(rows)
     final_sha = sha256_file(final_path)
@@ -1478,8 +2295,10 @@ def materialize_market_classification_candidate(
         "classification_row_digest": row_digest,
         "classification_version": MARKET_CLASSIFICATION_VERSION,
         "composite_count": len(rows),
+        "effective_source_available_session": derived_session,
         "external_evidence_binding": request["external_evidence_binding"],
         "inventory_binding": request["inventory_binding"],
+        "offline_replay": replay_basis,
         "source_capture_manifest_id": _digest(final.get("manifest_id"), "capture manifest ID"),
         "source_capture_manifest_sha256": final_sha,
         "source_run_id": run_id,
@@ -1501,6 +2320,8 @@ def materialize_market_classification_candidate(
         created_at=created_at,
         actor=actor,
         request=request,
+        offline_replay_approval=offline_replay_receipt,
+        transform_availability=transform_availability,
     )
     if manifest_path.exists():
         manifest = _load_exact_json(manifest_path, "classification candidate manifest")
@@ -1550,7 +2371,9 @@ def materialize_market_classification_candidate(
         "examples": example_receipt,
         "external_evidence_binding": request["external_evidence_binding"],
         "inventory_binding": request["inventory_binding"],
+        "offline_replay_approval": offline_replay_receipt,
         "qa": qa_receipt,
+        "replay_id": replay_id,
         "source_available_session": derived_session,
         "source_capture_manifest": {
             "bytes": final_path.stat().st_size,
@@ -1559,6 +2382,7 @@ def materialize_market_classification_candidate(
             "sha256": final_sha,
         },
         "state": "awaiting_review",
+        "transform_availability": transform_availability,
     }
     document = {**payload, "manifest_id": stable_digest(payload)}
     write_bytes_immutable(root, manifest_path, _canonical_json(document))
@@ -1615,10 +2439,13 @@ def verify_market_classification_candidate(
             "external_evidence_binding",
             "inventory_binding",
             "manifest_id",
+            "offline_replay_approval",
             "qa",
+            "replay_id",
             "source_available_session",
             "source_capture_manifest",
             "state",
+            "transform_availability",
         },
         "classification candidate manifest",
     )
@@ -1626,24 +2453,37 @@ def verify_market_classification_candidate(
         raise IdentityMarketConsistencyError("classification candidate artifact type differs")
     basis = _mapping(document.get("candidate_basis"), "classification candidate basis")
     run_id = _digest(basis.get("source_run_id"), "classification source run ID")
-    request = _load_and_verify_request(
-        root,
-        run_id=run_id,
-        require_production_approval=require_production_approval,
-    )
-    final_relative = _final_manifest_path(run_id)
-    final_path = safe_relative_path(root, final_relative)
-    final = _verify_final_manifest(root, final_path, request_document=request)
+    raw_replay_approval = document.get("offline_replay_approval")
+    replay: dict[str, object] | None = None
+    if raw_replay_approval is None:
+        if (
+            document.get("replay_id") is not None
+            or document.get("transform_availability") is not None
+        ):
+            raise IdentityMarketConsistencyError("ordinary candidate invented replay provenance")
+        request = _load_and_verify_request(
+            root,
+            run_id=run_id,
+            require_production_approval=require_production_approval,
+        )
+        final_relative = _final_manifest_path(run_id)
+        final_path = safe_relative_path(root, final_relative)
+        final = _verify_final_manifest(root, final_path, request_document=request)
+    else:
+        if run_id != PRODUCTION_REPLAY_RUN_ID:
+            raise IdentityMarketConsistencyError("offline replay candidate source run differs")
+        replay = _verify_offline_replay_approval(root, raw_replay_approval)
+        if document.get("replay_id") != replay["replay_id"]:
+            raise IdentityMarketConsistencyError("offline replay candidate replay ID differs")
+        request, final = _verify_frozen_replay_capture(root)
+        final_relative = _final_manifest_path(run_id)
+        final_path = safe_relative_path(root, final_relative)
     final_sha = sha256_file(final_path)
     latest_response = _parse_timestamp(
         final.get("latest_response_received_at_utc"), "latest response receipt"
     )
     availability = _derive_availability(root, latest_response)
-    classifications = classify_market_consistency_run(
-        root,
-        run_id=run_id,
-        require_production_approval=require_production_approval,
-    )
+    classifications = _classify_verified_capture(root, request=request, final=final)
     inventory = _mapping(request.get("inventory_binding"), "inventory binding")
     data_ref = _mapping(inventory.get("data"), "inventory DATA binding")
     inventory_rows = _read_inventory_details(
@@ -1651,7 +2491,29 @@ def verify_market_classification_candidate(
     )
     if set(inventory_rows) != {row.composite_figi for row in classifications}:
         raise IdentityMarketConsistencyError("classification and inventory coverage differ")
-    derived_session = _text(availability.get("source_available_session"), "availability session")
+    capture_session = _text(
+        availability.get("source_available_session"), "capture availability session"
+    )
+    transform_availability = (
+        _mapping(replay.get("approval_availability"), "transform availability")
+        if replay is not None
+        else None
+    )
+    transform_session = (
+        _text(transform_availability.get("source_available_session"), "transform session")
+        if transform_availability is not None
+        else capture_session
+    )
+    derived_session = max(capture_session, transform_session)
+    replay_id = _digest(replay.get("replay_id"), "replay ID") if replay is not None else None
+    transform_runtime_digest = (
+        _digest(
+            replay.get("transform_runtime_binding_digest"),
+            "transform runtime binding digest",
+        )
+        if replay is not None
+        else None
+    )
     rows = _candidate_rows(
         classifications,
         inventory_rows,
@@ -1660,14 +2522,19 @@ def verify_market_classification_candidate(
         final=final,
         final_sha=final_sha,
         availability=availability,
+        replay_id=replay_id,
+        transform_runtime_digest=transform_runtime_digest,
     )
+    replay_basis = _offline_replay_candidate_basis(replay) if replay is not None else None
     expected_basis = {
         "availability_proof_digest": availability["proof_digest"],
         "classification_row_digest": stable_digest(rows),
         "classification_version": MARKET_CLASSIFICATION_VERSION,
         "composite_count": len(rows),
+        "effective_source_available_session": derived_session,
         "external_evidence_binding": request["external_evidence_binding"],
         "inventory_binding": request["inventory_binding"],
+        "offline_replay": replay_basis,
         "source_capture_manifest_id": _digest(final.get("manifest_id"), "capture manifest ID"),
         "source_capture_manifest_sha256": final_sha,
         "source_run_id": run_id,
@@ -1681,6 +2548,14 @@ def verify_market_classification_candidate(
         "sha256": final_sha,
     }
     created_at = _parse_timestamp(document.get("created_at_utc"), "candidate created_at_utc")
+    if replay is not None:
+        replay_approved_at = _parse_timestamp(
+            replay.get("approved_at_utc"), "offline replay approval time"
+        )
+        if created_at < replay_approved_at:
+            raise IdentityMarketConsistencyError(
+                "offline replay candidate predates replay approval"
+            )
     actor = _text(document.get("created_by"), "candidate created_by")
     expected_static = _candidate_documents(
         candidate_id=expected_id,
@@ -1691,6 +2566,12 @@ def verify_market_classification_candidate(
         created_at=created_at,
         actor=actor,
         request=request,
+        offline_replay_approval=(
+            _mapping(raw_replay_approval, "offline replay approval receipt")
+            if raw_replay_approval is not None
+            else None
+        ),
+        transform_availability=transform_availability,
     )
     if document.get("source_available_session") != derived_session:
         raise IdentityMarketConsistencyError("classification candidate availability differs")
@@ -1713,6 +2594,8 @@ def _candidate_rows(
     final: Mapping[str, object],
     final_sha: str,
     availability: Mapping[str, object],
+    replay_id: str | None,
+    transform_runtime_digest: str | None,
 ) -> list[dict[str, object]]:
     inventory_binding = _mapping(request.get("inventory_binding"), "inventory binding")
     inventory_candidate = _mapping(inventory_binding.get("candidate"), "inventory candidate")
@@ -1742,9 +2625,12 @@ def _candidate_rows(
                 "market_codes": list(item.market_codes),
                 "projection_reason_codes": list(item.projection_reason_codes),
                 "projection_classification": item.projection_classification,
+                "relation_share_class_conflict": item.relation_share_class_conflict,
                 "provider_observation_row_count": active + inactive,
                 "relationship_seed_status": item.relationship_seed_status,
                 "reference_build_run_id": request["run_id"],
+                "reference_transform_replay_id": replay_id,
+                "reference_transform_runtime_digest": transform_runtime_digest,
                 "reference_version": MARKET_CLASSIFICATION_VERSION,
                 "response_batch_index": item.response_batch_index,
                 "returned_composite_figis": list(item.returned_composite_figis),
@@ -1806,6 +2692,8 @@ def _candidate_documents(
     created_at: datetime,
     actor: str,
     request: Mapping[str, object],
+    offline_replay_approval: Mapping[str, object] | None,
+    transform_availability: Mapping[str, object] | None,
 ) -> dict[str, object]:
     counts, row_counts = _classification_counts(rows)
     unresolved = [row for row in rows if str(row["classification"]).startswith("unresolved_")]
@@ -1821,6 +2709,9 @@ def _candidate_documents(
         "exact_group_seed_drift": [
             dict(row) for row in rows if str(row["composite_figi"]) in exact_group_drift_keys
         ][:100],
+        "relation_share_class_conflicts": [
+            dict(row) for row in rows if row["relation_share_class_conflict"]
+        ][:100],
         "unresolved_composites": [dict(row) for row in unresolved][:100],
     }
     return {
@@ -1834,7 +2725,13 @@ def _candidate_documents(
         "examples": examples,
         "external_evidence_binding": request["external_evidence_binding"],
         "inventory_binding": request["inventory_binding"],
+        "offline_replay_approval": (
+            dict(offline_replay_approval) if offline_replay_approval is not None else None
+        ),
         "source_capture_manifest": dict(source_capture_manifest),
+        "transform_availability": (
+            dict(transform_availability) if transform_availability is not None else None
+        ),
     }
 
 
@@ -1869,7 +2766,19 @@ def _qa_document(
     missing_seeds = sorted(set(seeds) - keys)
     seed_drift = [row for row in rows if row["relationship_seed_status"] == "drift"]
     exact_group_drift = _exact_group_seed_drift(rows)
-    critical = len(missing_seeds) if production else 0
+    relation_share_conflicts = [row for row in rows if row["relation_share_class_conflict"]]
+    invalid_unique_self_hierarchy = [
+        row
+        for row in rows
+        if row["self_openfigi_row_count"] == 1
+        and (
+            row["selected_figi"] != row["composite_figi"]
+            or row["selected_market_code"] is None
+            or row["selected_share_class_figi"] is None
+            or row["selected_share_class_figi"] not in row["returned_share_class_figis"]
+        )
+    ]
+    critical = (len(missing_seeds) if production else 0) + len(invalid_unique_self_hierarchy)
     return {
         "artifact_type": "s7_openfigi_market_consistency_qa",
         "candidate_id": candidate_id,
@@ -1895,6 +2804,19 @@ def _qa_document(
                 "numerator": 0,
                 "severity": "critical",
                 "status": "passed",
+            },
+            {
+                "bounded_examples_path": example_path,
+                "check_id": "unique_self_selected_hierarchy_invalid_rows",
+                "denominator": len(rows),
+                "numerator": len(invalid_unique_self_hierarchy),
+                "reason_counts": {
+                    "unique_self_missing_or_inconsistent_selected_hierarchy": len(
+                        invalid_unique_self_hierarchy
+                    )
+                },
+                "severity": "critical",
+                "status": "failed" if invalid_unique_self_hierarchy else "passed",
             },
             {
                 "bounded_examples_path": example_path,
@@ -1925,6 +2847,15 @@ def _qa_document(
                 },
                 "severity": "high",
                 "status": "warning" if exact_group_drift else "passed",
+            },
+            {
+                "bounded_examples_path": example_path,
+                "check_id": "openfigi_relation_share_class_conflict_composites",
+                "denominator": len(rows),
+                "numerator": len(relation_share_conflicts),
+                "reason_counts": {"multiple_relation_share_classes": len(relation_share_conflicts)},
+                "severity": "high",
+                "status": "warning" if relation_share_conflicts else "passed",
             },
             {
                 "bounded_examples_path": example_path,
@@ -1974,7 +2905,9 @@ def _verify_candidate_replay(
         or document.get("external_evidence_binding") != expected_static["external_evidence_binding"]
         or document.get("inventory_binding") != expected_static["inventory_binding"]
         or document.get("direct_approval") != expected_static["direct_approval"]
+        or document.get("offline_replay_approval") != expected_static["offline_replay_approval"]
         or document.get("source_capture_manifest") != expected_static["source_capture_manifest"]
+        or document.get("transform_availability") != expected_static["transform_availability"]
     ):
         raise IdentityMarketConsistencyError("classification candidate controls differ")
     created = _parse_timestamp(document.get("created_at_utc"), "candidate created_at_utc")
@@ -2066,6 +2999,7 @@ def _candidate_columns() -> tuple[str, ...]:
         "job_error",
         "projection_reason_codes",
         "projection_classification",
+        "relation_share_class_conflict",
         "relationship_seed_status",
         "returned_figis",
         "returned_composite_figis",
@@ -2092,6 +3026,8 @@ def _candidate_columns() -> tuple[str, ...]:
         "response_batch_index",
         "reference_version",
         "reference_build_run_id",
+        "reference_transform_replay_id",
+        "reference_transform_runtime_digest",
         "source_capture_manifest_id",
         "source_capture_manifest_sha256",
         "source_publication_status",
@@ -2116,6 +3052,8 @@ def _candidate_frame(rows: Sequence[Mapping[str, object]]) -> pl.DataFrame:
         "selected_security_type2",
         "selected_share_class_figi",
         "source_published_at_utc",
+        "reference_transform_replay_id",
+        "reference_transform_runtime_digest",
     )
     list_strings = (
         "market_codes",
@@ -3818,6 +4756,27 @@ def _direct_approval_path() -> str:
     return (
         "manifests/silver/identity/openfigi-market-consistency-direct-approvals/"
         f"slot_id={DIRECT_APPROVAL_SLOT_ID}/manifest.json"
+    )
+
+
+def _offline_replay_approval_path() -> str:
+    return (
+        "manifests/silver/identity/openfigi-market-consistency-offline-replay-approvals/"
+        f"slot_id={OFFLINE_REPLAY_SLOT_ID}/manifest.json"
+    )
+
+
+def _offline_replay_intent_path(replay_id: str) -> str:
+    return (
+        "manifests/silver/identity/openfigi-market-consistency-offline-replay-intents/"
+        f"replay_id={_digest(replay_id, 'offline replay ID')}/manifest.json"
+    )
+
+
+def _offline_replay_completion_path(replay_id: str) -> str:
+    return (
+        "manifests/silver/identity/openfigi-market-consistency-offline-replay-completions/"
+        f"replay_id={_digest(replay_id, 'offline replay ID')}/manifest.json"
     )
 
 

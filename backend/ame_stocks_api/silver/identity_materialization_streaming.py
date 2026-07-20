@@ -1085,6 +1085,22 @@ def _frozen_registry_projection(
         if gate_row is not None
         else None
     )
+    gate_selected_share = (
+        _optional_figi(
+            gate_row.get("selected_share_class_figi"),
+            "Gate-B selected ShareClass",
+        )
+        if gate_row is not None
+        else None
+    )
+    gate_share_conflict = (
+        _native_bool(
+            gate_row.get("relation_share_class_conflict", False),
+            "Gate-B relation ShareClass conflict",
+        )
+        if gate_row is not None
+        else False
+    )
     evidence_sessions = [
         _native_date(source.get("source_available_session"), "membership availability")
     ]
@@ -1253,12 +1269,15 @@ def _frozen_registry_projection(
                 if classification == "known_non_us"
                 else "known_non_us_pending"
             )
-    if canonical is None:
-        share_matches = ()
+    if canonical is None and share_matches:
+        raise S7StreamingMaterializationError(
+            "ShareClass decision preceded unique Composite resolution"
+        )
     canonical_share = observed_share if canonical is not None else None
     share_id = _share_class_id(canonical_share) if canonical_share is not None else None
     share_decision_id: str | None = None
     share_available: date | None = None
+    unresolved_gate_share_conflict = False
     if len(share_matches) > 1:
         canonical_share = None
         share_id = None
@@ -1290,7 +1309,21 @@ def _frozen_registry_projection(
             "ShareClass adjudication availability",
         )
         evidence_sessions.extend((share_available, release.release_available_session))
-    eligible = canonical is not None and asset is not None and len(share_matches) <= 1
+    elif gate_share_conflict and (
+        observed_share is None
+        or gate_selected_share is None
+        or observed_share != gate_selected_share
+    ):
+        canonical_share = None
+        share_id = None
+        identity_status = "resolved_conflicted"
+        unresolved_gate_share_conflict = True
+    eligible = (
+        canonical is not None
+        and asset is not None
+        and len(share_matches) <= 1
+        and not unresolved_gate_share_conflict
+    )
     return ResolutionProjection(
         selected_source_record_id=source_id,
         observed_composite_market_code=observed_market,
@@ -3306,7 +3339,12 @@ def _run_pass_one(
     source_rows = 0
     raw_collision_rows = 0
     unresolved_rows = 0
+    share_relation_conflict_rows = 0
+    share_relation_mismatch_rows = 0
+    unadjudicated_share_conflict_rows = 0
+    unadjudicated_share_conflict_eligible_rows = 0
     collision_examples: list[dict[str, object]] = []
+    share_conflict_examples: list[dict[str, object]] = []
     for session_index, pin in enumerate(binding.membership_artifacts):
         source_path = safe_relative_path(root, pin.artifact.path)
         source = pq.read_table(source_path)
@@ -3365,6 +3403,30 @@ def _run_pass_one(
                     )
             if not row["backtest_identity_eligible"]:
                 unresolved_rows += 1
+            (
+                relation_conflict,
+                relation_mismatch,
+                unadjudicated_conflict,
+                eligible_violation,
+                selected_share,
+            ) = _gate_b_share_class_state(row, gate_b)
+            share_relation_conflict_rows += int(relation_conflict)
+            share_relation_mismatch_rows += int(relation_mismatch)
+            unadjudicated_share_conflict_rows += int(unadjudicated_conflict)
+            unadjudicated_share_conflict_eligible_rows += int(eligible_violation)
+            if relation_conflict and len(share_conflict_examples) < 100:
+                share_conflict_examples.append(
+                    {
+                        "backtest_identity_eligible": row["backtest_identity_eligible"],
+                        "gate_b_selected_share_class_figi": selected_share,
+                        "observed_composite_figi": row["observed_composite_figi"],
+                        "observed_share_class_figi": row["observed_share_class_figi"],
+                        "selected_source_record_id": source_id,
+                        "session_date": pin.session_date.isoformat(),
+                        "share_class_adjudication_id": row["share_class_adjudication_id"],
+                        "ticker": ticker,
+                    }
+                )
             _update_alias_interval(
                 aliases,
                 open_aliases,
@@ -3412,13 +3474,55 @@ def _run_pass_one(
     aliases.close()
     pass1 = {
         "bounded_collision_examples": collision_examples,
+        "bounded_share_class_conflict_examples": share_conflict_examples,
+        "gate_b_relation_share_class_conflict_rows": share_relation_conflict_rows,
+        "gate_b_relation_share_class_mismatch_rows": share_relation_mismatch_rows,
         "raw_collision_rows": raw_collision_rows,
         "source_membership_rows": source_rows,
         "source_lineage_digest": lineage.hexdigest(),
         "source_record_id_count": source_rows,
+        "unadjudicated_gate_b_share_class_conflict_eligible_rows": (
+            unadjudicated_share_conflict_eligible_rows
+        ),
+        "unadjudicated_gate_b_share_class_conflict_rows": (unadjudicated_share_conflict_rows),
         "unresolved_rows": unresolved_rows,
     }
     return aliases, assets, issuers, pass1
+
+
+def _gate_b_share_class_state(
+    row: Mapping[str, object],
+    gate_b: Mapping[str, Mapping[str, object]],
+) -> tuple[bool, bool, bool, bool, str | None]:
+    observed = _optional_figi(row.get("observed_composite_figi"), "observed Composite")
+    if observed is None:
+        return False, False, False, False, None
+    gate_row = gate_b.get(observed)
+    if gate_row is None:
+        raise S7StreamingMaterializationError(
+            "Gate-B reference inventory has an unattempted Composite"
+        )
+    relation_conflict = _native_bool(
+        gate_row.get("relation_share_class_conflict", False),
+        "Gate-B relation ShareClass conflict",
+    )
+    selected_share = _optional_figi(
+        gate_row.get("selected_share_class_figi"),
+        "Gate-B selected ShareClass",
+    )
+    observed_share = _optional_figi(
+        row.get("observed_share_class_figi"),
+        "observed ShareClass",
+    )
+    mismatch = relation_conflict and (
+        observed_share is None or selected_share is None or observed_share != selected_share
+    )
+    unadjudicated = mismatch and row.get("share_class_adjudication_id") is None
+    eligible_violation = unadjudicated and _native_bool(
+        row.get("backtest_identity_eligible"),
+        "backtest identity eligibility",
+    )
+    return relation_conflict, mismatch, unadjudicated, eligible_violation, selected_share
 
 
 def _build_and_validate_universe_row(
@@ -3503,6 +3607,22 @@ def _build_and_validate_universe_row(
         if gate_row is None
         else _optional_text(gate_row.get("selected_market_code"), "Gate-B selected market")
     )
+    gate_selected_share = (
+        None
+        if gate_row is None
+        else _optional_figi(
+            gate_row.get("selected_share_class_figi"),
+            "Gate-B selected ShareClass",
+        )
+    )
+    gate_share_conflict = (
+        False
+        if gate_row is None
+        else _native_bool(
+            gate_row.get("relation_share_class_conflict", False),
+            "Gate-B relation ShareClass conflict",
+        )
+    )
     if projection.observed_composite_market_code != observed_market:
         raise S7StreamingMaterializationError("projection observed market differs from Gate B")
     composite_unique = False
@@ -3576,10 +3696,15 @@ def _build_and_validate_universe_row(
             )
         ):
             raise S7StreamingMaterializationError("projection invented a Composite decision")
+    if not composite_unique and share_matches:
+        raise S7StreamingMaterializationError(
+            "ShareClass correction preceded unique canonical Composite"
+        )
     if not composite_unique:
         share_matches = ()
     expected_share = observed_share if composite_unique else None
     expected_share_id = _share_class_id(expected_share) if expected_share is not None else None
+    unresolved_gate_share_conflict = False
     if len(share_matches) > 1:
         if (
             projection.backtest_identity_eligible
@@ -3639,6 +3764,21 @@ def _build_and_validate_universe_row(
         or projection.share_class_adjudication_available_session is not None
     ):
         raise S7StreamingMaterializationError("projection invented a ShareClass decision")
+    elif gate_share_conflict and (
+        observed_share is None
+        or gate_selected_share is None
+        or observed_share != gate_selected_share
+    ):
+        expected_share = None
+        expected_share_id = None
+        unresolved_gate_share_conflict = True
+        if (
+            projection.backtest_identity_eligible
+            or projection.identity_resolution_status != "resolved_conflicted"
+        ):
+            raise S7StreamingMaterializationError(
+                "unadjudicated Gate-B ShareClass conflict became eligible or resolved"
+            )
     if (
         projection.canonical_share_class_figi != expected_share
         or projection.share_class_id != expected_share_id
@@ -3654,6 +3794,10 @@ def _build_and_validate_universe_row(
         raise S7StreamingMaterializationError("canonical asset ID is not reproducible")
     if projection.backtest_identity_eligible and not composite_unique:
         raise S7StreamingMaterializationError("unresolved Composite became identity eligible")
+    if unresolved_gate_share_conflict and projection.backtest_identity_eligible:
+        raise S7StreamingMaterializationError(
+            "unadjudicated Gate-B ShareClass conflict became identity eligible"
+        )
     if projection.current_reference_factor_eligible and not projection.backtest_identity_eligible:
         raise S7StreamingMaterializationError("factor eligibility exceeds identity eligibility")
     if projection.identity_evidence_available_session > binding.cutoff_session:
@@ -4455,12 +4599,26 @@ def _build_qa(
 ) -> dict[str, object]:
     source_rows = _nonnegative(pass1["source_membership_rows"], "source rows")
     source_ids = _nonnegative(pass1["source_record_id_count"], "source ID count")
+    share_conflict_eligible_rows = _nonnegative(
+        pass1["unadjudicated_gate_b_share_class_conflict_eligible_rows"],
+        "unadjudicated Gate-B ShareClass conflict eligible rows",
+    )
     critical = int(source_rows != binding.row_count or source_ids != source_rows)
+    critical += share_conflict_eligible_rows
     collision_rows = _nonnegative(pass1["raw_collision_rows"], "collision rows")
     return {
         "artifact_type": "s7_streaming_four_table_full_qa",
         "bounded_collision_examples": pass1["bounded_collision_examples"],
+        "bounded_share_class_conflict_examples": pass1["bounded_share_class_conflict_examples"],
         "critical_failure_count": critical,
+        "gate_b_relation_share_class_conflict_rows": _nonnegative(
+            pass1["gate_b_relation_share_class_conflict_rows"],
+            "Gate-B relation ShareClass conflict rows",
+        ),
+        "gate_b_relation_share_class_mismatch_rows": _nonnegative(
+            pass1["gate_b_relation_share_class_mismatch_rows"],
+            "Gate-B relation ShareClass mismatch rows",
+        ),
         "identity_quality_forced_liquidation_rows": 0,
         "inactive_or_delisted_inferred_from_identity_quality_rows": 0,
         "missing_eligible_alias_rows": 0,
@@ -4482,6 +4640,11 @@ def _build_qa(
         "ticker_alias_rows": _nonnegative(alias_row_count, "ticker alias rows"),
         "transition_automatic_return_stitching_rows": 0,
         "unapproved_canonical_override_rows": 0,
+        "unadjudicated_gate_b_share_class_conflict_eligible_rows": (share_conflict_eligible_rows),
+        "unadjudicated_gate_b_share_class_conflict_rows": _nonnegative(
+            pass1["unadjudicated_gate_b_share_class_conflict_rows"],
+            "unadjudicated Gate-B ShareClass conflict rows",
+        ),
         "unknown_or_unapproved_foreign_identity_eligible_rows": 0,
         "unresolved_rows": _nonnegative(pass1["unresolved_rows"], "unresolved rows"),
     }
@@ -5896,11 +6059,21 @@ def _load_gate_b_reference(root: Path, pin: GateBReferencePin) -> dict[str, Mapp
         "selected_market_code",
         "source_available_session",
     }
+    share_relation_fields = {
+        "relation_share_class_conflict",
+        "selected_share_class_figi",
+    }
     if pin.reference_version == PRODUCTION_GATE_B_REFERENCE_VERSION:
-        required.add("reference_version")
+        required.update(
+            {
+                "reference_version",
+                *share_relation_fields,
+            }
+        )
     if not required.issubset(table.schema.names):
         raise S7StreamingMaterializationError("Gate-B reference columns differ")
-    rows = table.select(sorted(required)).to_pylist()
+    selected_columns = required | (share_relation_fields & set(table.schema.names))
+    rows = table.select(sorted(selected_columns)).to_pylist()
     result: dict[str, Mapping[str, object]] = {}
     for row in rows:
         figi = _figi(row["composite_figi"], "Gate-B Composite FIGI")
@@ -5915,12 +6088,27 @@ def _load_gate_b_reference(root: Path, pin: GateBReferencePin) -> dict[str, Mapp
             and _text(row["reference_version"], "Gate-B reference version") != pin.reference_version
         ):
             raise S7StreamingMaterializationError("Gate-B reference version differs")
+        classification = _text(row["classification"], "Gate-B classification")
+        relation_share_conflict = _native_bool(
+            row.get("relation_share_class_conflict", False),
+            "Gate-B relation ShareClass conflict",
+        )
+        selected_share = _optional_figi(
+            row.get("selected_share_class_figi"),
+            "Gate-B selected ShareClass",
+        )
+        if relation_share_conflict and selected_share is None:
+            raise S7StreamingMaterializationError(
+                "Gate-B ShareClass conflict lacks a unique exact-self ShareClass"
+            )
         result[figi] = MappingProxyType(
             {
-                "classification": _text(row["classification"], "Gate-B classification"),
+                "classification": classification,
+                "relation_share_class_conflict": relation_share_conflict,
                 "selected_market_code": _optional_text(
                     row["selected_market_code"], "Gate-B market code"
                 ),
+                "selected_share_class_figi": selected_share,
                 "source_available_session": available,
             }
         )
@@ -6793,6 +6981,7 @@ def _replay_candidate_tables(
     caps: StreamingResourceCaps,
     declared_counts: Mapping[str, int],
 ) -> dict[str, object]:
+    gate_b = _load_gate_b_reference(root, binding.gate_b)
     assets = _read_small_exact_table(
         candidate_path / "data/asset_master.parquet",
         "asset_master",
@@ -6823,6 +7012,7 @@ def _replay_candidate_tables(
             candidate_path,
             outputs=outputs,
             binding=binding,
+            gate_b=gate_b,
             aliases_database=database,
             asset_ids=asset_ids,
             issuer_ids=issuer_ids,
@@ -6939,6 +7129,7 @@ def _replay_universe_partitions(
     *,
     outputs: Mapping[str, object],
     binding: S7StreamingSourceBinding,
+    gate_b: Mapping[str, Mapping[str, object]],
     aliases_database: Path,
     asset_ids: set[str],
     issuer_ids: set[str],
@@ -6951,7 +7142,12 @@ def _replay_universe_partitions(
     source_rows = 0
     unresolved_rows = 0
     collision_rows = 0
+    share_relation_conflict_rows = 0
+    share_relation_mismatch_rows = 0
+    unadjudicated_share_conflict_rows = 0
+    unadjudicated_share_conflict_eligible_rows = 0
     collision_examples: list[dict[str, object]] = []
+    share_conflict_examples: list[dict[str, object]] = []
     connection = sqlite3.connect(f"file:{aliases_database}?mode=ro", uri=True)
     try:
         for pin, raw_receipt in zip(binding.membership_artifacts, receipts, strict=True):
@@ -7019,6 +7215,30 @@ def _replay_universe_partitions(
                                 }
                             )
                     unresolved_rows += int(not bool(row["backtest_identity_eligible"]))
+                    (
+                        relation_conflict,
+                        relation_mismatch,
+                        unadjudicated_conflict,
+                        eligible_violation,
+                        selected_share,
+                    ) = _gate_b_share_class_state(row, gate_b)
+                    share_relation_conflict_rows += int(relation_conflict)
+                    share_relation_mismatch_rows += int(relation_mismatch)
+                    unadjudicated_share_conflict_rows += int(unadjudicated_conflict)
+                    unadjudicated_share_conflict_eligible_rows += int(eligible_violation)
+                    if relation_conflict and len(share_conflict_examples) < 100:
+                        share_conflict_examples.append(
+                            {
+                                "backtest_identity_eligible": row["backtest_identity_eligible"],
+                                "gate_b_selected_share_class_figi": selected_share,
+                                "observed_composite_figi": row["observed_composite_figi"],
+                                "observed_share_class_figi": row["observed_share_class_figi"],
+                                "selected_source_record_id": source_id,
+                                "session_date": pin.session_date.isoformat(),
+                                "share_class_adjudication_id": row["share_class_adjudication_id"],
+                                "ticker": ticker,
+                            }
+                        )
                     partition_count += 1
             if partition_count != pin.row_count:
                 raise S7StreamingMaterializationError("universe partition row count differs")
@@ -7027,10 +7247,17 @@ def _replay_universe_partitions(
         connection.close()
     return {
         "bounded_collision_examples": collision_examples,
+        "bounded_share_class_conflict_examples": share_conflict_examples,
+        "gate_b_relation_share_class_conflict_rows": share_relation_conflict_rows,
+        "gate_b_relation_share_class_mismatch_rows": share_relation_mismatch_rows,
         "raw_collision_rows": collision_rows,
         "source_lineage_digest": lineage.hexdigest(),
         "source_membership_rows": source_rows,
         "source_record_id_count": source_rows,
+        "unadjudicated_gate_b_share_class_conflict_eligible_rows": (
+            unadjudicated_share_conflict_eligible_rows
+        ),
+        "unadjudicated_gate_b_share_class_conflict_rows": (unadjudicated_share_conflict_rows),
         "unresolved_rows": unresolved_rows,
     }
 
