@@ -141,7 +141,7 @@ S7_CONTINUING_AUTHORIZATION_SHA256: Final = hashlib.sha256(
 S7_REAFFIRMATION_TEXT: Final = "批准"
 S7_REAFFIRMATION_SHA256: Final = hashlib.sha256(S7_REAFFIRMATION_TEXT.encode("utf-8")).hexdigest()
 
-OFFLINE_REPLAY_SLOT_VERSION: Final = "s7_gate_b_offline_reclassification_slot_v1"
+OFFLINE_REPLAY_SLOT_VERSION: Final = "s7_gate_b_offline_reclassification_slot_v2"
 OFFLINE_REPLAY_ACTION: Final = (
     "materialize_exact_078a_capture_with_current_transform_once_without_network"
 )
@@ -177,6 +177,58 @@ PRODUCTION_REPLAY_DIRECT_APPROVAL_SHA256: Final = (
     "0ac717db3de8d7163ea3e2f91ec997e01d917ed8673071a194548e93af6f342b"
 )
 PRODUCTION_REPLAY_DIRECT_APPROVAL_BYTES: Final = 6_679
+_OFFLINE_REPLAY_RECOVERY_PREDECESSOR: Final = {
+    "approval": {
+        "approval_id": "1c6094b27328e1f84602c792368dfafe60076d08ae2f3807e57bdc7c823e34e1",
+        "bytes": 5_539,
+        "path": (
+            "manifests/silver/identity/openfigi-market-consistency-offline-replay-"
+            "approvals/slot_id="
+            "6f3cdfb006ca54fccf41ac15fcd1412c221bc041e6030a4996d435e3766e045e/"
+            "manifest.json"
+        ),
+        "sha256": "95a032f350082dc03141ce09937cc78956b356eea366b6956e4e127f7b993c24",
+    },
+    "candidate": {
+        "bytes": 9_472,
+        "candidate_id": "537789987dca8c583192e19e631508c2a02624f6d23374b1d59a6fd16e29535f",
+        "path": (
+            "manifests/silver/identity/openfigi-market-consistency-candidates/"
+            "candidate_id="
+            "537789987dca8c583192e19e631508c2a02624f6d23374b1d59a6fd16e29535f/"
+            "manifest.json"
+        ),
+        "sha256": "8f070ccb3741e73b92a705055dc4c4d2ed7fbdb5af56b9b0144077d6b3ca272d",
+    },
+    "candidate_qa": {
+        "bytes": 3_345,
+        "critical_failure_count": 867,
+        "path": (
+            "manifests/silver/identity/openfigi-market-consistency-candidates/"
+            "candidate_id="
+            "537789987dca8c583192e19e631508c2a02624f6d23374b1d59a6fd16e29535f/"
+            "qa/qa.json"
+        ),
+        "sha256": "6d20e502fbfbd79ec988706848a992f58b8fc7ccf52644bc56a198f3e6a9e5f4",
+    },
+    "disposition": (
+        "candidate_blocked_before_completion_because_critical_qa_counted_867_"
+        "already_unresolved_missing_share_class_rows"
+    ),
+    "intent": {
+        "bytes": 2_774,
+        "intent_id": "68c9428760bea83bcfbf42723bb6364273714c21b0ddb86187f946be31ce328b",
+        "path": (
+            "manifests/silver/identity/openfigi-market-consistency-offline-replay-"
+            "intents/replay_id="
+            "6327f703fbe173ca8362138333db0ad01a20aa1a3e1f909b2280cf1e0570be19/"
+            "manifest.json"
+        ),
+        "sha256": "80957dfd0d2e2fc7a66099f1c916e7ce58a43d05ddaa81e896745f5136ff9479",
+    },
+    "replay_id": "6327f703fbe173ca8362138333db0ad01a20aa1a3e1f909b2280cf1e0570be19",
+    "runtime_commit": "c7b4765a203a6d2485c58c4ce1855d66b977e35f",
+}
 _CLASSIFIER_ALGORITHM_BASIS: Final = {
     "composite_market_rule": "unique_exact_self_row_v1",
     "malformed_projection_rule": "fail_closed_v1",
@@ -189,7 +241,8 @@ _CLASSIFIER_QA_BASIS: Final = {
     "coverage": "all_inventory_composites_exactly_once_v1",
     "relation_share_class_conflict": "high_bounded_examples_v1",
     "seed_drift": "high_bounded_examples_v1",
-    "unique_self_selected_hierarchy": "critical_zero_v1",
+    "resolved_composite_hierarchy": "critical_unique_self_or_frozen_exception_zero_v3",
+    "unresolved_unique_self_missing_share_class": "high_counts_and_examples_v1",
 }
 CLASSIFIER_QA_DIGEST: Final = stable_digest(_CLASSIFIER_QA_BASIS)
 
@@ -238,6 +291,7 @@ _OFFLINE_REPLAY_SLOT_BASIS: Final = {
     "continuing_authorization_sha256": S7_CONTINUING_AUTHORIZATION_SHA256,
     "production_data_root": PRODUCTION_DATA_ROOT.as_posix(),
     "reaffirmation_sha256": S7_REAFFIRMATION_SHA256,
+    "recovery_predecessor": dict(_OFFLINE_REPLAY_RECOVERY_PREDECESSOR),
     "source_capture_binding_digest": stable_digest(_production_replay_source_binding()),
 }
 OFFLINE_REPLAY_SLOT_ID: Final = stable_digest(_OFFLINE_REPLAY_SLOT_BASIS)
@@ -1550,6 +1604,7 @@ def execute_approved_market_classification_replay(
 
     root = _root(data_root)
     _require_canonical_production_root(root)
+    _verify_offline_replay_recovery_predecessor(root)
     transform_runtime = _repository_runtime_binding()
     approval = _record_offline_replay_approval(
         root,
@@ -1701,6 +1756,7 @@ def _expected_offline_replay_approval_scope(
         "classifier_qa_digest": CLASSIFIER_QA_DIGEST,
         "false_capabilities": dict(_FALSE_CAPABILITIES),
         "network_access": False,
+        "recovery_predecessor": dict(_OFFLINE_REPLAY_RECOVERY_PREDECESSOR),
         "source_capture_binding": _production_replay_source_binding(),
         "source_mutation": False,
         "transform_runtime_binding": runtime,
@@ -1794,6 +1850,7 @@ def _record_offline_replay_approval(
 
 
 def _verify_offline_replay_approval(root: Path, raw_receipt: object) -> dict[str, object]:
+    _verify_offline_replay_recovery_predecessor(root)
     receipt = _mapping(raw_receipt, "offline replay approval receipt")
     _expect_keys(
         receipt,
@@ -1894,6 +1951,7 @@ def _offline_replay_approval_scope(document: Mapping[str, object]) -> dict[str, 
             "classifier_qa_digest",
             "false_capabilities",
             "network_access",
+            "recovery_predecessor",
             "source_capture_binding",
             "source_mutation",
             "transform_runtime_binding",
@@ -1916,6 +1974,82 @@ def _offline_replay_candidate_basis(replay: Mapping[str, object]) -> dict[str, o
             "transform runtime binding digest",
         ),
     }
+
+
+def _verify_offline_replay_recovery_predecessor(root: Path) -> None:
+    """Bind replay v2 to the immutable v1 candidate that failed the overbroad QA."""
+
+    predecessor = _OFFLINE_REPLAY_RECOVERY_PREDECESSOR
+    loaded: dict[str, dict[str, object]] = {}
+    for name in ("approval", "intent", "candidate", "candidate_qa"):
+        receipt = _mapping(predecessor.get(name), f"offline replay predecessor {name}")
+        path = safe_relative_path(
+            root,
+            _text(receipt.get("path"), f"offline replay predecessor {name} path"),
+        )
+        _verify_regular_file(
+            path,
+            _digest(receipt.get("sha256"), f"offline replay predecessor {name} SHA"),
+            f"offline replay predecessor {name}",
+        )
+        if path.stat().st_size != _nonnegative_int(
+            receipt.get("bytes"), f"offline replay predecessor {name} bytes"
+        ):
+            raise IdentityMarketConsistencyError(
+                f"offline replay predecessor {name} byte count differs"
+            )
+        loaded[name] = _load_exact_json(path, f"offline replay predecessor {name}")
+
+    replay_id = _digest(predecessor.get("replay_id"), "predecessor replay ID")
+    approval = loaded["approval"]
+    intent = loaded["intent"]
+    candidate = loaded["candidate"]
+    qa = loaded["candidate_qa"]
+    approval_ref = _mapping(predecessor.get("approval"), "predecessor approval")
+    intent_ref = _mapping(predecessor.get("intent"), "predecessor intent")
+    candidate_ref = _mapping(predecessor.get("candidate"), "predecessor candidate")
+    qa_ref = _mapping(predecessor.get("candidate_qa"), "predecessor candidate QA")
+    expected_approval_receipt = {
+        key: approval_ref[key] for key in ("approval_id", "bytes", "path", "sha256")
+    }
+    expected_qa_receipt = {key: qa_ref[key] for key in ("bytes", "path", "sha256")}
+    qa_checks = {
+        _text(item.get("check_id"), "predecessor QA check ID"): item
+        for item in (
+            _mapping(value, "predecessor QA result")
+            for value in _array(qa.get("results"), "predecessor QA results")
+        )
+    }
+    failed_check = _mapping(
+        qa_checks.get("unique_self_selected_hierarchy_invalid_rows"),
+        "predecessor failed QA check",
+    )
+    if (
+        approval.get("approval_id") != approval_ref.get("approval_id")
+        or approval.get("approval_slot_version") != "s7_gate_b_offline_reclassification_slot_v1"
+        or approval.get("replay_id") != replay_id
+        or _mapping(
+            approval.get("transform_runtime_binding"),
+            "predecessor transform runtime binding",
+        ).get("repository_commit")
+        != predecessor.get("runtime_commit")
+        or intent.get("intent_id") != intent_ref.get("intent_id")
+        or intent.get("approval") != expected_approval_receipt
+        or intent.get("approval_id") != approval_ref.get("approval_id")
+        or intent.get("replay_id") != replay_id
+        or intent.get("state") != "running"
+        or candidate.get("candidate_id") != candidate_ref.get("candidate_id")
+        or candidate.get("offline_replay_approval") != expected_approval_receipt
+        or candidate.get("replay_id") != replay_id
+        or candidate.get("state") != "awaiting_review"
+        or candidate.get("qa") != expected_qa_receipt
+        or qa.get("critical_failure_count") != qa_ref.get("critical_failure_count")
+        or failed_check.get("severity") != "critical"
+        or failed_check.get("status") != "failed"
+        or failed_check.get("numerator") != 867
+        or safe_relative_path(root, _offline_replay_completion_path(replay_id)).exists()
+    ):
+        raise IdentityMarketConsistencyError("offline replay recovery predecessor controls differ")
 
 
 def _verify_frozen_replay_capture(
@@ -2712,6 +2846,9 @@ def _candidate_documents(
         "relation_share_class_conflicts": [
             dict(row) for row in rows if row["relation_share_class_conflict"]
         ][:100],
+        "unresolved_unique_self_missing_share_class": [
+            dict(row) for row in rows if _is_unresolved_unique_self_missing_share_class(row)
+        ][:100],
         "unresolved_composites": [dict(row) for row in unresolved][:100],
     }
     return {
@@ -2747,6 +2884,41 @@ def _classification_counts(
     return dict(sorted(counts.items())), dict(sorted(row_counts.items()))
 
 
+def _is_unresolved_unique_self_missing_share_class(
+    row: Mapping[str, object],
+) -> bool:
+    return (
+        row["classification"] == "unresolved_invalid_projection"
+        and row["self_openfigi_row_count"] == 1
+        and row["selected_figi"] == row["composite_figi"]
+        and row["selected_market_code"] is not None
+        and row["selected_share_class_figi"] is None
+        and "self_row_missing_market_or_share_class"
+        in _array(row["projection_reason_codes"], "projection reason codes")
+    )
+
+
+def _resolved_hierarchy_is_valid(row: Mapping[str, object]) -> bool:
+    if row["self_openfigi_row_count"] == 1:
+        return (
+            row["selected_figi"] == row["composite_figi"]
+            and row["selected_market_code"] is not None
+            and row["selected_share_class_figi"] is not None
+            and row["selected_share_class_figi"] in row["returned_share_class_figis"]
+        )
+    composite = str(row["composite_figi"])
+    exception = _FROZEN_NO_SELF_RELATION_EXCEPTIONS.get(composite)
+    return bool(
+        row["self_openfigi_row_count"] == 0
+        and exception is not None
+        and row["selected_figi"] == exception["figi"]
+        and row["selected_market_code"] == exception["exchCode"]
+        and row["selected_share_class_figi"] == exception["shareClassFIGI"]
+        and "frozen_tnxp_unique_relation_exception"
+        in _array(row["projection_reason_codes"], "projection reason codes")
+    )
+
+
 def _qa_document(
     *,
     candidate_id: str,
@@ -2767,18 +2939,23 @@ def _qa_document(
     seed_drift = [row for row in rows if row["relationship_seed_status"] == "drift"]
     exact_group_drift = _exact_group_seed_drift(rows)
     relation_share_conflicts = [row for row in rows if row["relation_share_class_conflict"]]
-    invalid_unique_self_hierarchy = [
+    invalid_resolved_hierarchy = [
         row
         for row in rows
-        if row["self_openfigi_row_count"] == 1
-        and (
-            row["selected_figi"] != row["composite_figi"]
-            or row["selected_market_code"] is None
-            or row["selected_share_class_figi"] is None
-            or row["selected_share_class_figi"] not in row["returned_share_class_figis"]
-        )
+        if row["classification"] in {"us_composite", "non_us_composite"}
+        and not _resolved_hierarchy_is_valid(row)
     ]
-    critical = (len(missing_seeds) if production else 0) + len(invalid_unique_self_hierarchy)
+    unresolved_missing_share = [
+        row for row in rows if _is_unresolved_unique_self_missing_share_class(row)
+    ]
+    unresolved_missing_share_provider_rows = sum(
+        _nonnegative_int(
+            row["provider_observation_row_count"],
+            "unresolved missing-ShareClass provider rows",
+        )
+        for row in unresolved_missing_share
+    )
+    critical = (len(missing_seeds) if production else 0) + len(invalid_resolved_hierarchy)
     return {
         "artifact_type": "s7_openfigi_market_consistency_qa",
         "candidate_id": candidate_id,
@@ -2807,16 +2984,16 @@ def _qa_document(
             },
             {
                 "bounded_examples_path": example_path,
-                "check_id": "unique_self_selected_hierarchy_invalid_rows",
+                "check_id": "resolved_composite_hierarchy_invalid_rows",
                 "denominator": len(rows),
-                "numerator": len(invalid_unique_self_hierarchy),
+                "numerator": len(invalid_resolved_hierarchy),
                 "reason_counts": {
-                    "unique_self_missing_or_inconsistent_selected_hierarchy": len(
-                        invalid_unique_self_hierarchy
+                    "resolved_composite_missing_or_inconsistent_selected_hierarchy": len(
+                        invalid_resolved_hierarchy
                     )
                 },
                 "severity": "critical",
-                "status": "failed" if invalid_unique_self_hierarchy else "passed",
+                "status": "failed" if invalid_resolved_hierarchy else "passed",
             },
             {
                 "bounded_examples_path": example_path,
@@ -2856,6 +3033,18 @@ def _qa_document(
                 "reason_counts": {"multiple_relation_share_classes": len(relation_share_conflicts)},
                 "severity": "high",
                 "status": "warning" if relation_share_conflicts else "passed",
+            },
+            {
+                "bounded_examples_path": example_path,
+                "check_id": "unresolved_unique_self_missing_share_class_rows",
+                "composite_count": len(unresolved_missing_share),
+                "denominator": provider_rows,
+                "numerator": unresolved_missing_share_provider_rows,
+                "reason_counts": {
+                    "unique_self_missing_share_class": unresolved_missing_share_provider_rows
+                },
+                "severity": "high",
+                "status": "warning" if unresolved_missing_share else "passed",
             },
             {
                 "bounded_examples_path": example_path,

@@ -233,6 +233,12 @@ def _install_offline_replay_fixture(
         )
 
     monkeypatch.setattr(market_module, "_require_canonical_production_root", lambda _root: None)
+    monkeypatch.setattr(
+        market_module,
+        "_verify_offline_replay_recovery_predecessor",
+        lambda _root: None,
+        raising=False,
+    )
     monkeypatch.setattr(market_module, "PRODUCTION_REPLAY_RUN_ID", prepared.run_id)
     monkeypatch.setattr(
         market_module,
@@ -788,6 +794,95 @@ def test_classification_states_and_unique_self_row_rule(tmp_path: Path, exact_ca
     )
 
 
+def test_unique_self_missing_share_class_stays_high_unresolved_not_critical(
+    tmp_path: Path, exact_calendar
+) -> None:
+    query = "BBG000000060"
+    prepared = _prepare(tmp_path, (query,), exact_calendar)
+
+    def post(url: str, body: bytes, headers: dict[str, str]) -> HttpResult:
+        del url, body, headers
+        self_row = _mapping_row(query, market="US", share="BBG000000160")
+        self_row.pop("shareClassFIGI")
+        return HttpResult(200, {}, json.dumps([{"data": [self_row]}]).encode())
+
+    _execute_complete(tmp_path, prepared, post=post)
+    classified = classify_market_consistency_run(tmp_path, run_id=prepared.run_id)
+    assert len(classified) == 1
+    row = classified[0]
+    assert row.classification == "unresolved_invalid_projection"
+    assert row.self_row_count == 1
+    assert row.selected_figi == query
+    assert row.selected_share_class_figi is None
+    assert row.projection_reason_codes == ("self_row_missing_market_or_share_class",)
+
+    candidate = materialize_market_classification_candidate(
+        tmp_path,
+        run_id=prepared.run_id,
+        materialized_at_utc="2026-07-19T16:03:00+00:00",
+        materialized_by="test_missing_share_class_classifier",
+    )
+    qa = json.loads((tmp_path / candidate.qa_path).read_text())
+    checks = {item["check_id"]: item for item in qa["results"]}
+    hierarchy = checks["resolved_composite_hierarchy_invalid_rows"]
+    missing_share = checks["unresolved_unique_self_missing_share_class_rows"]
+    unresolved = checks["openfigi_market_classification_unresolved_rows"]
+
+    assert qa["critical_failure_count"] == 0
+    assert hierarchy["numerator"] == 0
+    assert hierarchy["status"] == "passed"
+    assert missing_share["severity"] == "high"
+    assert missing_share["composite_count"] == 1
+    assert missing_share["numerator"] == 1
+    assert missing_share["status"] == "warning"
+    assert unresolved["severity"] == "high"
+    assert unresolved["numerator"] == 1
+    assert unresolved["reason_counts"] == {"unresolved_invalid_projection": 1}
+    assert unresolved["status"] == "warning"
+
+
+@pytest.mark.parametrize(
+    ("classification", "selected_figi", "selected_share", "returned_shares"),
+    [
+        ("us_composite", "BBG000000071", "BBG000000170", ["BBG000000170"]),
+        ("non_us_composite", "BBG000000070", "BBG000000171", ["BBG000000170"]),
+    ],
+)
+def test_resolved_unique_self_inconsistent_hierarchy_remains_critical(
+    classification: str,
+    selected_figi: str,
+    selected_share: str,
+    returned_shares: list[str],
+) -> None:
+    row = {
+        "classification": classification,
+        "composite_figi": "BBG000000070",
+        "market_codes": ["US" if classification == "us_composite" else "GR"],
+        "provider_observation_row_count": 1,
+        "relation_share_class_conflict": False,
+        "relationship_seed_status": "not_seed",
+        "returned_share_class_figis": returned_shares,
+        "selected_figi": selected_figi,
+        "selected_market_code": "US" if classification == "us_composite" else "GR",
+        "selected_share_class_figi": selected_share,
+        "self_openfigi_row_count": 1,
+    }
+
+    qa = market_module._qa_document(
+        candidate_id="0" * 64,
+        rows=[row],
+        example_path="manifests/fixtures/examples.json",
+        production=False,
+    )
+    checks = {item["check_id"]: item for item in qa["results"]}
+    hierarchy = checks["resolved_composite_hierarchy_invalid_rows"]
+
+    assert qa["critical_failure_count"] == 1
+    assert hierarchy["severity"] == "critical"
+    assert hierarchy["numerator"] == 1
+    assert hierarchy["status"] == "failed"
+
+
 def test_tnxp_is_the_only_frozen_no_self_relation_exception(tmp_path: Path, exact_calendar) -> None:
     query = "BBG00R4FG9L2"
     prepared = _prepare(tmp_path, (query,), exact_calendar)
@@ -814,6 +909,19 @@ def test_tnxp_is_the_only_frozen_no_self_relation_exception(tmp_path: Path, exac
     assert row.relationship_seed_status == "matched"
     assert row.self_row_count == 0
     assert row.projection_reason_codes == ("frozen_tnxp_unique_relation_exception",)
+    candidate = materialize_market_classification_candidate(
+        tmp_path,
+        run_id=prepared.run_id,
+        materialized_at_utc="2026-07-19T16:03:00+00:00",
+        materialized_by="test_tnxp_exception_classifier",
+    )
+    qa = json.loads((tmp_path / candidate.qa_path).read_text())
+    hierarchy = {item["check_id"]: item for item in qa["results"]}[
+        "resolved_composite_hierarchy_invalid_rows"
+    ]
+    assert qa["critical_failure_count"] == 0
+    assert hierarchy["numerator"] == 0
+    assert hierarchy["status"] == "passed"
 
 
 def test_non_tnxp_no_self_relation_stays_unresolved(tmp_path: Path, exact_calendar) -> None:
