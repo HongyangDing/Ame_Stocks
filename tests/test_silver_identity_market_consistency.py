@@ -214,7 +214,7 @@ def _install_recovery_predecessor_fixture(
     root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> dict[str, dict[str, object]]:
-    """Write one fully content-addressed v2 predecessor chain to disk."""
+    """Write one fully content-addressed v3 predecessor chain to disk."""
 
     source_binding: dict[str, object] = {
         "composite_count": 18_421,
@@ -224,7 +224,7 @@ def _install_recovery_predecessor_fixture(
     runtime_digest = stable_digest(runtime)
     approval_scope: dict[str, object] = {
         "approval_slot_id": "4" * 64,
-        "approval_slot_version": "s7_gate_b_offline_reclassification_slot_v2",
+        "approval_slot_version": "s7_gate_b_offline_reclassification_slot_v3",
         "artifact_type": "s7_openfigi_market_consistency_offline_replay_approval",
         "authorized_action": market_module.OFFLINE_REPLAY_ACTION,
         "authorization": {

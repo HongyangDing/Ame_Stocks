@@ -141,6 +141,7 @@ END_SESSION: Final = date(2026, 7, 9)
 LONG_STANDING_MIN_SESSIONS: Final = 20
 REVIEWED_FOREIGN_ROW_COUNT: Final = 79
 REVIEWED_INVERSE_US_ROW_COUNT: Final = 10
+REVIEWED_INVERSE_CONTEXT_ONLY_FOREIGN_ROW_COUNT: Final = 10
 REVIEWED_DIRECT_CASE_COUNT: Final = 9
 REVIEWED_INVERSE_CASE_COUNT: Final = 10
 PRIOR_PREVIEW_PATH: Final = (
@@ -1817,12 +1818,17 @@ def _reviewed_source_plan_binding() -> dict[str, object]:
             "direct_case_count": REVIEWED_DIRECT_CASE_COUNT,
             "group_count": 9,
             "identity_case_count": PREVIEW_CASE_COUNT,
+            "inverse_context_only_foreign_outer_rows": (
+                REVIEWED_INVERSE_CONTEXT_ONLY_FOREIGN_ROW_COUNT
+            ),
             "inverse_case_count": REVIEWED_INVERSE_CASE_COUNT,
         },
         "output_semantics": (
             "bounded exact S4 asset_observation_daily and universe_source_daily row "
             "snapshots for the 79 reviewed foreign observations, with all 19 exact "
-            "detector case IDs and raw/semantic roles; no canonical override"
+            "detector case IDs and raw/semantic roles; the 10 inverse-case foreign "
+            "outer context rows outside approved episode intervals remain only in "
+            "immutable case manifests and never enter override scope; no canonical override"
         ),
     }
 
@@ -1989,6 +1995,9 @@ def _load_reviewed_case_evidence(
     relations_by_source: dict[str, list[dict[str, object]]] = {}
     semantic_roles: Counter[str] = Counter()
     represented_case_ids: set[str] = set()
+    inverse_case_ids: set[str] = set()
+    inverse_context_only_foreign_rows: Counter[str] = Counter()
+    inverse_context_only_source_ids: set[str] = set()
     for case_ref, manifest, snapshot in manifests:
         ticker = _safe_text(snapshot.get("ticker"), "case ticker")
         middle = [item for item in manifest.usages if item.case_role == "middle"]
@@ -2007,6 +2016,7 @@ def _load_reviewed_case_evidence(
             semantic_role = "contaminated_middle_episode"
         elif middle_figis == {canonical}:
             semantic_role = "inverse_middle_is_canonical_us"
+            inverse_case_ids.add(str(case_ref["identity_case_id"]))
         else:
             raise IdentityMarketSequenceError("case middle is neither direct nor inverse")
         semantic_roles[semantic_role] += 1
@@ -2017,13 +2027,23 @@ def _load_reviewed_case_evidence(
                 continue
             asset = by_attestation[usage.asset_observation_attestation_id]
             universe = by_attestation[usage.universe_membership_attestation_id]
-            _validate_reviewed_foreign_pair(
+            session = _validate_reviewed_foreign_pair(
                 asset,
                 universe,
                 ticker=ticker,
                 foreign=foreign,
                 group=group,
             )
+            disposition = _reviewed_foreign_usage_disposition(
+                semantic_role=semantic_role,
+                case_role=usage.case_role,
+                session=session,
+                group=group,
+            )
+            if disposition == "inverse_context_only_foreign_outer":
+                inverse_context_only_foreign_rows[str(case_ref["identity_case_id"])] += 1
+                inverse_context_only_source_ids.add(usage.source_record_id)
+                continue
             source_id = usage.source_record_id
             row = _reviewed_foreign_row(asset, universe)
             previous = rows_by_source.get(source_id)
@@ -2043,18 +2063,19 @@ def _load_reviewed_case_evidence(
                 }
             )
 
-    if (
-        len(rows_by_source) != REVIEWED_FOREIGN_ROW_COUNT
-        or len(represented_case_ids) != PREVIEW_CASE_COUNT
-        or semantic_roles
-        != Counter(
-            {
-                "contaminated_middle_episode": REVIEWED_DIRECT_CASE_COUNT,
-                "inverse_middle_is_canonical_us": REVIEWED_INVERSE_CASE_COUNT,
-            }
-        )
-    ):
-        raise IdentityMarketSequenceError("reviewed row/case count reconciliation differs")
+    _validate_reviewed_case_reconciliation(
+        confirmed_foreign_source_ids=set(rows_by_source),
+        represented_case_ids=represented_case_ids,
+        related_output_case_ids={
+            str(relation["identity_case_id"])
+            for relations in relations_by_source.values()
+            for relation in relations
+        },
+        semantic_roles=semantic_roles,
+        inverse_case_ids=inverse_case_ids,
+        inverse_context_only_foreign_rows=inverse_context_only_foreign_rows,
+        inverse_context_only_source_ids=inverse_context_only_source_ids,
+    )
     actual_group_counts = Counter(
         (str(row["ticker"]), str(row["observed_composite_figi"])) for row in rows_by_source.values()
     )
@@ -2111,6 +2132,10 @@ def _load_reviewed_case_evidence(
         "reviewed_case_evidence": {
             "case_count": len(case_refs),
             "case_evidence_set_digest": PREVIEW_CASE_EVIDENCE_SET_DIGEST,
+            "inverse_context_only_foreign_outer_row_count": len(inverse_context_only_source_ids),
+            "inverse_context_only_foreign_outer_source_record_set_digest": stable_digest(
+                sorted(inverse_context_only_source_ids)
+            ),
             "manifests": case_refs,
             "reviewed_foreign_row_count": len(output),
             "reviewed_source_row_set_digest": _reviewed_evidence_digest(output),
@@ -2125,6 +2150,38 @@ def _load_reviewed_case_evidence(
     }
 
 
+def _validate_reviewed_case_reconciliation(
+    *,
+    confirmed_foreign_source_ids: set[str],
+    represented_case_ids: set[str],
+    related_output_case_ids: set[str],
+    semantic_roles: Counter[str],
+    inverse_case_ids: set[str],
+    inverse_context_only_foreign_rows: Counter[str],
+    inverse_context_only_source_ids: set[str],
+) -> None:
+    if (
+        len(confirmed_foreign_source_ids) != REVIEWED_FOREIGN_ROW_COUNT
+        or len(represented_case_ids) != PREVIEW_CASE_COUNT
+        or related_output_case_ids != represented_case_ids
+        or semantic_roles
+        != Counter(
+            {
+                "contaminated_middle_episode": REVIEWED_DIRECT_CASE_COUNT,
+                "inverse_middle_is_canonical_us": REVIEWED_INVERSE_CASE_COUNT,
+            }
+        )
+        or set(inverse_context_only_foreign_rows) != inverse_case_ids
+        or len(inverse_case_ids) != REVIEWED_INVERSE_CASE_COUNT
+        or len(inverse_context_only_source_ids) != REVIEWED_INVERSE_CONTEXT_ONLY_FOREIGN_ROW_COUNT
+        or sum(inverse_context_only_foreign_rows.values())
+        != REVIEWED_INVERSE_CONTEXT_ONLY_FOREIGN_ROW_COUNT
+        or any(count != 1 for count in inverse_context_only_foreign_rows.values())
+        or not confirmed_foreign_source_ids.isdisjoint(inverse_context_only_source_ids)
+    ):
+        raise IdentityMarketSequenceError("reviewed row/case count reconciliation differs")
+
+
 def _validate_reviewed_foreign_pair(
     asset: ProviderRowAttestation,
     universe: ProviderRowAttestation,
@@ -2132,7 +2189,7 @@ def _validate_reviewed_foreign_pair(
     ticker: str,
     foreign: str,
     group: Mapping[str, object],
-) -> None:
+) -> date:
     left = asset.full_row_snapshot
     right = universe.full_row_snapshot
     session = date.fromisoformat(str(right.get("session_date")))
@@ -2152,9 +2209,31 @@ def _validate_reviewed_foreign_pair(
         or right.get("locale") != "us"
         or left.get("market") != "stocks"
         or right.get("market") != "stocks"
-        or not (group["start"] <= session <= group["end"])
     ):
         raise IdentityMarketSequenceError("reviewed foreign S4 row scope differs")
+    return session
+
+
+def _reviewed_foreign_usage_disposition(
+    *,
+    semantic_role: str,
+    case_role: str,
+    session: date,
+    group: Mapping[str, object],
+) -> str:
+    if semantic_role == "contaminated_middle_episode":
+        if case_role != "middle":
+            raise IdentityMarketSequenceError("reviewed foreign S4 row scope differs")
+    elif semantic_role == "inverse_middle_is_canonical_us":
+        if case_role not in {"left_outer", "right_outer"}:
+            raise IdentityMarketSequenceError("reviewed foreign S4 row scope differs")
+    else:
+        raise IdentityMarketSequenceError("reviewed foreign S4 row scope differs")
+    if group["start"] <= session <= group["end"]:
+        return "confirmed_foreign_observation"
+    if semantic_role == "inverse_middle_is_canonical_us":
+        return "inverse_context_only_foreign_outer"
+    raise IdentityMarketSequenceError("reviewed foreign S4 row scope differs")
 
 
 def _reviewed_foreign_row(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -1489,3 +1490,163 @@ def test_inverse_bounce_requires_strict_continuity_and_one_share_class(
     by_id = {item["check_id"]: item for item in qa["results"]}
     assert by_id["inverse_bounce_misclassified_as_genuine_transition_rows"]["denominator"] == 0
     assert qa["diagnostics"]["inverse_bounce_detected_case_count"] == 0
+
+
+def test_reviewed_foreign_usage_disposition_separates_confirmed_rows_from_inverse_context() -> None:
+    group = {
+        "start": date(2022, 2, 9),
+        "end": date(2022, 3, 2),
+    }
+
+    dispositions = [
+        subject._reviewed_foreign_usage_disposition(
+            semantic_role="contaminated_middle_episode",
+            case_role="middle",
+            session=date(2022, 2, 15),
+            group=group,
+        ),
+        subject._reviewed_foreign_usage_disposition(
+            semantic_role="inverse_middle_is_canonical_us",
+            case_role="left_outer",
+            session=date(2022, 2, 7),
+            group=group,
+        ),
+        subject._reviewed_foreign_usage_disposition(
+            semantic_role="inverse_middle_is_canonical_us",
+            case_role="left_outer",
+            session=date(2022, 2, 9),
+            group=group,
+        ),
+        subject._reviewed_foreign_usage_disposition(
+            semantic_role="inverse_middle_is_canonical_us",
+            case_role="right_outer",
+            session=date(2022, 3, 2),
+            group=group,
+        ),
+        subject._reviewed_foreign_usage_disposition(
+            semantic_role="inverse_middle_is_canonical_us",
+            case_role="right_outer",
+            session=date(2022, 3, 4),
+            group=group,
+        ),
+    ]
+
+    assert dispositions == [
+        "confirmed_foreign_observation",
+        "inverse_context_only_foreign_outer",
+        "confirmed_foreign_observation",
+        "confirmed_foreign_observation",
+        "inverse_context_only_foreign_outer",
+    ]
+    assert dispositions.count("confirmed_foreign_observation") == 3
+    assert dispositions.count("inverse_context_only_foreign_outer") == 2
+
+
+@pytest.mark.parametrize(
+    ("semantic_role", "case_role", "session"),
+    [
+        ("contaminated_middle_episode", "left_outer", date(2022, 2, 15)),
+        ("contaminated_middle_episode", "right_outer", date(2022, 2, 8)),
+        ("inverse_middle_is_canonical_us", "middle", date(2022, 2, 15)),
+        ("not_a_reviewed_resolution", "left_outer", date(2022, 2, 8)),
+        ("inverse_middle_is_canonical_us", "not_a_case_role", date(2022, 2, 8)),
+    ],
+)
+def test_reviewed_foreign_usage_disposition_rejects_non_inverse_or_non_outer_context(
+    semantic_role: str,
+    case_role: str,
+    session: date,
+) -> None:
+    group = {
+        "start": date(2022, 2, 9),
+        "end": date(2022, 3, 2),
+    }
+
+    with pytest.raises(IdentityMarketSequenceError, match="reviewed foreign S4 row scope differs"):
+        subject._reviewed_foreign_usage_disposition(
+            semantic_role=semantic_role,
+            case_role=case_role,
+            session=session,
+            group=group,
+        )
+
+
+def _valid_reviewed_case_reconciliation_inputs() -> dict[str, object]:
+    direct_case_ids = {f"direct-{index}" for index in range(subject.REVIEWED_DIRECT_CASE_COUNT)}
+    inverse_case_ids = {f"inverse-{index}" for index in range(subject.REVIEWED_INVERSE_CASE_COUNT)}
+    represented_case_ids = direct_case_ids | inverse_case_ids
+    return {
+        "confirmed_foreign_source_ids": {
+            f"confirmed-source-{index}" for index in range(subject.REVIEWED_FOREIGN_ROW_COUNT)
+        },
+        "represented_case_ids": represented_case_ids,
+        "related_output_case_ids": set(represented_case_ids),
+        "semantic_roles": Counter(
+            {
+                "contaminated_middle_episode": subject.REVIEWED_DIRECT_CASE_COUNT,
+                "inverse_middle_is_canonical_us": subject.REVIEWED_INVERSE_CASE_COUNT,
+            }
+        ),
+        "inverse_case_ids": inverse_case_ids,
+        "inverse_context_only_foreign_rows": Counter({case_id: 1 for case_id in inverse_case_ids}),
+        "inverse_context_only_source_ids": {
+            f"context-source-{index}"
+            for index in range(subject.REVIEWED_INVERSE_CONTEXT_ONLY_FOREIGN_ROW_COUNT)
+        },
+    }
+
+
+def test_reviewed_case_reconciliation_accepts_exact_79_rows_19_cases_and_10_context_rows() -> None:
+    subject._validate_reviewed_case_reconciliation(**_valid_reviewed_case_reconciliation_inputs())
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        "missing_inverse_context",
+        "duplicate_inverse_context",
+        "context_on_direct_case",
+        "confirmed_row_count",
+        "duplicate_context_source",
+        "context_source_overlaps_confirmed",
+        "missing_related_output_case",
+    ],
+)
+def test_reviewed_case_reconciliation_rejects_context_or_count_drift(variant: str) -> None:
+    values = _valid_reviewed_case_reconciliation_inputs()
+    context = values["inverse_context_only_foreign_rows"]
+    context_source_ids = values["inverse_context_only_source_ids"]
+    confirmed_source_ids = values["confirmed_foreign_source_ids"]
+    inverse_ids = values["inverse_case_ids"]
+    related_output_case_ids = values["related_output_case_ids"]
+    represented_ids = values["represented_case_ids"]
+    assert isinstance(context, Counter)
+    assert isinstance(context_source_ids, set)
+    assert isinstance(confirmed_source_ids, set)
+    assert isinstance(inverse_ids, set)
+    assert isinstance(related_output_case_ids, set)
+    assert isinstance(represented_ids, set)
+    inverse_case_id = sorted(inverse_ids)[0]
+
+    if variant == "missing_inverse_context":
+        del context[inverse_case_id]
+    elif variant == "duplicate_inverse_context":
+        context[inverse_case_id] = 2
+    elif variant == "context_on_direct_case":
+        direct_case_id = sorted(represented_ids - inverse_ids)[0]
+        context[direct_case_id] = 1
+    elif variant == "confirmed_row_count":
+        confirmed_source_ids.pop()
+    elif variant == "duplicate_context_source":
+        context_source_ids.pop()
+    elif variant == "context_source_overlaps_confirmed":
+        context_source_ids.pop()
+        context_source_ids.add(sorted(confirmed_source_ids)[0])
+    else:
+        related_output_case_ids.remove(sorted(represented_ids)[0])
+
+    with pytest.raises(
+        IdentityMarketSequenceError,
+        match="reviewed row/case count reconciliation differs",
+    ):
+        subject._validate_reviewed_case_reconciliation(**values)
