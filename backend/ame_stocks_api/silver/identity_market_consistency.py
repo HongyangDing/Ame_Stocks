@@ -141,7 +141,7 @@ S7_CONTINUING_AUTHORIZATION_SHA256: Final = hashlib.sha256(
 S7_REAFFIRMATION_TEXT: Final = "批准"
 S7_REAFFIRMATION_SHA256: Final = hashlib.sha256(S7_REAFFIRMATION_TEXT.encode("utf-8")).hexdigest()
 
-OFFLINE_REPLAY_SLOT_VERSION: Final = "s7_gate_b_offline_reclassification_slot_v2"
+OFFLINE_REPLAY_SLOT_VERSION: Final = "s7_gate_b_offline_reclassification_slot_v3"
 OFFLINE_REPLAY_ACTION: Final = (
     "materialize_exact_078a_capture_with_current_transform_once_without_network"
 )
@@ -179,55 +179,66 @@ PRODUCTION_REPLAY_DIRECT_APPROVAL_SHA256: Final = (
 PRODUCTION_REPLAY_DIRECT_APPROVAL_BYTES: Final = 6_679
 _OFFLINE_REPLAY_RECOVERY_PREDECESSOR: Final = {
     "approval": {
-        "approval_id": "1c6094b27328e1f84602c792368dfafe60076d08ae2f3807e57bdc7c823e34e1",
-        "bytes": 5_539,
+        "approval_id": "926befae3ad4272268a08100c25e0a5a2aacf242fd3fc4a61f92b6e186b5784b",
+        "bytes": 7_192,
         "path": (
             "manifests/silver/identity/openfigi-market-consistency-offline-replay-"
             "approvals/slot_id="
-            "6f3cdfb006ca54fccf41ac15fcd1412c221bc041e6030a4996d435e3766e045e/"
+            "9cfb09d74a03fa847ca383916c4156ec0e711c111d6bc7758d6a8697105b66af/"
             "manifest.json"
         ),
-        "sha256": "95a032f350082dc03141ce09937cc78956b356eea366b6956e4e127f7b993c24",
+        "sha256": "828110f9f9119582435722bf39da408aac082f23982be2b0c5ee39d87142f396",
     },
     "candidate": {
         "bytes": 9_472,
-        "candidate_id": "537789987dca8c583192e19e631508c2a02624f6d23374b1d59a6fd16e29535f",
+        "candidate_id": "276a63918fe0cbfe303b40ac907aa4ffb31f5f2e0489cc343f43bc369b8c84fb",
         "path": (
             "manifests/silver/identity/openfigi-market-consistency-candidates/"
             "candidate_id="
-            "537789987dca8c583192e19e631508c2a02624f6d23374b1d59a6fd16e29535f/"
+            "276a63918fe0cbfe303b40ac907aa4ffb31f5f2e0489cc343f43bc369b8c84fb/"
             "manifest.json"
         ),
-        "sha256": "8f070ccb3741e73b92a705055dc4c4d2ed7fbdb5af56b9b0144077d6b3ca272d",
+        "sha256": "a53fe75531ac689da37558dc11a544e170c80f87f2fd1612642c5588e3e43616",
     },
     "candidate_qa": {
-        "bytes": 3_345,
-        "critical_failure_count": 867,
+        "bytes": 3_769,
+        "critical_failure_count": 0,
         "path": (
             "manifests/silver/identity/openfigi-market-consistency-candidates/"
             "candidate_id="
-            "537789987dca8c583192e19e631508c2a02624f6d23374b1d59a6fd16e29535f/"
+            "276a63918fe0cbfe303b40ac907aa4ffb31f5f2e0489cc343f43bc369b8c84fb/"
             "qa/qa.json"
         ),
-        "sha256": "6d20e502fbfbd79ec988706848a992f58b8fc7ccf52644bc56a198f3e6a9e5f4",
+        "sha256": "5f75817255b40af89aefb5558eb09c5662f259025cdabb101ea2233d99a56277",
+    },
+    "completion": {
+        "bytes": 3_598,
+        "completion_id": "7edd2b5cb2449efccff44dbe83b4b0d05a44e8430ecbad22cc2d409ef8d54ba9",
+        "path": (
+            "manifests/silver/identity/openfigi-market-consistency-offline-replay-"
+            "completions/replay_id="
+            "1e50accfaa32a3c0d1592e355f016ba96c53126d57b68ad7b2b05bfe33468cd4/"
+            "manifest.json"
+        ),
+        "sha256": "de2b6d4541c0bd50406840857ae677e391717980724647ee73b742139b14a31b",
     },
     "disposition": (
-        "candidate_blocked_before_completion_because_critical_qa_counted_867_"
-        "already_unresolved_missing_share_class_rows"
+        "candidate_completed_with_zero_critical_but_downstream_gate_c_rejected_"
+        "the_producer_newline_free_canonical_json_dialect"
     ),
     "intent": {
         "bytes": 2_774,
-        "intent_id": "68c9428760bea83bcfbf42723bb6364273714c21b0ddb86187f946be31ce328b",
+        "intent_id": "f857718a26d320407ea799af3f628cb9776be17a8ee1800db8e312ac086adea3",
         "path": (
             "manifests/silver/identity/openfigi-market-consistency-offline-replay-"
             "intents/replay_id="
-            "6327f703fbe173ca8362138333db0ad01a20aa1a3e1f909b2280cf1e0570be19/"
+            "1e50accfaa32a3c0d1592e355f016ba96c53126d57b68ad7b2b05bfe33468cd4/"
             "manifest.json"
         ),
-        "sha256": "80957dfd0d2e2fc7a66099f1c916e7ce58a43d05ddaa81e896745f5136ff9479",
+        "sha256": "94ab422ae927512812e1c0731caa53b057567d2e605c9ad559b2514bab07cd4e",
     },
-    "replay_id": "6327f703fbe173ca8362138333db0ad01a20aa1a3e1f909b2280cf1e0570be19",
-    "runtime_commit": "c7b4765a203a6d2485c58c4ce1855d66b977e35f",
+    "replay_id": "1e50accfaa32a3c0d1592e355f016ba96c53126d57b68ad7b2b05bfe33468cd4",
+    "runtime_commit": "db91e736cc0b33e8b9802879faf14a37ab7ae3a7",
 }
 _CLASSIFIER_ALGORITHM_BASIS: Final = {
     "composite_market_rule": "unique_exact_self_row_v1",
@@ -1977,11 +1988,11 @@ def _offline_replay_candidate_basis(replay: Mapping[str, object]) -> dict[str, o
 
 
 def _verify_offline_replay_recovery_predecessor(root: Path) -> None:
-    """Bind replay v2 to the immutable v1 candidate that failed the overbroad QA."""
+    """Bind replay v3 to the completed v2 candidate rejected by Gate-C's reader."""
 
     predecessor = _OFFLINE_REPLAY_RECOVERY_PREDECESSOR
     loaded: dict[str, dict[str, object]] = {}
-    for name in ("approval", "intent", "candidate", "candidate_qa"):
+    for name in ("approval", "intent", "candidate", "candidate_qa", "completion"):
         receipt = _mapping(predecessor.get(name), f"offline replay predecessor {name}")
         path = safe_relative_path(
             root,
@@ -2005,12 +2016,18 @@ def _verify_offline_replay_recovery_predecessor(root: Path) -> None:
     intent = loaded["intent"]
     candidate = loaded["candidate"]
     qa = loaded["candidate_qa"]
+    completion = loaded["completion"]
     approval_ref = _mapping(predecessor.get("approval"), "predecessor approval")
     intent_ref = _mapping(predecessor.get("intent"), "predecessor intent")
     candidate_ref = _mapping(predecessor.get("candidate"), "predecessor candidate")
     qa_ref = _mapping(predecessor.get("candidate_qa"), "predecessor candidate QA")
+    completion_ref = _mapping(predecessor.get("completion"), "predecessor completion")
     expected_approval_receipt = {
         key: approval_ref[key] for key in ("approval_id", "bytes", "path", "sha256")
+    }
+    expected_intent_receipt = {key: intent_ref[key] for key in ("bytes", "path", "sha256")}
+    expected_candidate_receipt = {
+        key: candidate_ref[key] for key in ("bytes", "candidate_id", "path", "sha256")
     }
     expected_qa_receipt = {key: qa_ref[key] for key in ("bytes", "path", "sha256")}
     qa_checks = {
@@ -2020,34 +2037,71 @@ def _verify_offline_replay_recovery_predecessor(root: Path) -> None:
             for value in _array(qa.get("results"), "predecessor QA results")
         )
     }
-    failed_check = _mapping(
-        qa_checks.get("unique_self_selected_hierarchy_invalid_rows"),
-        "predecessor failed QA check",
+    hierarchy_check = _mapping(
+        qa_checks.get("resolved_composite_hierarchy_invalid_rows"),
+        "predecessor resolved hierarchy QA check",
     )
+    missing_share_class_check = _mapping(
+        qa_checks.get("unresolved_unique_self_missing_share_class_rows"),
+        "predecessor unresolved missing ShareClass QA check",
+    )
+    drift_checks = tuple(
+        _mapping(qa_checks.get(check_id), f"predecessor {check_id} QA check")
+        for check_id in (
+            "approved_relationship_seed_drift",
+            "exact_group_openfigi_seed_drift",
+        )
+    )
+    transform_runtime = _mapping(
+        approval.get("transform_runtime_binding"),
+        "predecessor transform runtime binding",
+    )
+    transform_runtime_digest = stable_digest(transform_runtime)
+    completion_payload = dict(completion)
+    completion_id = completion_payload.pop("completion_id", None)
+    expected_completion_path = _offline_replay_completion_path(replay_id)
     if (
         approval.get("approval_id") != approval_ref.get("approval_id")
-        or approval.get("approval_slot_version") != "s7_gate_b_offline_reclassification_slot_v1"
+        or approval.get("approval_slot_version") != "s7_gate_b_offline_reclassification_slot_v2"
         or approval.get("replay_id") != replay_id
-        or _mapping(
-            approval.get("transform_runtime_binding"),
-            "predecessor transform runtime binding",
-        ).get("repository_commit")
-        != predecessor.get("runtime_commit")
+        or transform_runtime.get("repository_commit") != predecessor.get("runtime_commit")
+        or approval.get("transform_runtime_binding_digest") != transform_runtime_digest
         or intent.get("intent_id") != intent_ref.get("intent_id")
         or intent.get("approval") != expected_approval_receipt
         or intent.get("approval_id") != approval_ref.get("approval_id")
         or intent.get("replay_id") != replay_id
         or intent.get("state") != "running"
+        or intent.get("transform_runtime_binding_digest") != transform_runtime_digest
         or candidate.get("candidate_id") != candidate_ref.get("candidate_id")
         or candidate.get("offline_replay_approval") != expected_approval_receipt
         or candidate.get("replay_id") != replay_id
         or candidate.get("state") != "awaiting_review"
         or candidate.get("qa") != expected_qa_receipt
         or qa.get("critical_failure_count") != qa_ref.get("critical_failure_count")
-        or failed_check.get("severity") != "critical"
-        or failed_check.get("status") != "failed"
-        or failed_check.get("numerator") != 867
-        or safe_relative_path(root, _offline_replay_completion_path(replay_id)).exists()
+        or hierarchy_check.get("severity") != "critical"
+        or hierarchy_check.get("status") != "passed"
+        or hierarchy_check.get("numerator") != 0
+        or any(check.get("numerator") != 0 for check in drift_checks)
+        or missing_share_class_check.get("severity") != "high"
+        or missing_share_class_check.get("status") != "warning"
+        or missing_share_class_check.get("composite_count") != 867
+        or missing_share_class_check.get("numerator") != 923_408
+        or completion_ref.get("path") != expected_completion_path
+        or completion.get("completion_id") != completion_ref.get("completion_id")
+        or completion_id != completion_ref.get("completion_id")
+        or stable_digest(completion_payload) != completion_id
+        or completion.get("approval") != expected_approval_receipt
+        or completion.get("approval_id") != approval_ref.get("approval_id")
+        or completion.get("candidate") != expected_candidate_receipt
+        or completion.get("candidate_qa") != expected_qa_receipt
+        or completion.get("intent") != expected_intent_receipt
+        or completion.get("network_request_count") != 0
+        or completion.get("replay_id") != replay_id
+        or completion.get("source_capture_binding") != _production_replay_source_binding()
+        or completion.get("source_mutation") is not False
+        or completion.get("state") != "awaiting_review"
+        or completion.get("transform_runtime_binding_digest") != transform_runtime_digest
+        or completion.get("capabilities") != _FALSE_CAPABILITIES
     ):
         raise IdentityMarketConsistencyError("offline replay recovery predecessor controls differ")
 

@@ -1855,7 +1855,7 @@ def _replay_official_gate_b(root: Path, requested: GateBReferencePin) -> GateBRe
         require_production_approval=True,
     )
     manifest = _mapping(
-        _load_canonical_json(
+        _load_gate_b_compact_canonical_json(
             _read_exact_file(root, verified.manifest_path, label="official Gate-B manifest"),
             "official Gate-B manifest",
         ),
@@ -6039,11 +6039,14 @@ def _verify_loaded_registry_set(
 
 
 def _load_gate_b_reference(root: Path, pin: GateBReferencePin) -> dict[str, Mapping[str, object]]:
+    manifest_content = _read_exact_file(root, pin.manifest.path, label="Gate-B manifest")
+    manifest_loader = (
+        _load_gate_b_compact_canonical_json
+        if pin.reference_version == PRODUCTION_GATE_B_REFERENCE_VERSION
+        else _load_canonical_json
+    )
     manifest = _mapping(
-        _load_canonical_json(
-            _read_exact_file(root, pin.manifest.path, label="Gate-B manifest"),
-            "Gate-B manifest",
-        ),
+        manifest_loader(manifest_content, "Gate-B manifest"),
         "Gate-B manifest",
     )
     if (
@@ -6414,6 +6417,29 @@ def _load_canonical_json(content: bytes, label: str) -> object:
         raise S7StreamingMaterializationError(f"{label} is invalid JSON") from exc
     if _canonical_bytes(value) != content:
         raise S7StreamingMaterializationError(f"{label} is not canonical JSON")
+    return value
+
+
+def _load_gate_b_compact_canonical_json(content: bytes, label: str) -> object:
+    """Load the producer's sorted compact Gate-B dialect without a trailing LF."""
+
+    try:
+        value = json.loads(
+            content.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_pairs,
+            parse_constant=_reject_json_constant,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise S7StreamingMaterializationError(f"{label} is invalid JSON") from exc
+    expected = json.dumps(
+        _json_value(value),
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    if expected != content:
+        raise S7StreamingMaterializationError(f"{label} is not compact canonical JSON")
     return value
 
 

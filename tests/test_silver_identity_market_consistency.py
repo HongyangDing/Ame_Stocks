@@ -195,6 +195,324 @@ def _execute_complete(root: Path, prepared, *, post=None, api_key: str | None = 
     return result, clock
 
 
+def _write_canonical_predecessor_control(
+    root: Path,
+    relative: str,
+    document: dict[str, object],
+) -> dict[str, object]:
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(market_module._canonical_json(document))
+    return {
+        "bytes": path.stat().st_size,
+        "path": relative,
+        "sha256": sha256_file(path),
+    }
+
+
+def _install_recovery_predecessor_fixture(
+    root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, dict[str, object]]:
+    """Write one fully content-addressed v2 predecessor chain to disk."""
+
+    source_binding: dict[str, object] = {
+        "composite_count": 18_421,
+        "run_id": "0" * 64,
+    }
+    runtime = _fake_runtime_binding("c")
+    runtime_digest = stable_digest(runtime)
+    approval_scope: dict[str, object] = {
+        "approval_slot_id": "4" * 64,
+        "approval_slot_version": "s7_gate_b_offline_reclassification_slot_v2",
+        "artifact_type": "s7_openfigi_market_consistency_offline_replay_approval",
+        "authorized_action": market_module.OFFLINE_REPLAY_ACTION,
+        "authorization": {
+            "continuing_literal_text": market_module.S7_CONTINUING_AUTHORIZATION_TEXT,
+            "continuing_literal_text_sha256": (market_module.S7_CONTINUING_AUTHORIZATION_SHA256),
+            "reaffirmation_literal_text": market_module.S7_REAFFIRMATION_TEXT,
+            "reaffirmation_literal_text_sha256": market_module.S7_REAFFIRMATION_SHA256,
+        },
+        "candidate_state": "awaiting_review",
+        "capture_write": False,
+        "classification_version": market_module.MARKET_CLASSIFICATION_VERSION,
+        "classifier_algorithm_digest": market_module.CLASSIFIER_ALGORITHM_DIGEST,
+        "classifier_qa_digest": market_module.CLASSIFIER_QA_DIGEST,
+        "false_capabilities": dict(market_module._FALSE_CAPABILITIES),
+        "network_access": False,
+        "recovery_predecessor": {"disposition": "fixture_v1_blocked_by_false_positive"},
+        "source_capture_binding": source_binding,
+        "source_mutation": False,
+        "transform_runtime_binding": runtime,
+        "transform_runtime_binding_digest": runtime_digest,
+    }
+    approval_id = stable_digest(approval_scope)
+    replay_id = stable_digest(
+        {
+            "approval_id": approval_id,
+            "classification_version": market_module.MARKET_CLASSIFICATION_VERSION,
+            "source_capture_binding_digest": stable_digest(source_binding),
+            "transform_runtime_binding_digest": runtime_digest,
+        }
+    )
+    approved_at = "2026-07-20T02:37:20+00:00"
+    approval = {
+        **approval_scope,
+        "approval_availability": {"source_available_session": "2026-07-20"},
+        "approval_id": approval_id,
+        "approved_at_utc": approved_at,
+        "approved_by": "fixture_approver",
+        "prepared_by": "fixture_preparer",
+        "replay_id": replay_id,
+    }
+    approval_file = _write_canonical_predecessor_control(
+        root,
+        "manifests/fixtures/gate-b-v2-predecessor/approval.json",
+        approval,
+    )
+    approval_receipt = {**approval_file, "approval_id": approval_id}
+
+    intent_payload: dict[str, object] = {
+        "approval": approval_receipt,
+        "approval_id": approval_id,
+        "artifact_type": "s7_openfigi_market_consistency_offline_replay_intent",
+        "capabilities": dict(market_module._FALSE_CAPABILITIES),
+        "capture_write": False,
+        "created_at_utc": approved_at,
+        "created_by": "fixture_preparer",
+        "network_access": False,
+        "replay_id": replay_id,
+        "source_capture_binding": source_binding,
+        "source_mutation": False,
+        "state": "running",
+        "transform_runtime_binding_digest": runtime_digest,
+    }
+    intent_id = stable_digest(intent_payload)
+    intent = {**intent_payload, "intent_id": intent_id}
+    intent_file = _write_canonical_predecessor_control(
+        root,
+        "manifests/fixtures/gate-b-v2-predecessor/intent.json",
+        intent,
+    )
+
+    candidate_basis = {
+        "replay_id": replay_id,
+        "source_capture_binding_digest": stable_digest(source_binding),
+        "transform_runtime_binding_digest": runtime_digest,
+    }
+    candidate_id = stable_digest(candidate_basis)
+    qa: dict[str, object] = {
+        "artifact_type": "s7_openfigi_market_consistency_qa",
+        "candidate_id": candidate_id,
+        "critical_failure_count": 0,
+        "results": [
+            {
+                "check_id": "resolved_composite_hierarchy_invalid_rows",
+                "numerator": 0,
+                "severity": "critical",
+                "status": "passed",
+            },
+            {
+                "check_id": "approved_relationship_seed_drift",
+                "numerator": 0,
+                "severity": "high",
+                "status": "passed",
+            },
+            {
+                "check_id": "exact_group_openfigi_seed_drift",
+                "numerator": 0,
+                "severity": "high",
+                "status": "passed",
+            },
+            {
+                "check_id": "unresolved_unique_self_missing_share_class_rows",
+                "composite_count": 867,
+                "numerator": 923_408,
+                "severity": "high",
+                "status": "warning",
+            },
+        ],
+    }
+    qa_receipt = _write_canonical_predecessor_control(
+        root,
+        "manifests/fixtures/gate-b-v2-predecessor/qa.json",
+        qa,
+    )
+    candidate_payload: dict[str, object] = {
+        "artifact_type": "s7_openfigi_market_consistency_candidate",
+        "candidate_basis": candidate_basis,
+        "candidate_id": candidate_id,
+        "offline_replay_approval": approval_receipt,
+        "qa": qa_receipt,
+        "replay_id": replay_id,
+        "state": "awaiting_review",
+    }
+    candidate = {
+        **candidate_payload,
+        "manifest_id": stable_digest(candidate_payload),
+    }
+    candidate_file = _write_canonical_predecessor_control(
+        root,
+        "manifests/fixtures/gate-b-v2-predecessor/candidate.json",
+        candidate,
+    )
+    candidate_receipt = {**candidate_file, "candidate_id": candidate_id}
+
+    intent_receipt = dict(intent_file)
+    completion_payload: dict[str, object] = {
+        "approval": approval_receipt,
+        "approval_id": approval_id,
+        "artifact_type": "s7_openfigi_market_consistency_offline_replay_completion",
+        "candidate": candidate_receipt,
+        "candidate_qa": qa_receipt,
+        "capabilities": dict(market_module._FALSE_CAPABILITIES),
+        "completed_at_utc": "2026-07-20T02:37:53+00:00",
+        "intent": intent_receipt,
+        "network_request_count": 0,
+        "replay_id": replay_id,
+        "source_capture_binding": source_binding,
+        "source_mutation": False,
+        "state": "awaiting_review",
+        "transform_runtime_binding_digest": runtime_digest,
+    }
+    completion = {
+        **completion_payload,
+        "completion_id": stable_digest(completion_payload),
+    }
+    completion_file = _write_canonical_predecessor_control(
+        root,
+        market_module._offline_replay_completion_path(replay_id),
+        completion,
+    )
+    predecessor: dict[str, object] = {
+        "approval": approval_receipt,
+        "candidate": candidate_receipt,
+        "candidate_qa": {
+            **qa_receipt,
+            "critical_failure_count": 0,
+        },
+        "completion": {
+            **completion_file,
+            "completion_id": completion["completion_id"],
+        },
+        "disposition": "completed_v2_candidate_rejected_by_downstream_reader",
+        "intent": {**intent_file, "intent_id": intent_id},
+        "replay_id": replay_id,
+        "runtime_commit": runtime["repository_commit"],
+    }
+    monkeypatch.setattr(
+        market_module,
+        "_OFFLINE_REPLAY_RECOVERY_PREDECESSOR",
+        predecessor,
+    )
+    monkeypatch.setattr(
+        market_module,
+        "_production_replay_source_binding",
+        lambda: source_binding,
+    )
+    return {
+        "candidate": candidate,
+        "completion": completion,
+        "predecessor": predecessor,
+        "qa": qa,
+    }
+
+
+def test_offline_replay_recovery_predecessor_valid_chain_passes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_recovery_predecessor_fixture(tmp_path, monkeypatch)
+
+    market_module._verify_offline_replay_recovery_predecessor(tmp_path)
+
+
+@pytest.mark.parametrize("tamper_target", ["completion", "qa", "receipt"])
+def test_offline_replay_recovery_predecessor_resigned_tamper_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tamper_target: str,
+) -> None:
+    chain = _install_recovery_predecessor_fixture(tmp_path, monkeypatch)
+    predecessor = chain["predecessor"]
+    candidate = chain["candidate"]
+    completion = chain["completion"]
+    qa = chain["qa"]
+
+    if tamper_target == "qa":
+        results = qa["results"]
+        assert isinstance(results, list)
+        hierarchy = next(
+            item
+            for item in results
+            if isinstance(item, dict)
+            and item.get("check_id") == "resolved_composite_hierarchy_invalid_rows"
+        )
+        hierarchy["numerator"] = 1
+        hierarchy["status"] = "failed"
+        qa["critical_failure_count"] = 1
+        old_qa_ref = predecessor["candidate_qa"]
+        assert isinstance(old_qa_ref, dict)
+        qa_receipt = _write_canonical_predecessor_control(
+            tmp_path,
+            str(old_qa_ref["path"]),
+            qa,
+        )
+        predecessor["candidate_qa"] = {
+            **qa_receipt,
+            "critical_failure_count": 1,
+        }
+
+        candidate["qa"] = qa_receipt
+        candidate_payload = dict(candidate)
+        candidate_payload.pop("manifest_id")
+        candidate["manifest_id"] = stable_digest(candidate_payload)
+        old_candidate_ref = predecessor["candidate"]
+        assert isinstance(old_candidate_ref, dict)
+        candidate_receipt = _write_canonical_predecessor_control(
+            tmp_path,
+            str(old_candidate_ref["path"]),
+            candidate,
+        )
+        candidate_receipt = {
+            **candidate_receipt,
+            "candidate_id": candidate["candidate_id"],
+        }
+        predecessor["candidate"] = candidate_receipt
+        completion["candidate"] = candidate_receipt
+        completion["candidate_qa"] = qa_receipt
+    elif tamper_target == "receipt":
+        completion["intent"] = dict(completion["candidate_qa"])
+    else:
+        completion["network_request_count"] = 1
+
+    completion_payload = dict(completion)
+    completion_payload.pop("completion_id")
+    completion["completion_id"] = stable_digest(completion_payload)
+    old_completion_ref = predecessor["completion"]
+    assert isinstance(old_completion_ref, dict)
+    completion_receipt = _write_canonical_predecessor_control(
+        tmp_path,
+        str(old_completion_ref["path"]),
+        completion,
+    )
+    predecessor["completion"] = {
+        **completion_receipt,
+        "completion_id": completion["completion_id"],
+    }
+    monkeypatch.setattr(
+        market_module,
+        "_OFFLINE_REPLAY_RECOVERY_PREDECESSOR",
+        predecessor,
+    )
+
+    with pytest.raises(
+        IdentityMarketConsistencyError,
+        match="offline replay recovery predecessor controls differ",
+    ):
+        market_module._verify_offline_replay_recovery_predecessor(tmp_path)
+
+
 def _install_offline_replay_fixture(
     root: Path,
     exact_calendar,

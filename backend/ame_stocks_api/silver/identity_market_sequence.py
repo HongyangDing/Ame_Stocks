@@ -1651,7 +1651,7 @@ def _load_and_verify_inputs(
     )
     if classification_candidate_path != expected_classification_path:
         raise IdentityMarketSequenceError("Gate-B candidate path is not canonical")
-    classification_document, actual_classification_sha = _load_canonical_json_file(
+    classification_document, actual_classification_sha = _load_compact_canonical_json_file(
         classification_path, "Gate-B candidate"
     )
     if (
@@ -3697,6 +3697,16 @@ def _load_canonical_json_file(path: Path, label: str) -> tuple[dict[str, object]
     return document, hashlib.sha256(content).hexdigest()
 
 
+def _load_compact_canonical_json_file(path: Path, label: str) -> tuple[dict[str, object], str]:
+    """Load the newline-free canonical dialect emitted by the Gate-B producer."""
+
+    if not path.is_file() or path.is_symlink():
+        raise IdentityMarketSequenceError(f"{label} is missing or unsafe")
+    content = path.read_bytes()
+    document = _decode_compact_canonical_json(content, label)
+    return document, hashlib.sha256(content).hexdigest()
+
+
 def _read_exact_bytes(path: Path, expected_sha256: str, label: str) -> bytes:
     if not path.is_file() or path.is_symlink():
         raise IdentityMarketSequenceError(f"{label} is missing or unsafe")
@@ -3739,6 +3749,33 @@ def _decode_canonical_json(content: bytes, label: str) -> dict[str, object]:
         raise IdentityMarketSequenceError(f"{label} is not valid JSON") from exc
     if not isinstance(document, dict) or _canonical_bytes(document) != content:
         raise IdentityMarketSequenceError(f"{label} is not canonical JSON")
+    return document
+
+
+def _decode_compact_canonical_json(content: bytes, label: str) -> dict[str, object]:
+    """Decode exact sorted compact JSON without accepting the control-file newline dialect."""
+
+    def reject_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise IdentityMarketSequenceError(f"{label} has duplicate JSON keys")
+            result[key] = value
+        return result
+
+    try:
+        document = json.loads(content, object_pairs_hook=reject_duplicates)
+        expected = json.dumps(
+            document,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode()
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise IdentityMarketSequenceError(f"{label} is not valid JSON") from exc
+    if not isinstance(document, dict) or expected != content:
+        raise IdentityMarketSequenceError(f"{label} is not compact canonical JSON")
     return document
 
 

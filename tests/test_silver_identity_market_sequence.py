@@ -33,17 +33,23 @@ UNRESOLVED = "BBG000000007"
 SHARE = "BBG000000101"
 
 
+def _compact_canonical(value: dict[str, object]) -> bytes:
+    return json.dumps(
+        value,
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+
+
 def _canonical(value: dict[str, object]) -> bytes:
-    return (
-        json.dumps(
-            value,
-            allow_nan=False,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode()
-        + b"\n"
-    )
+    return _compact_canonical(value) + b"\n"
+
+
+def _write_compact_json(path: Path, value: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(_compact_canonical(value))
 
 
 def _write_json(path: Path, value: dict[str, object]) -> None:
@@ -401,7 +407,7 @@ def _write_gate_b(root: Path) -> dict[str, object]:
     }
     manifest = {**payload, "manifest_id": stable_digest(payload)}
     manifest_relative = f"{prefix}/manifest.json"
-    _write_json(root / manifest_relative, manifest)
+    _write_compact_json(root / manifest_relative, manifest)
     return {
         "candidate_id": candidate_id,
         "candidate_path": manifest_relative,
@@ -618,6 +624,14 @@ def test_full_sequence_fixture_preserves_lineage_and_fail_closed_eligibility(
 ) -> None:
     gate_b, completion_path = _fixture(tmp_path, monkeypatch)
     assert completion_path == subject.PRODUCTION_EXPECTATIONS.inventory_completion_path
+    gate_b_path = tmp_path / str(gate_b["candidate_path"])
+    gate_b_bytes = gate_b_path.read_bytes()
+    gate_b_document, gate_b_sha256 = subject._load_compact_canonical_json_file(
+        gate_b_path, "fixture Gate-B candidate"
+    )
+    assert gate_b_bytes == _compact_canonical(gate_b_document)
+    assert not gate_b_bytes.endswith(b"\n")
+    assert gate_b_sha256 == gate_b["candidate_sha256"]
     plan = _prepare_plan(tmp_path, gate_b)
 
     result = _run(tmp_path, plan)
@@ -765,7 +779,7 @@ def test_missing_gate_b_classification_is_critical_and_produces_no_candidate(
     }
     manifest.pop("manifest_id")
     manifest["manifest_id"] = stable_digest(manifest)
-    _write_json(manifest_path, manifest)
+    _write_compact_json(manifest_path, manifest)
     gate_b["candidate_sha256"] = sha256_file(manifest_path)
     monkeypatch.setattr(
         subject.market_consistency_module,
@@ -815,7 +829,7 @@ def test_resigned_all_us_gate_b_candidate_fails_official_replay_before_scan(
     payload.pop("manifest_id", None)
     manifest = {**payload, "manifest_id": stable_digest(payload)}
     manifest_relative = f"{prefix}/manifest.json"
-    _write_json(tmp_path / manifest_relative, manifest)
+    _write_compact_json(tmp_path / manifest_relative, manifest)
     forged = {
         **gate_b,
         "candidate_id": candidate_id,
@@ -854,6 +868,53 @@ def test_resigned_all_us_gate_b_candidate_fails_official_replay_before_scan(
 def test_gate_c_rejects_derived_labels_as_gate_b_source_states(label: str) -> None:
     with pytest.raises(IdentityMarketSequenceError, match="unsupported Gate-B classification"):
         subject._normalize_classification(label)
+
+
+def test_gate_b_compact_canonical_loader_accepts_exact_producer_dialect(
+    tmp_path: Path,
+) -> None:
+    document = {"a": [1, True, None], "nested": {"z": "值"}}
+    content = _compact_canonical(document)
+    path = tmp_path / "gate-b-manifest.json"
+    path.write_bytes(content)
+
+    loaded, loaded_sha256 = subject._load_compact_canonical_json_file(
+        path, "fixture Gate-B candidate"
+    )
+
+    assert loaded == document
+    assert loaded_sha256 == sha256_file(path)
+    assert path.read_bytes() == content
+    assert not content.endswith(b"\n")
+
+
+@pytest.mark.parametrize(
+    ("variant", "expected_error"),
+    [
+        ("newline", "not compact canonical JSON"),
+        ("pretty", "not compact canonical JSON"),
+        ("duplicate", "duplicate JSON keys"),
+        ("tamper", "not valid JSON"),
+    ],
+)
+def test_gate_b_compact_canonical_loader_rejects_other_json_dialects_and_tamper(
+    tmp_path: Path,
+    variant: str,
+    expected_error: str,
+) -> None:
+    document = {"a": 1, "nested": {"z": "value"}}
+    exact = _compact_canonical(document)
+    variants = {
+        "newline": exact + b"\n",
+        "pretty": json.dumps(document, indent=2, sort_keys=True).encode(),
+        "duplicate": b'{"a":1,"a":2}',
+        "tamper": exact + b"#",
+    }
+    path = tmp_path / f"gate-b-{variant}.json"
+    path.write_bytes(variants[variant])
+
+    with pytest.raises(IdentityMarketSequenceError, match=expected_error):
+        subject._load_compact_canonical_json_file(path, "fixture Gate-B candidate")
 
 
 def test_plan_freezes_exact_authorization_before_any_parquet_read(
@@ -1391,7 +1452,7 @@ def test_gate_b_cannot_rebind_to_another_gate_a_inventory(
     )
     manifest.pop("manifest_id")
     manifest["manifest_id"] = stable_digest(manifest)
-    _write_json(manifest_path, manifest)
+    _write_compact_json(manifest_path, manifest)
     gate_b["candidate_sha256"] = sha256_file(manifest_path)
     plan = _prepare_plan(tmp_path, gate_b)
 

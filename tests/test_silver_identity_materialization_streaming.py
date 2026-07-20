@@ -64,6 +64,16 @@ def _write_json(root: Path, relative: str, value: object) -> ExactFilePin:
     return _write_bytes(root, relative, stream._canonical_bytes(value))
 
 
+def _compact_json_bytes(value: object) -> bytes:
+    return json.dumps(
+        value,
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+
 def _runtime_binding() -> dict[str, object]:
     files = [
         {
@@ -1208,6 +1218,151 @@ def test_production_binding_entrypoint_rejects_fixture_document(tmp_path: Path) 
     binding, _, _ = _fixture(tmp_path)
     with pytest.raises(S7StreamingMaterializationError, match="caller-authored"):
         store_production_streaming_source_binding_document(tmp_path, binding.to_dict())
+
+
+def _official_gate_b_replay_fixture(
+    root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    manifest_content: bytes,
+) -> GateBReferencePin:
+    candidate_id = stable_digest({"fixture": "official-gate-b"})
+    manifest = _write_bytes(root, "manifests/test/official-gate-b.json", manifest_content)
+    data = _write_bytes(root, "silver/test/official-gate-b.parquet", b"fixture-parquet")
+
+    def verify_market_candidate(
+        data_root: Path,
+        *,
+        candidate_path: str,
+        candidate_id: str,
+        candidate_sha256: str,
+        require_production_approval: bool,
+    ) -> SimpleNamespace:
+        assert data_root == root
+        assert candidate_path == manifest.path
+        assert candidate_id == stable_digest({"fixture": "official-gate-b"})
+        assert candidate_sha256 == manifest.sha256
+        assert require_production_approval is True
+        return SimpleNamespace(
+            candidate_id=candidate_id,
+            data_path=data.path,
+            manifest_path=manifest.path,
+        )
+
+    monkeypatch.setattr(stream, "verify_market_classification_candidate", verify_market_candidate)
+    return GateBReferencePin(
+        candidate_id=candidate_id,
+        candidate_state=stream.STREAMING_STATE,
+        reference_version=stream.PRODUCTION_GATE_B_REFERENCE_VERSION,
+        closed=True,
+        manifest=manifest,
+        data=data,
+    )
+
+
+def test_official_gate_b_production_replay_accepts_compact_no_lf_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidate_id = stable_digest({"fixture": "official-gate-b"})
+    document = {"candidate_id": candidate_id, "state": stream.STREAMING_STATE}
+    content = _compact_json_bytes(document)
+    requested = _official_gate_b_replay_fixture(tmp_path, monkeypatch, content)
+
+    replayed = stream._replay_official_gate_b(tmp_path, requested)
+
+    assert replayed.candidate_id == candidate_id
+    assert replayed.reference_version == stream.PRODUCTION_GATE_B_REFERENCE_VERSION
+    assert replayed.manifest == requested.manifest
+    assert replayed.data == requested.data
+    assert not content.endswith(b"\n")
+    with pytest.raises(S7StreamingMaterializationError, match="not canonical JSON"):
+        stream._load_canonical_json(content, "LF control")
+
+
+@pytest.mark.parametrize(
+    ("variant", "expected_error"),
+    [
+        ("newline", "not compact canonical JSON"),
+        ("pretty", "not compact canonical JSON"),
+        ("duplicate", "invalid JSON"),
+        ("tail_tamper", "invalid JSON"),
+    ],
+)
+def test_official_gate_b_production_replay_rejects_non_producer_json_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    variant: str,
+    expected_error: str,
+) -> None:
+    candidate_id = stable_digest({"fixture": "official-gate-b"})
+    document = {"candidate_id": candidate_id, "state": stream.STREAMING_STATE}
+    compact = _compact_json_bytes(document)
+    variants = {
+        "newline": compact + b"\n",
+        "pretty": json.dumps(document, indent=2, sort_keys=True).encode("utf-8"),
+        "duplicate": (
+            f'{{"candidate_id":"{candidate_id}","state":"{stream.STREAMING_STATE}",'
+            f'"state":"{stream.STREAMING_STATE}"}}'
+        ).encode(),
+        "tail_tamper": compact + b"#",
+    }
+    requested = _official_gate_b_replay_fixture(
+        tmp_path,
+        monkeypatch,
+        variants[variant],
+    )
+
+    with pytest.raises(S7StreamingMaterializationError, match=expected_error):
+        stream._replay_official_gate_b(tmp_path, requested)
+
+
+def test_production_gate_b_pin_loader_uses_compact_dialect(tmp_path: Path) -> None:
+    candidate_id = stable_digest({"fixture": "production-gate-b-pin"})
+    manifest = _write_bytes(
+        tmp_path,
+        "manifests/test/production-gate-b-pin.json",
+        _compact_json_bytes({"candidate_id": candidate_id, "state": stream.STREAMING_STATE}),
+    )
+    data_path = tmp_path / "silver/test/production-gate-b-pin.parquet"
+    data_path.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(
+        pa.Table.from_pylist(
+            [
+                {
+                    "classification": "us_composite",
+                    "composite_figi": "BBG000000001",
+                    "reference_version": stream.PRODUCTION_GATE_B_REFERENCE_VERSION,
+                    "relation_share_class_conflict": False,
+                    "selected_market_code": "US",
+                    "selected_share_class_figi": "BBG000000011",
+                    "source_available_session": _SESSIONS[0],
+                }
+            ]
+        ),
+        data_path,
+    )
+    data = ExactFilePin(
+        "silver/test/production-gate-b-pin.parquet",
+        stream.sha256_file(data_path),
+        data_path.stat().st_size,
+    )
+    pin = GateBReferencePin(
+        candidate_id=candidate_id,
+        candidate_state=stream.STREAMING_STATE,
+        reference_version=stream.PRODUCTION_GATE_B_REFERENCE_VERSION,
+        closed=True,
+        manifest=manifest,
+        data=data,
+    )
+
+    loaded = stream._load_gate_b_reference(tmp_path, pin)
+
+    assert loaded["BBG000000001"] == {
+        "classification": "us_composite",
+        "relation_share_class_conflict": False,
+        "selected_market_code": "US",
+        "selected_share_class_figi": "BBG000000011",
+        "source_available_session": _SESSIONS[0],
+    }
 
 
 def test_production_cli_has_no_publish_or_adapter_input_and_freezes_full_adapter(
