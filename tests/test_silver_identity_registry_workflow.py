@@ -1354,9 +1354,77 @@ def test_production_prerequisite_authorization_is_root_runtime_and_target_bound(
     binding = record_production_prerequisite_authorization(tmp_path, **kwargs)
     document = json.loads((tmp_path / binding.path).read_bytes())
     assert document["artifact_type"] == "s7_registry_production_prerequisite_authorization"
+    assert document["artifact_version"] == (
+        registry_workflow.PRODUCTION_PREREQUISITE_AUTHORIZATION_VERSION
+    )
     assert document["production_data_root"] == tmp_path.as_posix()
     assert document["runtime_binding"] == runtime_binding.to_dict()
     assert document["target_refs"] == [
         {"artifact_id": contract.contract_id, "sha256": contract.resource_sha256}
     ]
     assert record_production_prerequisite_authorization(tmp_path, **kwargs) == binding
+
+    runtime_binding_b = replace(runtime_binding, git_commit="e" * 40, git_tree="f" * 40)
+    monkeypatch.setattr(
+        registry_workflow,
+        "capture_registry_runtime_binding",
+        lambda: runtime_binding_b,
+    )
+    binding_b = record_production_prerequisite_authorization(tmp_path, **kwargs)
+    document_b = json.loads((tmp_path / binding_b.path).read_bytes())
+    assert binding_b != binding
+    assert binding_b.path != binding.path
+    assert document_b["runtime_binding"] == runtime_binding_b.to_dict()
+    assert (tmp_path / binding.path).is_file()
+    assert (tmp_path / binding_b.path).is_file()
+    assert record_production_prerequisite_authorization(tmp_path, **kwargs) == binding_b
+
+    legacy = dict(document)
+    legacy["artifact_version"] = (
+        registry_workflow._PRODUCTION_PREREQUISITE_AUTHORIZATION_VERSION_V1
+    )
+    legacy_slot = registry_workflow._production_prerequisite_authorization_slot_id(
+        RegistryName.ASSET_TRANSITION.value,
+        "schema_contract_approval",
+        tuple(kwargs["target_refs"]),
+        calendar.calendar_artifact_id,
+        calendar.sha256,
+        artifact_version=legacy["artifact_version"],
+    )
+    legacy["authorization_slot_id"] = legacy_slot
+    legacy["authorization_id"] = stable_digest(
+        {key: value for key, value in legacy.items() if key != "authorization_id"}
+    )
+    legacy_bytes = registry_workflow._canonical_bytes(legacy)
+    legacy_binding = ExactArtifactBinding(
+        role="schema_contract_approval",
+        artifact_id=legacy["authorization_id"],
+        path=registry_workflow._production_prerequisite_authorization_path(
+            RegistryName.ASSET_TRANSITION.value,
+            "schema_contract_approval",
+            legacy_slot,
+        ),
+        sha256=hashlib.sha256(legacy_bytes).hexdigest(),
+        bytes=len(legacy_bytes),
+        available_session=date.fromisoformat(legacy["approval_available_session"]),
+        embedded_id_field="authorization_id",
+    )
+    registry_workflow._validate_production_prerequisite_authorization_document(
+        legacy,
+        artifact=legacy_binding,
+        registry_name=RegistryName.ASSET_TRANSITION.value,
+        expected_targets=tuple(kwargs["target_refs"]),
+        calendar=calendar,
+        root=tmp_path,
+        revalidate_runtime=False,
+    )
+    with pytest.raises(RegistryWorkflowError, match="runtime binding drifted"):
+        registry_workflow._validate_production_prerequisite_authorization_document(
+            legacy,
+            artifact=legacy_binding,
+            registry_name=RegistryName.ASSET_TRANSITION.value,
+            expected_targets=tuple(kwargs["target_refs"]),
+            calendar=calendar,
+            root=tmp_path,
+            revalidate_runtime=True,
+        )

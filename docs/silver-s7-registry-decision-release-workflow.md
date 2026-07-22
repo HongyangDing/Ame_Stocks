@@ -247,6 +247,10 @@ PYTHONPATH=backend .venv/bin/python -m \
 
 每个 registry 的三类 prerequisite target 必须按下表构造：
 
+Production prerequisite authorization v2 的 immutable slot 同时绑定当前
+`runtime_binding_id`。因此相同 targets 在新 Git runtime 下必须生成新 path/receipt；历史 v1 bytes
+继续可离线审计，但不得在新 runtime 中复用。
+
 | Registry | `schema_contract_approval` | `source_candidate_approval` | `external_evidence_approval` |
 |---|---|---|---|
 | `asset_transition` | 本 registry contract ID/resource SHA | exact-group candidate ID/SHA + completion ID/SHA | exact-group evidence manifest ID/SHA |
@@ -254,6 +258,12 @@ PYTHONPATH=backend .venv/bin/python -m \
 | `share_class_adjudication` | 本 registry contract ID/resource SHA | 同一 exact-group candidate/completion pair | 同一 exact-group evidence manifest ID/SHA |
 | `identity_adjudication` | 本 registry contract ID/resource SHA | Gate C candidate ID/SHA + completion ID/SHA | cross-market evidence manifest ID/SHA |
 | `identity_cross_market_adjudication` | 本 registry contract ID/resource SHA | 同一 Gate C candidate/completion pair | 同一 cross-market evidence manifest ID/SHA |
+
+Gate C candidate 内部还逐字节绑定原始 detector preview。Cross-market decision 的
+`source_identity_case_candidate_manifest_*` 保留该 preview 的 ID/SHA；它必须通过 exact Gate C
+重放验证，但不作为第三个 direct source 改写上表已冻结的 source approval 两件套。四张派生表沿用
+同一 preview lineage，而 `source_identity_market_consistency_candidate_manifest_*` 指向 Gate C
+candidate；Gate B 仅作为市场分类输入，不能替代这两个 lineage。
 
 因此实际顺序是：先运行一次对应 kind 的 evidence import，使用其输出 manifest ID/SHA 生成
 `external_evidence_approval`，再运行 `prepare-fixed-request`。Prepare 会重新读取同一 Git-pinned package；

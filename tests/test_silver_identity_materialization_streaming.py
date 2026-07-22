@@ -335,6 +335,17 @@ def _fixture(
         "manifests/test/gate-c-completion.json",
         {"completion_id": completion_id, "completion_state": "awaiting_review"},
     )
+    identity_case_preview_id = stable_digest({"fixture": "identity-case-preview"})
+    identity_case_preview = _write_json(
+        root,
+        "manifests/test/identity-case-preview.json",
+        {
+            "preview_artifact_id": identity_case_preview_id,
+            "result": {
+                "preview_manifest_available_session": _SESSIONS[0].isoformat(),
+            },
+        },
+    )
     gate_c_qa = _write_json(root, "manifests/test/gate-c-qa.json", {"critical_failure_count": 0})
     registry_pins = []
     for name in REGISTRY_ORDER:
@@ -370,6 +381,9 @@ def _fixture(
             complete=True,
             candidate_manifest=gate_c_manifest,
             completion_manifest=gate_c_completion,
+            identity_case_preview_id=identity_case_preview_id,
+            identity_case_preview_manifest=identity_case_preview,
+            identity_case_preview_available_session=_SESSIONS[0],
             qa=gate_c_qa,
         ),
         registry_pins=tuple(registry_pins),
@@ -506,6 +520,21 @@ def _execute(
 
 def test_two_pass_real_parquet_preserves_inactive_and_gaps(tmp_path: Path) -> None:
     binding, registries, runtime = _fixture(tmp_path)
+    source_columns = stream._source_binding_columns(binding)
+    assert source_columns["source_identity_case_candidate_manifest_id"] == (
+        binding.gate_c.identity_case_preview_id
+    )
+    assert source_columns["source_identity_case_candidate_manifest_sha256"] == (
+        binding.gate_c.identity_case_preview_manifest.sha256
+    )
+    assert source_columns["source_identity_market_consistency_candidate_manifest_id"] == (
+        binding.gate_c.candidate_id
+    )
+    assert source_columns["source_identity_market_consistency_candidate_manifest_sha256"] == (
+        binding.gate_c.candidate_manifest.sha256
+    )
+    assert binding.gate_c.identity_case_preview_id != binding.gate_b.candidate_id
+    assert S7StreamingSourceBinding.from_dict(binding.to_dict()) == binding
     result = _execute(tmp_path, binding, registries, runtime)
 
     assert result.state == "awaiting_review"
@@ -1363,6 +1392,48 @@ def test_production_gate_b_pin_loader_uses_compact_dialect(tmp_path: Path) -> No
         "selected_share_class_figi": "BBG000000011",
         "source_available_session": _SESSIONS[0],
     }
+
+
+def test_gate_c_identity_case_preview_is_exactly_replayed(tmp_path: Path) -> None:
+    preview_id = stable_digest({"fixture": "official-identity-case-preview"})
+    preview = _write_json(
+        tmp_path,
+        "manifests/test/official-identity-case-preview.json",
+        {
+            "preview_artifact_id": preview_id,
+            "result": {
+                "preview_manifest_available_session": _SESSIONS[0].isoformat(),
+            },
+        },
+    )
+    candidate = {
+        "registry_loader_source_refs": {
+            "detector_preview": {
+                "bytes": preview.bytes,
+                "path": preview.path,
+                "preview_artifact_id": preview_id,
+                "sha256": preview.sha256,
+            }
+        }
+    }
+
+    loaded_id, loaded_pin, loaded_session = stream._load_gate_c_identity_case_preview(
+        tmp_path,
+        candidate,
+    )
+    assert (loaded_id, loaded_pin, loaded_session) == (preview_id, preview, _SESSIONS[0])
+
+    tampered = json.loads(json.dumps(candidate))
+    tampered["registry_loader_source_refs"]["detector_preview"]["sha256"] = "0" * 64
+    with pytest.raises(S7StreamingMaterializationError, match="receipt differs"):
+        stream._load_gate_c_identity_case_preview(tmp_path, tampered)
+
+    wrong_embedded_id = json.loads(json.dumps(candidate))
+    wrong_embedded_id["registry_loader_source_refs"]["detector_preview"][
+        "preview_artifact_id"
+    ] = "1" * 64
+    with pytest.raises(S7StreamingMaterializationError, match="embedded ID differs"):
+        stream._load_gate_c_identity_case_preview(tmp_path, wrong_embedded_id)
 
 
 def test_production_cli_has_no_publish_or_adapter_input_and_freezes_full_adapter(

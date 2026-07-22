@@ -101,7 +101,7 @@ from ame_stocks_api.silver.identity_source import (
     open_identity_source_bundle,
 )
 
-STREAMING_POLICY_VERSION: Final = "s7-four-table-streaming-full-candidate-v1"
+STREAMING_POLICY_VERSION: Final = "s7-four-table-streaming-full-candidate-v2"
 STREAMING_PLAN_VERSION: Final = 1
 STREAMING_REQUEST_VERSION: Final = 1
 STREAMING_APPROVAL_VERSION: Final = 1
@@ -376,11 +376,19 @@ class GateCCompletionPin:
     complete: bool
     candidate_manifest: ExactFilePin
     completion_manifest: ExactFilePin
+    identity_case_preview_id: str
+    identity_case_preview_manifest: ExactFilePin
+    identity_case_preview_available_session: date
     qa: ExactFilePin
 
     def __post_init__(self) -> None:
         _digest(self.candidate_id, "Gate-C candidate ID")
         _digest(self.completion_id, "Gate-C completion ID")
+        _digest(self.identity_case_preview_id, "identity-case preview ID")
+        _native_date(
+            self.identity_case_preview_available_session,
+            "identity-case preview available session",
+        )
         if self.completion_state != STREAMING_STATE or self.complete is not True:
             raise S7StreamingMaterializationError("Gate-C completion is not closed awaiting review")
 
@@ -392,6 +400,11 @@ class GateCCompletionPin:
             "completion_id": self.completion_id,
             "completion_manifest": self.completion_manifest.to_dict(),
             "completion_state": self.completion_state,
+            "identity_case_preview_available_session": (
+                self.identity_case_preview_available_session.isoformat()
+            ),
+            "identity_case_preview_id": self.identity_case_preview_id,
+            "identity_case_preview_manifest": self.identity_case_preview_manifest.to_dict(),
             "qa": self.qa.to_dict(),
         }
 
@@ -407,6 +420,9 @@ class GateCCompletionPin:
                 "completion_id",
                 "completion_manifest",
                 "completion_state",
+                "identity_case_preview_available_session",
+                "identity_case_preview_id",
+                "identity_case_preview_manifest",
                 "qa",
             },
             "Gate-C completion pin",
@@ -418,6 +434,18 @@ class GateCCompletionPin:
             complete=_native_bool(item["complete"], "Gate-C completion marker"),
             candidate_manifest=ExactFilePin.from_dict(item["candidate_manifest"]),
             completion_manifest=ExactFilePin.from_dict(item["completion_manifest"]),
+            identity_case_preview_id=_digest(
+                item["identity_case_preview_id"], "identity-case preview ID"
+            ),
+            identity_case_preview_manifest=ExactFilePin.from_dict(
+                item["identity_case_preview_manifest"]
+            ),
+            identity_case_preview_available_session=date.fromisoformat(
+                _text(
+                    item["identity_case_preview_available_session"],
+                    "identity-case preview available session",
+                )
+            ),
             qa=ExactFilePin.from_dict(item["qa"]),
         )
 
@@ -555,6 +583,7 @@ class S7StreamingSourceBinding:
             + self.gate_b.data.bytes
             + self.gate_c.candidate_manifest.bytes
             + self.gate_c.completion_manifest.bytes
+            + self.gate_c.identity_case_preview_manifest.bytes
             + self.gate_c.qa.bytes
             + sum(item.manifest_bytes for item in self.registry_pins)
         )
@@ -2023,6 +2052,10 @@ def _replay_official_gate_c(
         ),
         "official Gate-C QA",
     )
+    preview_id, preview_pin, preview_available = _load_gate_c_identity_case_preview(
+        root,
+        candidate,
+    )
     if (
         loaded.candidate_id != seed.candidate.artifact_id
         or loaded.completion_id != seed.completion.artifact_id
@@ -2052,9 +2085,81 @@ def _replay_official_gate_c(
         completion_manifest=_existing_file_pin(
             root, loaded.completion_path, "official Gate-C completion"
         ),
+        identity_case_preview_id=preview_id,
+        identity_case_preview_manifest=preview_pin,
+        identity_case_preview_available_session=preview_available,
         qa=_existing_file_pin(root, loaded.qa_path, "official Gate-C QA"),
     )
     return pin, plan_document
+
+
+def _load_gate_c_identity_case_preview(
+    root: Path,
+    candidate: Mapping[str, object],
+) -> tuple[str, ExactFilePin, date]:
+    source_refs = _mapping(
+        candidate.get("registry_loader_source_refs"),
+        "official Gate-C source refs",
+    )
+    preview_ref = _mapping(
+        source_refs.get("detector_preview"),
+        "official Gate-C detector preview ref",
+    )
+    preview_id = _digest(
+        preview_ref.get("preview_artifact_id"),
+        "official identity-case preview ID",
+    )
+    preview_path = _relative(
+        preview_ref.get("path"),
+        "official identity-case preview path",
+    )
+    preview_pin = _existing_file_pin(
+        root,
+        preview_path,
+        "official identity-case preview",
+    )
+    if (
+        preview_pin.sha256
+        != _digest(
+            preview_ref.get("sha256"),
+            "official identity-case preview SHA-256",
+        )
+        or preview_pin.bytes
+        != _nonnegative(
+            preview_ref.get("bytes"),
+            "official identity-case preview bytes",
+        )
+    ):
+        raise S7StreamingMaterializationError(
+            "official identity-case preview receipt differs"
+        )
+    preview_document = _mapping(
+        _load_canonical_json(
+            _read_exact_file(root, preview_path, label="official identity-case preview"),
+            "official identity-case preview",
+        ),
+        "official identity-case preview",
+    )
+    if preview_document.get("preview_artifact_id") != preview_id:
+        raise S7StreamingMaterializationError(
+            "official identity-case preview embedded ID differs"
+        )
+    preview_result = _mapping(
+        preview_document.get("result"),
+        "official identity-case preview result",
+    )
+    try:
+        preview_available = date.fromisoformat(
+            _text(
+                preview_result.get("preview_manifest_available_session"),
+                "official identity-case preview available session",
+            )
+        )
+    except ValueError as exc:
+        raise S7StreamingMaterializationError(
+            "official identity-case preview available session is invalid"
+        ) from exc
+    return preview_id, preview_pin, preview_available
 
 
 def _verify_gate_c_candidate_upstream_replay(
@@ -3829,9 +3934,11 @@ def _build_and_validate_universe_row(
         "identity_disposition": projection.identity_disposition,
         "identity_case_id": projection.identity_case_id,
         "identity_case_available_session": projection.identity_case_available_session,
-        "source_identity_case_candidate_manifest_id": binding.gate_c.candidate_id,
+        "source_identity_case_candidate_manifest_id": (
+            binding.gate_c.identity_case_preview_id
+        ),
         "source_identity_case_candidate_manifest_sha256": (
-            binding.gate_c.candidate_manifest.sha256
+            binding.gate_c.identity_case_preview_manifest.sha256
         ),
         "identity_adjudication_id": projection.identity_adjudication_id,
         "cross_market_scope_id": projection.cross_market_scope_id,
@@ -4657,17 +4764,21 @@ def _source_binding_columns(binding: S7StreamingSourceBinding) -> dict[str, obje
         "source_s5_status_release_id": S7_SOURCE_PINS["ticker_event_request_status"].release_id,
         "source_s5_event_release_id": S7_SOURCE_PINS["ticker_change_event"].release_id,
         "source_s6_overview_release_id": S7_SOURCE_PINS["ticker_overview_safe"].release_id,
-        "source_identity_case_candidate_manifest_id": binding.gate_c.candidate_id,
+        "source_identity_case_candidate_manifest_id": (
+            binding.gate_c.identity_case_preview_id
+        ),
         "source_identity_case_candidate_manifest_sha256": (
-            binding.gate_c.candidate_manifest.sha256
+            binding.gate_c.identity_case_preview_manifest.sha256
         ),
         "source_identity_adjudication_release_id": registries["identity_adjudication"].release_id,
         "source_identity_adjudication_release_available_session": registries[
             "identity_adjudication"
         ].release_available_session,
-        "source_identity_market_consistency_candidate_manifest_id": (binding.gate_b.candidate_id),
+        "source_identity_market_consistency_candidate_manifest_id": (
+            binding.gate_c.candidate_id
+        ),
         "source_identity_market_consistency_candidate_manifest_sha256": (
-            binding.gate_b.manifest.sha256
+            binding.gate_c.candidate_manifest.sha256
         ),
         "source_identity_cross_market_adjudication_release_id": registries[
             "identity_cross_market_adjudication"

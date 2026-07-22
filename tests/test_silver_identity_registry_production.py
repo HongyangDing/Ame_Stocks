@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
@@ -28,6 +29,7 @@ from ame_stocks_api.silver.identity_registry_workflow import (
     ExactArtifactBinding,
     ExactSourceRow,
     ExactSourceScope,
+    RegistryCandidateManifest,
     RegistryName,
     RegistryRuntimeBinding,
     RuntimeFilePin,
@@ -282,9 +284,12 @@ def test_fixed_production_builders_construct_all_five_registry_candidate_sets(
     gate_c = production._GateCSource(
         candidate=_artifact("source_gate_c_candidate_manifest", "a" * 64, "b" * 64),
         completion=_artifact("source_gate_c_completion_manifest", "c" * 64, "d" * 64),
+        detector_preview=_artifact(
+            "source_identity_case_preview_manifest",
+            "e" * 64,
+            "f" * 64,
+        ),
         source_six_release_binding_id=str(evidence_document["source_six_release_binding_id"]),
-        detector_preview_id="e" * 64,
-        detector_preview_sha256="f" * 64,
         external_evidence_id=str(evidence_document["manifest_id"]),
         external_evidence_sha256="0" * 64,
         scopes=MappingProxyType(scopes),
@@ -302,6 +307,78 @@ def test_fixed_production_builders_construct_all_five_registry_candidate_sets(
     )
     assert len(cross) == 9
     assert sum(len(item.source_scope.rows) for item in cross) == 79
+    authorization_artifacts = tuple(
+        _artifact(role, character * 64, character.upper() * 64)
+        for role, character in (
+            ("external_evidence_approval", "1"),
+            ("schema_contract_approval", "2"),
+            ("source_candidate_approval", "3"),
+        )
+    )
+    ingress = ExactArtifactBinding(
+        role="production_ingress_attestation",
+        artifact_id="4" * 64,
+        path="fixture/production-ingress-attestation.json",
+        sha256="5" * 64,
+        bytes=1,
+        available_session=date(2026, 7, 20),
+        embedded_id_field="attestation_id",
+    )
+    candidate_kwargs = {
+        "registry_name": RegistryName.IDENTITY_CROSS_MARKET_ADJUDICATION.value,
+        "contract_pin": workflow.current_registry_contract_pin(
+            RegistryName.IDENTITY_CROSS_MARKET_ADJUDICATION.value
+        ),
+        "source_artifacts": (gate_c.candidate, gate_c.completion),
+        "evidence_artifacts": (
+            _artifact(
+                "external_evidence",
+                str(evidence_document["manifest_id"]),
+                "0" * 64,
+            ),
+        ),
+        "authorization_artifacts": authorization_artifacts,
+        "availability_calendar_id": production.CALENDAR_ARTIFACT_ID,
+        "availability_calendar_sha256": production.CALENDAR_ARTIFACT_SHA256,
+        "created_at_utc": datetime(2026, 7, 19, 14, tzinfo=UTC),
+        "candidate_available_session": date(2026, 7, 20),
+        "decisions": tuple(sorted(cross, key=lambda item: item.decision_id)),
+    }
+    candidate = RegistryCandidateManifest(
+        **candidate_kwargs,
+        production_ingress_artifact=ingress,
+    )
+    assert {item.role for item in candidate.source_artifacts} == {
+        "source_gate_c_candidate_manifest",
+        "source_gate_c_completion_manifest",
+    }
+    monkeypatch.setattr(production, "_load_gate_c_source", lambda *_args: gate_c)
+    workflow._validate_gate_c_registry_scopes(ROOT, candidate)
+    monkeypatch.setattr(
+        production,
+        "_load_gate_c_source",
+        lambda *_args: replace(
+            gate_c,
+            detector_preview=_artifact(
+                "source_identity_case_preview_manifest",
+                "8" * 64,
+                "9" * 64,
+            ),
+        ),
+    )
+    with pytest.raises(
+        workflow.RegistryWorkflowError,
+        match="identity-case binding differs",
+    ):
+        workflow._validate_gate_c_registry_scopes(ROOT, candidate)
+    with pytest.raises(
+        workflow.RegistryWorkflowError,
+        match="decision manifest binding is absent",
+    ):
+        RegistryCandidateManifest(
+            **candidate_kwargs,
+            production_ingress_artifact=None,
+        )
     # The fifth fixed set is intentionally empty: inverse/cross-market cases do
     # not create duplicate bounce adjudications.
     identity_adjudication: tuple[object, ...] = ()

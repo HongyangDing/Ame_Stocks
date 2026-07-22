@@ -76,8 +76,17 @@ STANDING_AUTHORIZATION_LITERAL: Final = (
     "只要中间不报错或者明显越界就可以自行继续"
 )
 STANDING_REAFFIRMATION_LITERAL: Final = "批准"
-PRODUCTION_PREREQUISITE_AUTHORIZATION_VERSION: Final = (
+_PRODUCTION_PREREQUISITE_AUTHORIZATION_VERSION_V1: Final = (
     "s7_registry_production_prerequisite_authorization_v1"
+)
+PRODUCTION_PREREQUISITE_AUTHORIZATION_VERSION: Final = (
+    "s7_registry_production_prerequisite_authorization_v2"
+)
+_SUPPORTED_PRODUCTION_PREREQUISITE_AUTHORIZATION_VERSIONS: Final = frozenset(
+    {
+        _PRODUCTION_PREREQUISITE_AUTHORIZATION_VERSION_V1,
+        PRODUCTION_PREREQUISITE_AUTHORIZATION_VERSION,
+    }
 )
 PRODUCTION_PREREQUISITE_AUTHORIZATION_TYPE: Final = (
     "s7_registry_production_prerequisite_authorization"
@@ -1205,6 +1214,7 @@ def record_production_prerequisite_authorization(
         raise RegistryWorkflowError("standing authorization literal bytes changed")
     if reaffirmation_literal != STANDING_REAFFIRMATION_LITERAL.encode("utf-8"):
         raise RegistryWorkflowError("standing reaffirmation literal bytes changed")
+    runtime_binding = capture_registry_runtime_binding()
     calendar = _load_calendar(root, availability_calendar_id, availability_calendar_sha256)
     slot_id = _production_prerequisite_authorization_slot_id(
         name,
@@ -1212,6 +1222,7 @@ def record_production_prerequisite_authorization(
         targets,
         availability_calendar_id,
         availability_calendar_sha256,
+        runtime_binding_id=runtime_binding.runtime_binding_id,
     )
     relative_path = _production_prerequisite_authorization_path(name, authorization_type, slot_id)
     existing = _load_existing_production_prerequisite_authorization(
@@ -1222,6 +1233,7 @@ def record_production_prerequisite_authorization(
         expected_targets=targets,
         expected_calendar_id=availability_calendar_id,
         expected_calendar_sha256=availability_calendar_sha256,
+        expected_runtime_binding=runtime_binding,
     )
     if existing is not None:
         document, binding = existing
@@ -1235,7 +1247,7 @@ def record_production_prerequisite_authorization(
         approval_available, _ = calendar.first_open_after(approved_at)
     except XNYSCalendarArtifactError as exc:
         raise RegistryWorkflowError(str(exc)) from exc
-    runtime_binding = capture_registry_runtime_binding()
+    _require_current_runtime_binding(runtime_binding)
     logical: dict[str, object] = {
         "approval_available_session": approval_available.isoformat(),
         "approved_at_utc": _utc_text(approved_at),
@@ -1278,6 +1290,7 @@ def record_production_prerequisite_authorization(
             expected_targets=targets,
             expected_calendar_id=availability_calendar_id,
             expected_calendar_sha256=availability_calendar_sha256,
+            expected_runtime_binding=runtime_binding,
         )
         if raced is None:
             raise
@@ -1304,6 +1317,7 @@ def record_production_prerequisite_authorization(
         expected_targets=targets,
         expected_calendar_id=availability_calendar_id,
         expected_calendar_sha256=availability_calendar_sha256,
+        expected_runtime_binding=runtime_binding,
     )
     if replayed is None or replayed[1] != written_binding:
         raise RegistryWorkflowError(
@@ -4257,6 +4271,7 @@ def _validate_candidate_artifact_claims(candidate: RegistryCandidateManifest) ->
         (item.artifact_id, item.sha256)
         for item in (*candidate.source_artifacts, *candidate.evidence_artifacts)
     }
+    transitive_identity_case = _production_cross_market_identity_case_binding(candidate)
     for intent in candidate.decisions:
         claims = intent.frozen_row_claims
         if (
@@ -4278,9 +4293,53 @@ def _validate_candidate_artifact_claims(candidate: RegistryCandidateManifest) ->
                 continue
             artifact_sha = claims[sha_field]
             if (artifact_id, artifact_sha) not in admitted:
+                if (
+                    field == "source_identity_case_candidate_manifest_id"
+                    and transitive_identity_case == (artifact_id, artifact_sha)
+                ):
+                    continue
                 raise RegistryWorkflowError(
                     f"decision manifest binding is absent from candidate artifacts: {field}"
                 )
+
+
+def _production_cross_market_identity_case_binding(
+    candidate: RegistryCandidateManifest,
+) -> tuple[str, str] | None:
+    """Admit only the detector preview transitively pinned by exact Gate C.
+
+    The frozen production source authorization deliberately binds the Gate C
+    candidate/completion pair.  Gate C in turn binds the immutable detector
+    preview.  Cross-market rows preserve that preview as their identity-case
+    lineage, so this one claim is admitted transitively and is replayed against
+    Gate C before candidate storage.  No other registry or manifest claim may
+    use this exception.
+    """
+
+    if (
+        candidate.registry_name != RegistryName.IDENTITY_CROSS_MARKET_ADJUDICATION.value
+        or candidate.production_ingress_artifact is None
+        or not candidate.decisions
+        or {item.role for item in candidate.source_artifacts}
+        != {
+            "source_gate_c_candidate_manifest",
+            "source_gate_c_completion_manifest",
+        }
+    ):
+        return None
+    bindings = {
+        (
+            item.frozen_row_claims.get("source_identity_case_candidate_manifest_id"),
+            item.frozen_row_claims.get("source_identity_case_candidate_manifest_sha256"),
+        )
+        for item in candidate.decisions
+    }
+    if len(bindings) != 1:
+        return None
+    artifact_id, sha256 = next(iter(bindings))
+    if not isinstance(artifact_id, str) or not isinstance(sha256, str):
+        return None
+    return artifact_id, sha256
 
 
 def _validate_final_chains(
@@ -4666,6 +4725,25 @@ def _validate_gate_c_registry_scopes(
             raise RegistryWorkflowError("cross-market case is absent from exact Gate C") from exc
         if decision.source_scope != scope:
             raise RegistryWorkflowError("cross-market scope differs from exact Gate C replay")
+        claims = decision.frozen_row_claims
+        if (
+            claims.get("source_identity_case_candidate_manifest_id")
+            != loaded.detector_preview.artifact_id
+            or claims.get("source_identity_case_candidate_manifest_sha256")
+            != loaded.detector_preview.sha256
+        ):
+            raise RegistryWorkflowError(
+                "cross-market identity-case binding differs from exact Gate C replay"
+            )
+        if (
+            claims.get("source_identity_market_consistency_candidate_manifest_id")
+            != loaded.candidate.artifact_id
+            or claims.get("source_identity_market_consistency_candidate_manifest_sha256")
+            != loaded.candidate.sha256
+        ):
+            raise RegistryWorkflowError(
+                "cross-market market-consistency binding differs from exact Gate C replay"
+            )
 
 
 def _validate_candidate_authorizations(
@@ -5642,22 +5720,32 @@ def _production_prerequisite_authorization_slot_id(
     target_refs: Sequence[tuple[str, str]],
     availability_calendar_id: str,
     availability_calendar_sha256: str,
+    *,
+    artifact_version: str = PRODUCTION_PREREQUISITE_AUTHORIZATION_VERSION,
+    runtime_binding_id: str | None = None,
 ) -> str:
-    return stable_digest(
-        {
-            "artifact_type": PRODUCTION_PREREQUISITE_AUTHORIZATION_TYPE,
-            "artifact_version": PRODUCTION_PREREQUISITE_AUTHORIZATION_VERSION,
-            "authorization_type": authorization_type,
-            "availability_calendar_id": availability_calendar_id,
-            "availability_calendar_sha256": availability_calendar_sha256,
-            "production_data_root": CANONICAL_PRODUCTION_DATA_ROOT.resolve().as_posix(),
-            "registry_name": _registry(registry_name),
-            "target_refs": [
-                {"artifact_id": artifact_id, "sha256": sha256}
-                for artifact_id, sha256 in target_refs
-            ],
-        }
-    )
+    if artifact_version not in _SUPPORTED_PRODUCTION_PREREQUISITE_AUTHORIZATION_VERSIONS:
+        raise RegistryWorkflowError("production prerequisite authorization version changed")
+    payload: dict[str, object] = {
+        "artifact_type": PRODUCTION_PREREQUISITE_AUTHORIZATION_TYPE,
+        "artifact_version": artifact_version,
+        "authorization_type": authorization_type,
+        "availability_calendar_id": availability_calendar_id,
+        "availability_calendar_sha256": availability_calendar_sha256,
+        "production_data_root": CANONICAL_PRODUCTION_DATA_ROOT.resolve().as_posix(),
+        "registry_name": _registry(registry_name),
+        "target_refs": [
+            {"artifact_id": artifact_id, "sha256": sha256}
+            for artifact_id, sha256 in target_refs
+        ],
+    }
+    if artifact_version == PRODUCTION_PREREQUISITE_AUTHORIZATION_VERSION:
+        payload["runtime_binding_id"] = _digest(
+            runtime_binding_id, "production authorization runtime binding ID"
+        )
+    elif runtime_binding_id is not None:
+        raise RegistryWorkflowError("legacy production authorization slot cannot bind runtime")
+    return stable_digest(payload)
 
 
 def _production_prerequisite_authorization_path(
@@ -5681,6 +5769,7 @@ def _load_existing_production_prerequisite_authorization(
     expected_targets: tuple[tuple[str, str], ...],
     expected_calendar_id: str,
     expected_calendar_sha256: str,
+    expected_runtime_binding: RegistryRuntimeBinding,
 ) -> tuple[dict[str, object], ExactArtifactBinding] | None:
     path = safe_relative_path(root, relative_path)
     if not path.exists():
@@ -5713,6 +5802,7 @@ def _load_existing_production_prerequisite_authorization(
         calendar=calendar,
         root=root,
         revalidate_runtime=False,
+        expected_runtime_binding=expected_runtime_binding,
     )
     return dict(document), binding
 
@@ -5726,6 +5816,7 @@ def _validate_production_prerequisite_authorization_document(
     calendar: object,
     root: Path,
     revalidate_runtime: bool,
+    expected_runtime_binding: RegistryRuntimeBinding | None = None,
 ) -> None:
     expected_keys = {
         "approval_available_session",
@@ -5763,15 +5854,22 @@ def _validate_production_prerequisite_authorization_document(
             )
         )
     targets_tuple = tuple(targets)
+    artifact_version = _text(document["artifact_version"], "authorization version")
+    runtime_binding = RegistryRuntimeBinding.from_dict(document["runtime_binding"])
     slot_id = _production_prerequisite_authorization_slot_id(
         registry_name,
         artifact.role,
         targets_tuple,
         str(document["availability_calendar_id"]),
         str(document["availability_calendar_sha256"]),
+        artifact_version=artifact_version,
+        runtime_binding_id=(
+            runtime_binding.runtime_binding_id
+            if artifact_version == PRODUCTION_PREREQUISITE_AUTHORIZATION_VERSION
+            else None
+        ),
     )
     logical = {key: value for key, value in document.items() if key != "authorization_id"}
-    runtime_binding = RegistryRuntimeBinding.from_dict(document["runtime_binding"])
     approved_at = _parse_utc(_text(document["approved_at_utc"], "authorization time"))
     available = date.fromisoformat(
         _text(document["approval_available_session"], "authorization availability")
@@ -5781,7 +5879,7 @@ def _validate_production_prerequisite_authorization_document(
         or document["authorization_id"] != artifact.artifact_id
         or document["authorization_id"] != stable_digest(logical)
         or document["artifact_type"] != PRODUCTION_PREREQUISITE_AUTHORIZATION_TYPE
-        or document["artifact_version"] != PRODUCTION_PREREQUISITE_AUTHORIZATION_VERSION
+        or artifact_version not in _SUPPORTED_PRODUCTION_PREREQUISITE_AUTHORIZATION_VERSIONS
         or document["authorization_slot_id"] != slot_id
         or document["authorization_type"] != artifact.role
         or document["availability_calendar_id"] != getattr(calendar, "calendar_artifact_id", None)
@@ -5801,6 +5899,10 @@ def _validate_production_prerequisite_authorization_document(
         or available != artifact.available_session
         or artifact.path
         != _production_prerequisite_authorization_path(registry_name, artifact.role, slot_id)
+        or (
+            expected_runtime_binding is not None
+            and runtime_binding != expected_runtime_binding
+        )
     ):
         raise RegistryWorkflowError("production prerequisite authorization binding changed")
     try:

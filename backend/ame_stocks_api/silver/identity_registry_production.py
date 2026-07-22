@@ -148,9 +148,8 @@ class ImportedExternalEvidencePackage:
 class _GateCSource:
     candidate: ExactArtifactBinding
     completion: ExactArtifactBinding
+    detector_preview: ExactArtifactBinding
     source_six_release_binding_id: str
-    detector_preview_id: str
-    detector_preview_sha256: str
     external_evidence_id: str
     external_evidence_sha256: str
     scopes: Mapping[str, ExactSourceScope]
@@ -1272,8 +1271,8 @@ def _build_cross_market_decisions(
         row = _cross_market_row(
             approved,
             scope=scope,
-            detector_preview_id=gate_c.detector_preview_id,
-            detector_preview_sha256=gate_c.detector_preview_sha256,
+            detector_preview_id=gate_c.detector_preview.artifact_id,
+            detector_preview_sha256=gate_c.detector_preview.sha256,
             evidence_claim_digest=stable_digest(
                 {"evidence_group": dict(group), "source_scope": scope.to_dict()}
             ),
@@ -1490,13 +1489,32 @@ def _load_gate_c_source(root: Path, completion_ref: StoredControlDocument) -> _G
         )
     refs = _mapping(candidate_document["registry_loader_source_refs"], "Gate C source refs")
     preview = _mapping(refs["detector_preview"], "detector preview ref")
+    preview_content = _read_exact_receipt_bytes(root, preview, "detector preview")
+    preview_document = _mapping(
+        _decode_json_no_duplicates(preview_content, "detector preview"),
+        "detector preview",
+    )
+    preview_result = _mapping(preview_document.get("result"), "detector preview result")
+    preview_id = str(preview["preview_artifact_id"])
+    if preview_document.get("preview_artifact_id") != preview_id:
+        raise IdentityRegistryProductionError("detector preview embedded ID differs")
+    detector_preview = ExactArtifactBinding(
+        role="source_identity_case_preview_manifest",
+        artifact_id=preview_id,
+        path=str(preview["path"]),
+        sha256=str(preview["sha256"]),
+        bytes=int(preview["bytes"]),
+        available_session=date.fromisoformat(
+            str(preview_result["preview_manifest_available_session"])
+        ),
+        embedded_id_field="preview_artifact_id",
+    )
     reviewed_evidence = _mapping(refs["reviewed_external_evidence"], "Gate C external evidence ref")
     return _GateCSource(
         candidate=candidate_binding,
         completion=completion_binding,
+        detector_preview=detector_preview,
         source_six_release_binding_id=S7_SIX_RELEASE_BINDING_ID,
-        detector_preview_id=str(preview["preview_artifact_id"]),
-        detector_preview_sha256=str(preview["sha256"]),
         external_evidence_id=str(reviewed_evidence["manifest_id"]),
         external_evidence_sha256=str(reviewed_evidence["sha256"]),
         scopes=MappingProxyType(scopes),
