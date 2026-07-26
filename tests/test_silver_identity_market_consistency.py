@@ -214,7 +214,7 @@ def _install_recovery_predecessor_fixture(
     root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> dict[str, dict[str, object]]:
-    """Write one fully content-addressed v3 predecessor chain to disk."""
+    """Write one fully content-addressed v4 predecessor chain to disk."""
 
     source_binding: dict[str, object] = {
         "composite_count": 18_421,
@@ -224,7 +224,7 @@ def _install_recovery_predecessor_fixture(
     runtime_digest = stable_digest(runtime)
     approval_scope: dict[str, object] = {
         "approval_slot_id": "4" * 64,
-        "approval_slot_version": "s7_gate_b_offline_reclassification_slot_v3",
+        "approval_slot_version": "s7_gate_b_offline_reclassification_slot_v4",
         "artifact_type": "s7_openfigi_market_consistency_offline_replay_approval",
         "authorized_action": market_module.OFFLINE_REPLAY_ACTION,
         "authorization": {
@@ -416,6 +416,44 @@ def _install_recovery_predecessor_fixture(
         "predecessor": predecessor,
         "qa": qa,
     }
+
+
+def test_offline_replay_v5_slot_isolated_from_frozen_v4_predecessor() -> None:
+    predecessor = market_module._OFFLINE_REPLAY_RECOVERY_PREDECESSOR
+
+    assert market_module.OFFLINE_REPLAY_SLOT_VERSION == (
+        "s7_gate_b_offline_reclassification_slot_v5"
+    )
+    assert market_module.OFFLINE_REPLAY_SLOT_ID == (
+        "39ebc13646254b26b8eebb4daf45d9731fe1df9c07786f3176300123ed7e03b8"
+    )
+    assert market_module.OFFLINE_REPLAY_SLOT_ID != (
+        "22dad0fb46423f463459c88e482def3a75b0457aa30f4e441348b6abd6bf6626"
+    )
+    assert market_module._offline_replay_approval_path() == (
+        "manifests/silver/identity/openfigi-market-consistency-offline-replay-"
+        "approvals/slot_id="
+        "39ebc13646254b26b8eebb4daf45d9731fe1df9c07786f3176300123ed7e03b8/"
+        "manifest.json"
+    )
+    assert predecessor["runtime_commit"] == "af8bf443e900a717f7e6a3bf0804532cb147a2b6"
+    assert predecessor["replay_id"] == (
+        "86b5c895a7c4517fdf02247b949283805c0c4ce29d9d976c5adec7e7315079da"
+    )
+    assert predecessor["approval"] == {
+        "approval_id": "d94d344e9f637e0c5a7f41af0eda93fb1344fe04c767d99a3e6fe69e822c4d51",
+        "bytes": 7_617,
+        "path": (
+            "manifests/silver/identity/openfigi-market-consistency-offline-replay-"
+            "approvals/slot_id="
+            "22dad0fb46423f463459c88e482def3a75b0457aa30f4e441348b6abd6bf6626/"
+            "manifest.json"
+        ),
+        "sha256": "f53579ff538f82bef956ab879f852ebbc1b01d8cf9b9b5108b3f65c236afc74b",
+    }
+    assert predecessor["completion"]["completion_id"] == (
+        "fc92d4ce70a4ba35ac5bfaa998364dbdae82e697dc44d71866c4e0c5d239d95c"
+    )
 
 
 def test_offline_replay_recovery_predecessor_valid_chain_passes(
