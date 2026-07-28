@@ -16,7 +16,10 @@ import pytest
 from ame_stocks_api.artifacts import stable_digest
 from ame_stocks_api.cli import silver_identity_materialization_streaming as stream_cli
 from ame_stocks_api.silver import identity_materialization_streaming as stream
-from ame_stocks_api.silver.asset_contract import UNIVERSE_SOURCE_DAILY_CONTRACT
+from ame_stocks_api.silver.asset_contract import (
+    ASSET_OBSERVATION_DAILY_CONTRACT,
+    UNIVERSE_SOURCE_DAILY_CONTRACT,
+)
 from ame_stocks_api.silver.calendar_artifact import (
     build_xnys_calendar_artifact,
     write_xnys_calendar_artifact,
@@ -46,7 +49,12 @@ from ame_stocks_api.silver.identity_materialization_streaming import (
     store_production_streaming_source_binding_document,
     store_streaming_source_binding,
 )
-from ame_stocks_api.silver.identity_registry_workflow import RegistryReleasePin
+from ame_stocks_api.silver.identity_registry_workflow import (
+    COMPOSITE_CORRECTION_REGISTRIES,
+    ExactSourceRow,
+    ExactSourceScope,
+    RegistryReleasePin,
+)
 from ame_stocks_api.silver.identity_resolution import canonical_asset_id
 
 _SESSIONS = (date(2024, 1, 12), date(2024, 1, 16), date(2024, 1, 17))
@@ -167,9 +175,51 @@ class _FakeRelease:
         self.manifest_pin = pin
         self.release_available_session = pin.release_available_session
         self.decision_rows: dict[str, dict[str, object]] = {}
+        self.source_scopes: dict[str, ExactSourceScope] = {}
+        self.queried_source_rows: list[ExactSourceRow] = []
 
-    def decision_ids_for_exact_source_row(self, *_: object, **__: object) -> tuple[str, ...]:
-        return ()
+    def effective_decision_ids(self, *, cutoff_session: date) -> tuple[str, ...]:
+        if self.release_available_session > cutoff_session:
+            raise AssertionError("fixture release is unavailable")
+        return tuple(sorted(self.decision_rows))
+
+    def require_decision(
+        self,
+        decision_id: str,
+        *,
+        cutoff_session: date,
+    ) -> dict[str, object]:
+        if decision_id not in self.effective_decision_ids(cutoff_session=cutoff_session):
+            raise AssertionError("fixture decision is unavailable")
+        return self.decision_rows[decision_id]
+
+    def require_exact_source_row(
+        self,
+        decision_id: str,
+        source_row: ExactSourceRow,
+        *,
+        cutoff_session: date,
+    ) -> dict[str, object]:
+        row = self.require_decision(
+            decision_id,
+            cutoff_session=cutoff_session,
+        )
+        if source_row not in self.source_scopes[decision_id].rows:
+            raise AssertionError("fixture exact source row differs")
+        return row
+
+    def decision_ids_for_exact_source_row(
+        self,
+        source_row: ExactSourceRow,
+        *,
+        cutoff_session: date,
+    ) -> tuple[str, ...]:
+        self.queried_source_rows.append(source_row)
+        return tuple(
+            decision_id
+            for decision_id in self.effective_decision_ids(cutoff_session=cutoff_session)
+            if source_row in self.source_scopes[decision_id].rows
+        )
 
 
 class _FakeRegistrySet:
@@ -179,8 +229,21 @@ class _FakeRegistrySet:
     def by_name(self, name: str) -> _FakeRelease:
         return self.releases[REGISTRY_ORDER.index(name)]
 
-    def composite_matches(self, *_: object, **__: object) -> tuple[tuple[str, str], ...]:
-        return ()
+    def composite_matches(
+        self,
+        source_row: ExactSourceRow,
+        *,
+        cutoff_session: date,
+    ) -> tuple[tuple[str, str], ...]:
+        return tuple(
+            (release.registry_name, decision_id)
+            for release in self.releases
+            if release.registry_name in COMPOSITE_CORRECTION_REGISTRIES
+            for decision_id in release.decision_ids_for_exact_source_row(
+                source_row,
+                cutoff_session=cutoff_session,
+            )
+        )
 
 
 class _DirectAdapter:
@@ -243,8 +306,9 @@ def _fixture(
     *,
     rows_by_session: tuple[tuple[dict[str, object], ...], ...] | None = None,
     gate_b_overrides: dict[str, dict[str, object]] | None = None,
+    sessions: tuple[date, ...] = _SESSIONS,
 ) -> tuple[S7StreamingSourceBinding, _FakeRegistrySet, dict[str, object]]:
-    calendar = build_xnys_calendar_artifact(_SESSIONS[0], _SESSIONS[-1])
+    calendar = build_xnys_calendar_artifact(sessions[0], sessions[-1])
     write_xnys_calendar_artifact(root, calendar)
     runtime = _runtime_binding()
     approval_receipts = []
@@ -279,7 +343,7 @@ def _fixture(
     membership = []
     composites: set[str] = set()
     shares_by_composite: dict[str, str] = {}
-    for session, rows in zip(_SESSIONS, rows_by_session, strict=True):
+    for session, rows in zip(sessions, rows_by_session, strict=True):
         table = pa.Table.from_pylist(
             [dict(row) for row in rows], schema=UNIVERSE_SOURCE_DAILY_CONTRACT.arrow_schema
         )
@@ -310,7 +374,7 @@ def _fixture(
             "relation_share_class_conflict": False,
             "selected_market_code": ("GB" if composite == "BBG000000099" else "US"),
             "selected_share_class_figi": shares_by_composite[composite],
-            "source_available_session": _SESSIONS[0],
+            "source_available_session": sessions[0],
         }
         if gate_b_overrides is not None:
             gate_row.update(gate_b_overrides.get(composite, {}))
@@ -342,7 +406,7 @@ def _fixture(
         {
             "preview_artifact_id": identity_case_preview_id,
             "result": {
-                "preview_manifest_available_session": _SESSIONS[0].isoformat(),
+                "preview_manifest_available_session": sessions[0].isoformat(),
             },
         },
     )
@@ -358,12 +422,13 @@ def _fixture(
                 manifest_path=pin.path,
                 manifest_sha256=pin.sha256,
                 manifest_bytes=pin.bytes,
-                release_available_session=_SESSIONS[0],
+                release_available_session=sessions[0],
             )
         )
+    registries = _FakeRegistrySet(tuple(registry_pins))
     binding = S7StreamingSourceBinding(
         mode="fixture",
-        cutoff_session=_SESSIONS[-1],
+        cutoff_session=sessions[-1],
         s4_release_set_manifest=s4_manifest,
         membership_artifacts=tuple(membership),
         gate_b=GateBReferencePin(
@@ -383,7 +448,7 @@ def _fixture(
             completion_manifest=gate_c_completion,
             identity_case_preview_id=identity_case_preview_id,
             identity_case_preview_manifest=identity_case_preview,
-            identity_case_preview_available_session=_SESSIONS[0],
+            identity_case_preview_available_session=sessions[0],
             qa=gate_c_qa,
         ),
         registry_pins=tuple(registry_pins),
@@ -391,8 +456,14 @@ def _fixture(
         runtime_binding=runtime,
         calendar_artifact_id=calendar.calendar_artifact_id,
         calendar_artifact_sha256=calendar.sha256,
+        transition_profile_anchor_binding=(
+            stream._build_transition_profile_anchor_binding(
+                registries,
+                cutoff_session=sessions[-1],
+            )
+        ),
     )
-    return binding, _FakeRegistrySet(tuple(registry_pins)), runtime
+    return binding, registries, runtime
 
 
 def _resource_caps() -> StreamingResourceCaps:
@@ -558,6 +629,81 @@ def test_two_pass_real_parquet_preserves_inactive_and_gaps(tmp_path: Path) -> No
         ("AAA", _SESSIONS[2]),
         ("BBB", _SESSIONS[1]),
     ]
+
+
+def test_selected_membership_parent_matches_asset_observation_exact_scope_twice(
+    tmp_path: Path,
+) -> None:
+    binding, registries, _ = _fixture(tmp_path)
+    observed = "BBG000KMY6N2"
+    canonical = "BBG01RK6N4M5"
+    share = "BBG001S5W848"
+    source = _source_row(
+        _SESSIONS[0],
+        "SOR",
+        observed,
+        share=share,
+    )
+    exact_parent = stream._selected_asset_observation_parent(
+        source,
+        binding=binding,
+    )
+    assert exact_parent.source_dataset == ASSET_OBSERVATION_DAILY_CONTRACT.table
+
+    decision_id = stable_digest({"fixture": "provider-override", "ticker": "SOR"})
+    provider = registries.by_name("provider_composite_override")
+    provider.decision_rows[decision_id] = {
+        "canonical_asset_id": canonical_asset_id(canonical),
+        "canonical_composite_figi": canonical,
+        "canonical_composite_market_code": "US",
+        "override_available_session": _SESSIONS[0],
+    }
+    provider.source_scopes[decision_id] = ExactSourceScope(rows=(exact_parent,))
+    gate_b = {
+        observed: {
+            "classification": "known_us",
+            "relation_share_class_conflict": False,
+            "selected_market_code": "US",
+            "selected_share_class_figi": share,
+            "source_available_session": _SESSIONS[0],
+        }
+    }
+
+    projection = stream._frozen_registry_projection(
+        source,
+        gate_b_by_composite=gate_b,
+        registries=registries,
+        binding=binding,
+    )
+    resolved = stream._build_and_validate_universe_row(
+        source,
+        projection,
+        gate_b=gate_b,
+        registries=registries,
+        binding=binding,
+    )
+
+    assert provider.queried_source_rows == [exact_parent, exact_parent]
+    assert projection.provider_composite_override_id == decision_id
+    assert projection.canonical_composite_figi == canonical
+    assert projection.asset_id == canonical_asset_id(canonical)
+    assert projection.composite_registry_match_count == 1
+    assert projection.backtest_identity_eligible is True
+    assert resolved["observed_composite_figi"] == observed
+    assert resolved["selected_source_record_id"] == source["selected_source_record_id"]
+    assert resolved["canonical_composite_figi"] == canonical
+
+    wrong_dataset = replace(
+        exact_parent,
+        source_dataset=UNIVERSE_SOURCE_DAILY_CONTRACT.table,
+    )
+    assert (
+        provider.decision_ids_for_exact_source_row(
+            wrong_dataset,
+            cutoff_session=binding.cutoff_session,
+        )
+        == ()
+    )
 
 
 def test_frozen_production_adapter_runs_real_parquet_fixture(tmp_path: Path) -> None:
@@ -920,6 +1066,156 @@ def test_production_execution_api_has_no_injection_hooks(tmp_path: Path) -> None
             approval_id="2" * 64,
             adapter=_DirectAdapter(),
         )  # type: ignore[call-arg]
+
+
+def test_profile_sample_is_transition_closed_and_replay_stable(
+    tmp_path: Path,
+) -> None:
+    sessions = (
+        date(2024, 1, 8),
+        date(2024, 1, 9),
+        date(2024, 1, 10),
+        date(2024, 1, 11),
+        date(2024, 1, 12),
+        date(2024, 1, 16),
+        date(2024, 1, 17),
+    )
+    predecessor_composite = "BBG000KMY6N2"
+    successor_composite = "BBG01RK6N4M5"
+    share = "BBG001S5W848"
+    rows = tuple(
+        (
+            _source_row(
+                session,
+                "SOR",
+                (predecessor_composite if index <= 2 else successor_composite),
+                share=share,
+            ),
+        )
+        for index, session in enumerate(sessions)
+    )
+    binding, registries, runtime = _fixture(
+        tmp_path,
+        rows_by_session=rows,
+        sessions=sessions,
+    )
+    transition_scope = ExactSourceScope(
+        rows=tuple(
+            sorted(
+                (
+                    stream._selected_asset_observation_parent(
+                        rows[2][0],
+                        binding=binding,
+                    ),
+                    stream._selected_asset_observation_parent(
+                        rows[3][0],
+                        binding=binding,
+                    ),
+                )
+            )
+        )
+    )
+    transition_id = stable_digest({"fixture": "SOR transition"})
+    transition = registries.by_name("asset_transition")
+    transition.decision_rows[transition_id] = {
+        "identity_override_effect": "none",
+        "identity_quality_liquidation_signal": False,
+        "membership_effect": "none",
+        "predecessor_asset_id": canonical_asset_id(predecessor_composite),
+        "predecessor_last_session": sessions[2],
+        "relationship_effect": "lineage_only_no_override_no_return_stitching",
+        "return_stitching_effect": ("none_requires_future_entitlement_accounting"),
+        "successor_asset_id": canonical_asset_id(successor_composite),
+        "successor_first_session": sessions[3],
+        "transition_available_session": sessions[4],
+    }
+    transition.source_scopes[transition_id] = transition_scope
+    binding = replace(
+        binding,
+        transition_profile_anchor_binding=(
+            stream._build_transition_profile_anchor_binding(
+                registries,
+                cutoff_session=binding.cutoff_session,
+            )
+        ),
+    )
+
+    profile_plan, _, completion = _completed_profile(
+        tmp_path,
+        binding,
+        registries,
+        runtime,
+    )
+    sampled_sessions = tuple(
+        SessionArtifactPin.from_dict(value).session_date
+        for value in profile_plan["sample_artifacts"]
+    )
+
+    assert sampled_sessions == (sessions[0], sessions[2], sessions[3])
+    assert profile_plan["sample_selection_policy_version"] == (
+        stream.PROFILE_SAMPLE_SELECTION_POLICY_VERSION
+    )
+    assert profile_plan["transition_profile_anchor_binding"] == (
+        binding.transition_profile_anchor_binding.to_dict()
+    )
+    assert completion["metrics"]["critical_failure_count"] == 0
+    assert completion["metrics"]["sample_session_count"] == 3
+
+    replay, _ = prepare_streaming_bounded_profile_preview_plan(
+        tmp_path,
+        source_binding_id=binding.source_binding_id,
+        full_resource_caps=_resource_caps(),
+        sample_session_cap=3,
+        prepared_by="profile-builder",
+        prepared_at_utc=datetime(2024, 1, 16, 13, 40, tzinfo=UTC),
+    )
+    assert replay == profile_plan
+
+
+def test_profile_transition_closure_rejects_small_cap_and_anchor_tamper(
+    tmp_path: Path,
+) -> None:
+    binding, registries, _ = _fixture(tmp_path)
+    artifacts = tuple(
+        SessionArtifactPin(
+            session_date=date(2024, 1, day),
+            row_count=1,
+            artifact=ExactFilePin(
+                path=f"fixture/session_date=2024-01-{day:02d}/part.parquet",
+                sha256=f"{day:064x}",
+                bytes=1,
+            ),
+        )
+        for day in range(2, 7)
+    )
+    with pytest.raises(
+        S7StreamingMaterializationError,
+        match="cannot preserve transition closure",
+    ):
+        stream._profile_sample_artifacts(
+            artifacts,
+            2,
+            mandatory_sessions=(
+                artifacts[2].session_date,
+                artifacts[3].session_date,
+            ),
+        )
+
+    anchors = binding.transition_profile_anchor_binding.to_dict()
+    anchors["asset_transition_release_id"] = "f" * 64
+    with pytest.raises(
+        S7StreamingMaterializationError,
+        match="derived fields differ",
+    ):
+        stream.TransitionProfileAnchorBinding.from_dict(anchors)
+
+    assert (
+        stream._build_transition_profile_anchor_binding(
+            registries,
+            cutoff_session=binding.cutoff_session,
+        )
+        == binding.transition_profile_anchor_binding
+    )
 
 
 def test_bounded_profile_replays_and_full_plan_binds_exact_completion(
@@ -1429,9 +1725,9 @@ def test_gate_c_identity_case_preview_is_exactly_replayed(tmp_path: Path) -> Non
         stream._load_gate_c_identity_case_preview(tmp_path, tampered)
 
     wrong_embedded_id = json.loads(json.dumps(candidate))
-    wrong_embedded_id["registry_loader_source_refs"]["detector_preview"][
-        "preview_artifact_id"
-    ] = "1" * 64
+    wrong_embedded_id["registry_loader_source_refs"]["detector_preview"]["preview_artifact_id"] = (
+        "1" * 64
+    )
     with pytest.raises(S7StreamingMaterializationError, match="embedded ID differs"):
         stream._load_gate_c_identity_case_preview(tmp_path, wrong_embedded_id)
 

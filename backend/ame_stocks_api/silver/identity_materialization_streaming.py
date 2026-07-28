@@ -47,7 +47,10 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from ame_stocks_api.artifacts import safe_relative_path, sha256_file, stable_digest
-from ame_stocks_api.silver.asset_contract import UNIVERSE_SOURCE_DAILY_CONTRACT
+from ame_stocks_api.silver.asset_contract import (
+    ASSET_OBSERVATION_DAILY_CONTRACT,
+    UNIVERSE_SOURCE_DAILY_CONTRACT,
+)
 from ame_stocks_api.silver.calendar_artifact import load_xnys_calendar_artifact
 from ame_stocks_api.silver.identity_market_consistency import (
     MARKET_CLASSIFICATION_VERSION,
@@ -79,6 +82,7 @@ from ame_stocks_api.silver.identity_registry_workflow import (
     REGISTRY_ORDER,
     ExactArtifactBinding,
     ExactSourceRow,
+    ExactSourceScope,
     LoadedRegistryReleaseSet,
     RegistryReleasePin,
     RegistryWorkflowError,
@@ -101,14 +105,16 @@ from ame_stocks_api.silver.identity_source import (
     open_identity_source_bundle,
 )
 
-STREAMING_POLICY_VERSION: Final = "s7-four-table-streaming-full-candidate-v2"
+STREAMING_POLICY_VERSION: Final = "s7-four-table-streaming-full-candidate-v3"
 STREAMING_PLAN_VERSION: Final = 1
 STREAMING_REQUEST_VERSION: Final = 1
 STREAMING_APPROVAL_VERSION: Final = 1
 STREAMING_INTENT_VERSION: Final = 1
 STREAMING_CANDIDATE_VERSION: Final = 1
 STREAMING_COMPLETION_VERSION: Final = 1
-PROFILE_POLICY_VERSION: Final = "s7-streaming-bounded-size-profile-v1"
+PROFILE_POLICY_VERSION: Final = "s7-streaming-bounded-size-profile-v2"
+PROFILE_SAMPLE_SELECTION_POLICY_VERSION: Final = "s7-transition-closed-calendar-strata-v1"
+TRANSITION_PROFILE_ANCHOR_POLICY_VERSION: Final = "s7-transition-profile-anchor-binding-v1"
 PROFILE_SAMPLE_SESSION_HARD_CAP: Final = 25
 PROFILE_AUTHORIZED_ACTION: Final = "execute_exact_s7_bounded_size_profile_once_to_awaiting_review"
 STREAMING_STATE: Final = "awaiting_review"
@@ -126,7 +132,7 @@ S7_STANDING_REAFFIRMATION_TEXT: Final = "批准"
 S7_STANDING_REAFFIRMATION_SHA256: Final = hashlib.sha256(
     S7_STANDING_REAFFIRMATION_TEXT.encode("utf-8")
 ).hexdigest()
-PRODUCTION_ADAPTER_VERSION: Final = "s7_frozen_registry_projection_adapter_v1"
+PRODUCTION_ADAPTER_VERSION: Final = "s7_frozen_registry_projection_adapter_v2"
 PRODUCTION_GATE_B_REFERENCE_VERSION: Final = MARKET_CLASSIFICATION_VERSION
 
 TABLE_ORDER: Final = (
@@ -319,6 +325,204 @@ class SessionArtifactPin:
 
 
 @dataclass(frozen=True, slots=True)
+class TransitionProfileDecisionAnchor:
+    decision_id: str
+    source_scope_digest: str
+    source_record_set_digest: str
+    predecessor_last_session: date
+    successor_first_session: date
+
+    def __post_init__(self) -> None:
+        _digest(self.decision_id, "transition anchor decision ID")
+        _digest(self.source_scope_digest, "transition anchor source-scope digest")
+        _digest(
+            self.source_record_set_digest,
+            "transition anchor source-record-set digest",
+        )
+        predecessor = _native_date(
+            self.predecessor_last_session,
+            "transition anchor predecessor session",
+        )
+        successor = _native_date(
+            self.successor_first_session,
+            "transition anchor successor session",
+        )
+        if predecessor >= successor:
+            raise S7StreamingMaterializationError(
+                "transition anchor predecessor must predate successor"
+            )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "decision_id": self.decision_id,
+            "predecessor_last_session": self.predecessor_last_session.isoformat(),
+            "source_record_set_digest": self.source_record_set_digest,
+            "source_scope_digest": self.source_scope_digest,
+            "successor_first_session": self.successor_first_session.isoformat(),
+        }
+
+    @classmethod
+    def from_dict(cls, value: object) -> TransitionProfileDecisionAnchor:
+        item = _mapping(value, "transition profile decision anchor")
+        _expect_keys(
+            item,
+            {
+                "decision_id",
+                "predecessor_last_session",
+                "source_record_set_digest",
+                "source_scope_digest",
+                "successor_first_session",
+            },
+            "transition profile decision anchor",
+        )
+        return cls(
+            decision_id=_digest(item["decision_id"], "transition anchor decision ID"),
+            source_scope_digest=_digest(
+                item["source_scope_digest"],
+                "transition anchor source-scope digest",
+            ),
+            source_record_set_digest=_digest(
+                item["source_record_set_digest"],
+                "transition anchor source-record-set digest",
+            ),
+            predecessor_last_session=date.fromisoformat(
+                _text(
+                    item["predecessor_last_session"],
+                    "transition anchor predecessor session",
+                )
+            ),
+            successor_first_session=date.fromisoformat(
+                _text(
+                    item["successor_first_session"],
+                    "transition anchor successor session",
+                )
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class TransitionProfileAnchorBinding:
+    asset_transition_release_id: str
+    asset_transition_release_available_session: date
+    effective_decisions: tuple[TransitionProfileDecisionAnchor, ...]
+
+    def __post_init__(self) -> None:
+        _digest(self.asset_transition_release_id, "asset-transition release ID")
+        _native_date(
+            self.asset_transition_release_available_session,
+            "asset-transition release availability",
+        )
+        decisions = tuple(self.effective_decisions)
+        if decisions != tuple(sorted(decisions, key=lambda item: item.decision_id)):
+            raise S7StreamingMaterializationError(
+                "transition profile anchors must be decision-ID sorted"
+            )
+        if len({item.decision_id for item in decisions}) != len(decisions):
+            raise S7StreamingMaterializationError("transition profile anchor decision IDs repeat")
+        object.__setattr__(self, "effective_decisions", decisions)
+
+    @property
+    def mandatory_sessions(self) -> tuple[date, ...]:
+        return tuple(
+            sorted(
+                {
+                    session
+                    for item in self.effective_decisions
+                    for session in (
+                        item.predecessor_last_session,
+                        item.successor_first_session,
+                    )
+                }
+            )
+        )
+
+    @property
+    def effective_scope_set_digest(self) -> str:
+        return stable_digest([item.to_dict() for item in self.effective_decisions])
+
+    @property
+    def mandatory_session_set_digest(self) -> str:
+        return stable_digest([item.isoformat() for item in self.mandatory_sessions])
+
+    @property
+    def anchor_binding_id(self) -> str:
+        return stable_digest(self.logical_payload())
+
+    def logical_payload(self) -> dict[str, object]:
+        return {
+            "asset_transition_release_available_session": (
+                self.asset_transition_release_available_session.isoformat()
+            ),
+            "asset_transition_release_id": self.asset_transition_release_id,
+            "effective_decisions": [item.to_dict() for item in self.effective_decisions],
+            "policy_version": TRANSITION_PROFILE_ANCHOR_POLICY_VERSION,
+        }
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            **self.logical_payload(),
+            "anchor_binding_id": self.anchor_binding_id,
+            "effective_scope_set_digest": self.effective_scope_set_digest,
+            "mandatory_session_set_digest": self.mandatory_session_set_digest,
+            "mandatory_sessions": [item.isoformat() for item in self.mandatory_sessions],
+        }
+
+    @classmethod
+    def from_dict(cls, value: object) -> TransitionProfileAnchorBinding:
+        item = _mapping(value, "transition profile anchor binding")
+        _expect_keys(
+            item,
+            {
+                "anchor_binding_id",
+                "asset_transition_release_available_session",
+                "asset_transition_release_id",
+                "effective_decisions",
+                "effective_scope_set_digest",
+                "mandatory_session_set_digest",
+                "mandatory_sessions",
+                "policy_version",
+            },
+            "transition profile anchor binding",
+        )
+        if item["policy_version"] != TRANSITION_PROFILE_ANCHOR_POLICY_VERSION:
+            raise S7StreamingMaterializationError("transition profile anchor policy differs")
+        binding = cls(
+            asset_transition_release_id=_digest(
+                item["asset_transition_release_id"],
+                "asset-transition release ID",
+            ),
+            asset_transition_release_available_session=date.fromisoformat(
+                _text(
+                    item["asset_transition_release_available_session"],
+                    "asset-transition release availability",
+                )
+            ),
+            effective_decisions=tuple(
+                TransitionProfileDecisionAnchor.from_dict(value)
+                for value in _array(
+                    item["effective_decisions"],
+                    "transition profile decision anchors",
+                )
+            ),
+        )
+        declared_sessions = tuple(
+            date.fromisoformat(_text(value, "transition mandatory session"))
+            for value in _array(
+                item["mandatory_sessions"],
+                "transition mandatory sessions",
+            )
+        )
+        if (
+            item["anchor_binding_id"] != binding.anchor_binding_id
+            or item["effective_scope_set_digest"] != binding.effective_scope_set_digest
+            or item["mandatory_session_set_digest"] != binding.mandatory_session_set_digest
+            or declared_sessions != binding.mandatory_sessions
+        ):
+            raise S7StreamingMaterializationError("transition profile anchor derived fields differ")
+        return binding
+
+
+@dataclass(frozen=True, slots=True)
 class GateBReferencePin:
     candidate_id: str
     candidate_state: str
@@ -487,6 +691,7 @@ class S7StreamingSourceBinding:
     runtime_binding: Mapping[str, object]
     calendar_artifact_id: str
     calendar_artifact_sha256: str
+    transition_profile_anchor_binding: TransitionProfileAnchorBinding
     s4_release_set_id: str = S7_S4_RELEASE_SET_ID
     six_release_binding_id: str = S7_SIX_RELEASE_BINDING_ID
     source_release_pins: Mapping[str, Mapping[str, object]] = field(
@@ -518,6 +723,24 @@ class S7StreamingSourceBinding:
             raise S7StreamingMaterializationError("five registry pins are not in frozen order")
         if any(item.release_available_session > self.cutoff_session for item in pins):
             raise S7StreamingMaterializationError("registry release is unavailable at cutoff")
+        transition_pin = pins[REGISTRY_ORDER.index("asset_transition")]
+        anchors = self.transition_profile_anchor_binding
+        if (
+            anchors.asset_transition_release_id != transition_pin.release_id
+            or anchors.asset_transition_release_available_session
+            != transition_pin.release_available_session
+        ):
+            raise S7StreamingMaterializationError(
+                "transition profile anchors bind a different registry release"
+            )
+        membership_sessions = {item.session_date for item in artifacts}
+        if any(
+            session > self.cutoff_session or session not in membership_sessions
+            for session in anchors.mandatory_sessions
+        ):
+            raise S7StreamingMaterializationError(
+                "transition profile anchor session is outside bound membership"
+            )
         approvals = tuple(self.contract_approvals)
         if len(approvals) != len(TABLE_ORDER) or len({item.path for item in approvals}) != len(
             approvals
@@ -620,6 +843,7 @@ class S7StreamingSourceBinding:
             "source_release_pins": {
                 key: dict(value) for key, value in self.source_release_pins.items()
             },
+            "transition_profile_anchor_binding": (self.transition_profile_anchor_binding.to_dict()),
         }
 
     def to_dict(self) -> dict[str, object]:
@@ -655,6 +879,7 @@ class S7StreamingSourceBinding:
             "six_release_binding_id",
             "source_binding_id",
             "source_release_pins",
+            "transition_profile_anchor_binding",
         }
         _expect_keys(item, expected, "streaming source binding")
         if item["policy_version"] != STREAMING_POLICY_VERSION:
@@ -680,6 +905,9 @@ class S7StreamingSourceBinding:
             runtime_binding=_mapping(item["runtime_binding"], "runtime binding"),
             calendar_artifact_id=_digest(item["calendar_artifact_id"], "calendar ID"),
             calendar_artifact_sha256=_digest(item["calendar_artifact_sha256"], "calendar SHA-256"),
+            transition_profile_anchor_binding=TransitionProfileAnchorBinding.from_dict(
+                item["transition_profile_anchor_binding"]
+            ),
             s4_release_set_id=_digest(item["s4_release_set_id"], "S4 release-set ID"),
             six_release_binding_id=_digest(
                 item["six_release_binding_id"], "six-release binding ID"
@@ -1091,6 +1319,43 @@ class FrozenRegistryProjectionAdapter:
         )
 
 
+def _selected_asset_observation_parent(
+    source: Mapping[str, object],
+    *,
+    binding: S7StreamingSourceBinding,
+) -> ExactSourceRow:
+    """Reconstruct the exact S4 observation selected by one membership row."""
+
+    return ExactSourceRow(
+        session_date=_native_date(
+            source.get("session_date"),
+            "selected observation session",
+        ),
+        source_record_id=_digest(
+            source.get("selected_source_record_id"),
+            "selected observation source record ID",
+        ),
+        source_dataset=ASSET_OBSERVATION_DAILY_CONTRACT.table,
+        source_s4_release_set_id=binding.s4_release_set_id,
+        provider_id="massive",
+        provider_market=_text(source.get("market"), "selected observation provider market"),
+        provider_locale=_text(source.get("locale"), "selected observation provider locale"),
+        ticker=_text(source.get("ticker"), "selected observation ticker"),
+        observed_composite_figi=_figi(
+            source.get("composite_figi"),
+            "selected observation Composite FIGI",
+        ),
+        observed_share_class_figi=_optional_figi(
+            source.get("share_class_figi"),
+            "selected observation ShareClass FIGI",
+        ),
+        primary_exchange_mic=_optional_mic(
+            source.get("primary_exchange_mic"),
+            "selected observation primary exchange MIC",
+        ),
+    )
+
+
 def _frozen_registry_projection(
     source: Mapping[str, object],
     *,
@@ -1098,9 +1363,7 @@ def _frozen_registry_projection(
     registries: LoadedRegistryReleaseSet,
     binding: S7StreamingSourceBinding,
 ) -> ResolutionProjection:
-    session = _native_date(source.get("session_date"), "projection source session")
     source_id = _digest(source.get("selected_source_record_id"), "projection source ID")
-    ticker = _text(source.get("ticker"), "projection ticker")
     observed = _optional_figi(source.get("composite_figi"), "projection observed Composite")
     observed_share = _optional_figi(
         source.get("share_class_figi"), "projection observed ShareClass"
@@ -1145,20 +1408,9 @@ def _frozen_registry_projection(
         evidence_sessions.append(
             _native_date(gate_row["source_available_session"], "Gate-B availability")
         )
-        exact_source = ExactSourceRow(
-            session_date=session,
-            source_record_id=source_id,
-            source_dataset="universe_source_daily",
-            source_s4_release_set_id=binding.s4_release_set_id,
-            provider_id="massive",
-            provider_market=_text(source.get("market"), "provider market"),
-            provider_locale=_text(source.get("locale"), "provider locale"),
-            ticker=ticker,
-            observed_composite_figi=observed,
-            observed_share_class_figi=observed_share,
-            primary_exchange_mic=_optional_mic(
-                source.get("primary_exchange_mic"), "primary exchange MIC"
-            ),
+        exact_source = _selected_asset_observation_parent(
+            source,
+            binding=binding,
         )
         matches = tuple(
             registries.composite_matches(exact_source, cutoff_session=binding.cutoff_session)
@@ -1682,6 +1934,69 @@ def build_and_store_production_streaming_source_binding(
     return binding, _store_verified_streaming_source_binding(root, binding)
 
 
+def _effective_asset_transition_decisions(
+    registries: LoadedRegistryReleaseSet,
+    *,
+    cutoff_session: date,
+) -> tuple[tuple[str, Mapping[str, object], ExactSourceScope], ...]:
+    release = registries.by_name("asset_transition")
+    result: list[tuple[str, Mapping[str, object], ExactSourceScope]] = []
+    for decision_id in release.effective_decision_ids(
+        cutoff_session=_native_date(cutoff_session, "transition decision cutoff")
+    ):
+        row = release.require_decision(
+            decision_id,
+            cutoff_session=cutoff_session,
+        )
+        scope = release.source_scopes.get(decision_id)
+        if scope is None:
+            raise S7StreamingMaterializationError(
+                "effective asset transition lacks an exact source scope"
+            )
+        result.append((decision_id, row, scope))
+    return tuple(result)
+
+
+def _build_transition_profile_anchor_binding(
+    registries: LoadedRegistryReleaseSet,
+    *,
+    cutoff_session: date,
+) -> TransitionProfileAnchorBinding:
+    release = registries.by_name("asset_transition")
+    decisions: list[TransitionProfileDecisionAnchor] = []
+    for decision_id, row, scope in _effective_asset_transition_decisions(
+        registries,
+        cutoff_session=cutoff_session,
+    ):
+        predecessor = _native_date(
+            row.get("predecessor_last_session"),
+            "transition predecessor last session",
+        )
+        successor = _native_date(
+            row.get("successor_first_session"),
+            "transition successor first session",
+        )
+        scope_sessions = {item.session_date for item in scope.rows}
+        if predecessor not in scope_sessions or successor not in scope_sessions:
+            raise S7StreamingMaterializationError(
+                "asset-transition endpoint session is absent from its exact source scope"
+            )
+        decisions.append(
+            TransitionProfileDecisionAnchor(
+                decision_id=decision_id,
+                source_scope_digest=scope.scope_digest,
+                source_record_set_digest=scope.source_record_set_digest,
+                predecessor_last_session=predecessor,
+                successor_first_session=successor,
+            )
+        )
+    return TransitionProfileAnchorBinding(
+        asset_transition_release_id=release.release_id,
+        asset_transition_release_available_session=release.release_available_session,
+        effective_decisions=tuple(sorted(decisions, key=lambda item: item.decision_id)),
+    )
+
+
 def _build_official_production_source_binding(
     root: Path,
     *,
@@ -1809,6 +2124,12 @@ def _build_official_production_source_binding(
             runtime_binding=runtime,
             calendar_artifact_id=calendar.calendar_artifact_id,
             calendar_artifact_sha256=calendar.sha256,
+            transition_profile_anchor_binding=(
+                _build_transition_profile_anchor_binding(
+                    registries,
+                    cutoff_session=cutoff,
+                )
+            ),
         )
     except S7StreamingMaterializationError:
         raise
@@ -2118,21 +2439,14 @@ def _load_gate_c_identity_case_preview(
         preview_path,
         "official identity-case preview",
     )
-    if (
-        preview_pin.sha256
-        != _digest(
-            preview_ref.get("sha256"),
-            "official identity-case preview SHA-256",
-        )
-        or preview_pin.bytes
-        != _nonnegative(
-            preview_ref.get("bytes"),
-            "official identity-case preview bytes",
-        )
+    if preview_pin.sha256 != _digest(
+        preview_ref.get("sha256"),
+        "official identity-case preview SHA-256",
+    ) or preview_pin.bytes != _nonnegative(
+        preview_ref.get("bytes"),
+        "official identity-case preview bytes",
     ):
-        raise S7StreamingMaterializationError(
-            "official identity-case preview receipt differs"
-        )
+        raise S7StreamingMaterializationError("official identity-case preview receipt differs")
     preview_document = _mapping(
         _load_canonical_json(
             _read_exact_file(root, preview_path, label="official identity-case preview"),
@@ -2141,9 +2455,7 @@ def _load_gate_c_identity_case_preview(
         "official identity-case preview",
     )
     if preview_document.get("preview_artifact_id") != preview_id:
-        raise S7StreamingMaterializationError(
-            "official identity-case preview embedded ID differs"
-        )
+        raise S7StreamingMaterializationError("official identity-case preview embedded ID differs")
     preview_result = _mapping(
         preview_document.get("result"),
         "official identity-case preview result",
@@ -2255,7 +2567,11 @@ def prepare_streaming_bounded_profile_preview_plan(
     cap = _positive(sample_session_cap, "profile sample session cap")
     if cap > PROFILE_SAMPLE_SESSION_HARD_CAP:
         raise S7StreamingMaterializationError("profile sample exceeds the frozen hard cap")
-    sample = _profile_sample_artifacts(binding.membership_artifacts, cap)
+    sample = _profile_sample_artifacts(
+        binding.membership_artifacts,
+        cap,
+        mandatory_sessions=(binding.transition_profile_anchor_binding.mandatory_sessions),
+    )
     slot = {
         "artifact_type": "s7_streaming_bounded_size_profile_plan",
         "authorized_action": PROFILE_AUTHORIZED_ACTION,
@@ -2263,10 +2579,12 @@ def prepare_streaming_bounded_profile_preview_plan(
         "full_resource_caps": full_resource_caps.to_dict(),
         "policy_version": PROFILE_POLICY_VERSION,
         "runtime_binding": dict(binding.runtime_binding),
+        "sample_selection_policy_version": (PROFILE_SAMPLE_SELECTION_POLICY_VERSION),
         "sample_artifacts": [item.to_dict() for item in sample],
         "sample_session_cap": cap,
         "source_binding": binding_receipt.to_dict(),
         "source_binding_id": binding.source_binding_id,
+        "transition_profile_anchor_binding": (binding.transition_profile_anchor_binding.to_dict()),
     }
     plan_id = stable_digest({**slot, "artifact_type": "s7_streaming_size_profile_plan_slot"})
     relative = _profile_plan_path(plan_id)
@@ -3670,18 +3988,9 @@ def _build_and_validate_universe_row(
             raise S7StreamingMaterializationError(
                 "Gate-B reference inventory has an unattempted Composite"
             )
-        exact_source = ExactSourceRow(
-            session_date=session,
-            source_record_id=source_id,
-            source_dataset="universe_source_daily",
-            source_s4_release_set_id=binding.s4_release_set_id,
-            provider_id="massive",
-            provider_market=_text(source.get("market"), "provider market"),
-            provider_locale=_text(source.get("locale"), "provider locale"),
-            ticker=ticker,
-            observed_composite_figi=observed_composite,
-            observed_share_class_figi=observed_share,
-            primary_exchange_mic=mic,
+        exact_source = _selected_asset_observation_parent(
+            source,
+            binding=binding,
         )
         matches = tuple(
             registries.composite_matches(exact_source, cutoff_session=binding.cutoff_session)
@@ -3934,9 +4243,7 @@ def _build_and_validate_universe_row(
         "identity_disposition": projection.identity_disposition,
         "identity_case_id": projection.identity_case_id,
         "identity_case_available_session": projection.identity_case_available_session,
-        "source_identity_case_candidate_manifest_id": (
-            binding.gate_c.identity_case_preview_id
-        ),
+        "source_identity_case_candidate_manifest_id": (binding.gate_c.identity_case_preview_id),
         "source_identity_case_candidate_manifest_sha256": (
             binding.gate_c.identity_case_preview_manifest.sha256
         ),
@@ -4438,15 +4745,18 @@ def _transition_edges(
     registries: LoadedRegistryReleaseSet,
     binding: S7StreamingSourceBinding,
 ) -> dict[str, dict[str, set[str]]]:
-    release = registries.by_name("asset_transition")
     edges: dict[str, dict[str, set[str]]] = defaultdict(
         lambda: {"predecessors": set(), "successors": set()}
     )
-    for decision_id, raw in release.decision_rows.items():
+    for decision_id, raw, _ in _effective_asset_transition_decisions(
+        registries,
+        cutoff_session=binding.cutoff_session,
+    ):
         row = dict(raw)
-        available = _native_date(row.get("transition_available_session"), "transition availability")
-        if available > binding.cutoff_session:
-            continue
+        _native_date(
+            row.get("transition_available_session"),
+            "transition availability",
+        )
         predecessor = _digest(row.get("predecessor_asset_id"), "predecessor asset ID")
         successor = _digest(row.get("successor_asset_id"), "successor asset ID")
         if predecessor == successor:
@@ -4764,9 +5074,7 @@ def _source_binding_columns(binding: S7StreamingSourceBinding) -> dict[str, obje
         "source_s5_status_release_id": S7_SOURCE_PINS["ticker_event_request_status"].release_id,
         "source_s5_event_release_id": S7_SOURCE_PINS["ticker_change_event"].release_id,
         "source_s6_overview_release_id": S7_SOURCE_PINS["ticker_overview_safe"].release_id,
-        "source_identity_case_candidate_manifest_id": (
-            binding.gate_c.identity_case_preview_id
-        ),
+        "source_identity_case_candidate_manifest_id": (binding.gate_c.identity_case_preview_id),
         "source_identity_case_candidate_manifest_sha256": (
             binding.gate_c.identity_case_preview_manifest.sha256
         ),
@@ -4774,9 +5082,7 @@ def _source_binding_columns(binding: S7StreamingSourceBinding) -> dict[str, obje
         "source_identity_adjudication_release_available_session": registries[
             "identity_adjudication"
         ].release_available_session,
-        "source_identity_market_consistency_candidate_manifest_id": (
-            binding.gate_c.candidate_id
-        ),
+        "source_identity_market_consistency_candidate_manifest_id": (binding.gate_c.candidate_id),
         "source_identity_market_consistency_candidate_manifest_sha256": (
             binding.gate_c.candidate_manifest.sha256
         ),
@@ -5015,16 +5321,39 @@ def _load_source_binding(
 
 
 def _profile_sample_artifacts(
-    artifacts: Sequence[SessionArtifactPin], cap: int
+    artifacts: Sequence[SessionArtifactPin],
+    cap: int,
+    *,
+    mandatory_sessions: Sequence[date] = (),
 ) -> tuple[SessionArtifactPin, ...]:
-    """Choose frozen calendar strata plus the largest session, without content reads."""
+    """Choose transition-closed calendar strata plus the largest session."""
 
     items = tuple(artifacts)
     if not items:
         raise S7StreamingMaterializationError("profile source artifact set is empty")
     limit = min(_positive(cap, "profile sample cap"), len(items))
+    index_by_session = {item.session_date: index for index, item in enumerate(items)}
+    if len(index_by_session) != len(items):
+        raise S7StreamingMaterializationError("profile source artifact sessions repeat")
+    mandatory = tuple(mandatory_sessions)
+    if mandatory != tuple(sorted(set(mandatory))):
+        raise S7StreamingMaterializationError(
+            "profile mandatory sessions must be sorted and unique"
+        )
+    missing = [item for item in mandatory if item not in index_by_session]
+    if missing:
+        raise S7StreamingMaterializationError(
+            "profile transition anchor session is absent from membership"
+        )
     largest_index = max(range(len(items)), key=lambda index: (items[index].row_count, -index))
-    selected: set[int] = {largest_index}
+    selected: set[int] = {
+        largest_index,
+        *(index_by_session[item] for item in mandatory),
+    }
+    if len(selected) > limit:
+        raise S7StreamingMaterializationError(
+            "profile sample cap cannot preserve transition closure"
+        )
     strata = limit - 1
     if strata == 1:
         candidates = (0,)
@@ -5117,9 +5446,11 @@ def _load_profile_plan(
             "prepared_by",
             "runtime_binding",
             "sample_artifacts",
+            "sample_selection_policy_version",
             "sample_session_cap",
             "source_binding",
             "source_binding_id",
+            "transition_profile_anchor_binding",
         },
         "bounded profile plan",
     )
@@ -5135,6 +5466,7 @@ def _load_profile_plan(
         or document["authorized_action"] != PROFILE_AUTHORIZED_ACTION
         or document["capabilities"] != dict(_FALSE_CAPABILITIES)
         or document["policy_version"] != PROFILE_POLICY_VERSION
+        or document["sample_selection_policy_version"] != PROFILE_SAMPLE_SELECTION_POLICY_VERSION
     ):
         raise S7StreamingMaterializationError("bounded profile plan semantics differ")
     _utc_from_text(document["prepared_at_utc"], "profile plan time")
@@ -5149,11 +5481,20 @@ def _load_profile_plan(
         raise S7StreamingMaterializationError("profile source-binding receipt differs")
     if document["runtime_binding"] != dict(binding.runtime_binding):
         raise S7StreamingMaterializationError("profile runtime binding differs")
+    if (
+        TransitionProfileAnchorBinding.from_dict(document["transition_profile_anchor_binding"])
+        != binding.transition_profile_anchor_binding
+    ):
+        raise S7StreamingMaterializationError("profile transition anchor binding differs")
     sample = tuple(
         SessionArtifactPin.from_dict(value)
         for value in _array(document["sample_artifacts"], "profile sample artifacts")
     )
-    if sample != _profile_sample_artifacts(binding.membership_artifacts, cap):
+    if sample != _profile_sample_artifacts(
+        binding.membership_artifacts,
+        cap,
+        mandatory_sessions=(binding.transition_profile_anchor_binding.mandatory_sessions),
+    ):
         raise S7StreamingMaterializationError("profile sample selection differs")
     _validate_binding_against_caps(binding, caps)
     return (
@@ -6147,6 +6488,14 @@ def _verify_loaded_registry_set(
     for item, pin in zip(releases, binding.registry_pins, strict=True):
         if item.manifest_pin != pin or item.release_id != pin.release_id:
             raise S7StreamingMaterializationError("loaded registry release pin differs")
+    if (
+        _build_transition_profile_anchor_binding(
+            loaded,
+            cutoff_session=binding.cutoff_session,
+        )
+        != binding.transition_profile_anchor_binding
+    ):
+        raise S7StreamingMaterializationError("loaded transition profile anchors differ")
 
 
 def _load_gate_b_reference(root: Path, pin: GateBReferencePin) -> dict[str, Mapping[str, object]]:
