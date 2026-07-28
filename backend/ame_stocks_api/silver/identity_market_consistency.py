@@ -141,7 +141,7 @@ S7_CONTINUING_AUTHORIZATION_SHA256: Final = hashlib.sha256(
 S7_REAFFIRMATION_TEXT: Final = "批准"
 S7_REAFFIRMATION_SHA256: Final = hashlib.sha256(S7_REAFFIRMATION_TEXT.encode("utf-8")).hexdigest()
 
-OFFLINE_REPLAY_SLOT_VERSION: Final = "s7_gate_b_offline_reclassification_slot_v5"
+OFFLINE_REPLAY_SLOT_VERSION: Final = "s7_gate_b_offline_reclassification_slot_v6"
 OFFLINE_REPLAY_ACTION: Final = (
     "materialize_exact_078a_capture_with_current_transform_once_without_network"
 )
@@ -179,26 +179,26 @@ PRODUCTION_REPLAY_DIRECT_APPROVAL_SHA256: Final = (
 PRODUCTION_REPLAY_DIRECT_APPROVAL_BYTES: Final = 6_679
 _OFFLINE_REPLAY_RECOVERY_PREDECESSOR: Final = {
     "approval": {
-        "approval_id": "d94d344e9f637e0c5a7f41af0eda93fb1344fe04c767d99a3e6fe69e822c4d51",
-        "bytes": 7_617,
+        "approval_id": "44db17da03c8fb4a6e8b165115e8c7e400755f3d3f5fb5738a6548c15222d4b9",
+        "bytes": 7_514,
         "path": (
             "manifests/silver/identity/openfigi-market-consistency-offline-replay-"
             "approvals/slot_id="
-            "22dad0fb46423f463459c88e482def3a75b0457aa30f4e441348b6abd6bf6626/"
+            "39ebc13646254b26b8eebb4daf45d9731fe1df9c07786f3176300123ed7e03b8/"
             "manifest.json"
         ),
-        "sha256": "f53579ff538f82bef956ab879f852ebbc1b01d8cf9b9b5108b3f65c236afc74b",
+        "sha256": "057fd79fbaae723ae6049acd0e3232290876b67c97f217a5decab1f3aac58f3e",
     },
     "candidate": {
         "bytes": 9_472,
-        "candidate_id": "066b473636481ecd3a39fb02e16b7232570fbf75cf0327c3e1fd09db2e9f5377",
+        "candidate_id": "c4a1ace39af49844984e5a2d0de505f22251474b95df82aaaae29bb34f972836",
         "path": (
             "manifests/silver/identity/openfigi-market-consistency-candidates/"
             "candidate_id="
-            "066b473636481ecd3a39fb02e16b7232570fbf75cf0327c3e1fd09db2e9f5377/"
+            "c4a1ace39af49844984e5a2d0de505f22251474b95df82aaaae29bb34f972836/"
             "manifest.json"
         ),
-        "sha256": "d8aa623bc1df0b18d75335dfafaebd8e96defd4b1e136d351c8f608c43d4380c",
+        "sha256": "81b4ba50cd8da20d02408c0606946499f67790d1af60d366b3312ae815d9ce61",
     },
     "candidate_qa": {
         "bytes": 3_769,
@@ -206,38 +206,36 @@ _OFFLINE_REPLAY_RECOVERY_PREDECESSOR: Final = {
         "path": (
             "manifests/silver/identity/openfigi-market-consistency-candidates/"
             "candidate_id="
-            "066b473636481ecd3a39fb02e16b7232570fbf75cf0327c3e1fd09db2e9f5377/"
+            "c4a1ace39af49844984e5a2d0de505f22251474b95df82aaaae29bb34f972836/"
             "qa/qa.json"
         ),
-        "sha256": "a183ba86ab71679bac9a0864e3d623ceb8bdff89d651246d5209ceeeb9298ed5",
+        "sha256": "24e6394b1efbdf29168d0795ccc8f9a97a9aef9c6a04bb2e487fe69b946012f0",
     },
     "completion": {
         "bytes": 3_598,
-        "completion_id": "fc92d4ce70a4ba35ac5bfaa998364dbdae82e697dc44d71866c4e0c5d239d95c",
+        "completion_id": "b5777cedb899cb3c3456e9b20d781dc100e6643ac7ac318727aa5a69ac9ed279",
         "path": (
             "manifests/silver/identity/openfigi-market-consistency-offline-replay-"
             "completions/replay_id="
-            "86b5c895a7c4517fdf02247b949283805c0c4ce29d9d976c5adec7e7315079da/"
+            "1713c8e1f2d58868091172e24e5f009f5ded1503ee1639ca9cb71afbebce192f/"
             "manifest.json"
         ),
-        "sha256": "6d80a8215198ff66f37a18024ce21815001d6467eda34269481e218b8bebd196",
+        "sha256": "0110656cb611d6e6e40e1c8fbc7721949b8b37048130ab9c5fa3aacd9476ff2b",
     },
-    "disposition": (
-        "gate_b_v4_candidate_completed_with_zero_critical_under_frozen_runtime"
-    ),
+    "disposition": "gate_b_v5_candidate_completed_with_zero_critical_under_frozen_runtime",
     "intent": {
         "bytes": 2_774,
-        "intent_id": "96151656e0335ae72c35f014c89a16b18c6b5d84e5ada20c7643e0265981131b",
+        "intent_id": "4108c82ab1773ca0e1bddddb81bd267e1fb6ee01b054b9d4c89c811f69107df0",
         "path": (
             "manifests/silver/identity/openfigi-market-consistency-offline-replay-"
             "intents/replay_id="
-            "86b5c895a7c4517fdf02247b949283805c0c4ce29d9d976c5adec7e7315079da/"
+            "1713c8e1f2d58868091172e24e5f009f5ded1503ee1639ca9cb71afbebce192f/"
             "manifest.json"
         ),
-        "sha256": "58cdebdeeb6f233d804354776b8f7be6e9560648b294f22547786c30ee4a828e",
+        "sha256": "338a6636a992fa223ab2a42abe1d168b29b1c8738645d04123bbb13505c863c1",
     },
-    "replay_id": "86b5c895a7c4517fdf02247b949283805c0c4ce29d9d976c5adec7e7315079da",
-    "runtime_commit": "af8bf443e900a717f7e6a3bf0804532cb147a2b6",
+    "replay_id": "1713c8e1f2d58868091172e24e5f009f5ded1503ee1639ca9cb71afbebce192f",
+    "runtime_commit": "dbd9745cd22328df87f97960888b32434aed9503",
 }
 _CLASSIFIER_ALGORITHM_BASIS: Final = {
     "composite_market_rule": "unique_exact_self_row_v1",
@@ -1987,7 +1985,7 @@ def _offline_replay_candidate_basis(replay: Mapping[str, object]) -> dict[str, o
 
 
 def _verify_offline_replay_recovery_predecessor(root: Path) -> None:
-    """Bind replay v5 to the completed, zero-Critical v4 Gate-B chain."""
+    """Bind replay v6 to the completed, zero-Critical v5 Gate-B chain."""
 
     predecessor = _OFFLINE_REPLAY_RECOVERY_PREDECESSOR
     loaded: dict[str, dict[str, object]] = {}
@@ -2061,7 +2059,7 @@ def _verify_offline_replay_recovery_predecessor(root: Path) -> None:
     expected_completion_path = _offline_replay_completion_path(replay_id)
     if (
         approval.get("approval_id") != approval_ref.get("approval_id")
-        or approval.get("approval_slot_version") != "s7_gate_b_offline_reclassification_slot_v4"
+        or approval.get("approval_slot_version") != "s7_gate_b_offline_reclassification_slot_v5"
         or approval.get("replay_id") != replay_id
         or transform_runtime.get("repository_commit") != predecessor.get("runtime_commit")
         or approval.get("transform_runtime_binding_digest") != transform_runtime_digest
