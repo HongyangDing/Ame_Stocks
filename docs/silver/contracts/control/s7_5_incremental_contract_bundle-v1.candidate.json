@@ -1,0 +1,494 @@
+{
+  "artifact_type": "s7_5_incremental_contract_bundle_candidate",
+  "contract_id": "b54781ddfb37f7720315dffea340e017b23fad77853f9725b1ae969a46aa66bb",
+  "contract_version": 1,
+  "logical_contract": {
+    "alias_v2": {
+      "canonical_id_rules": {
+        "asset_id": "ame_stocks_asset_id_from_composite_figi_v1",
+        "issuer_id": "ame_stocks_issuer_id_from_normalized_cik_v1",
+        "share_class_id": "ame_stocks_share_class_id_from_share_class_figi_v1",
+        "validation": "stored_canonical_ids_must_reproduce_from_their_canonical_figi_or_cik"
+      },
+      "resolution_version": {
+        "closed_dispositions": [
+          "adjudicated_unresolved",
+          "confirmed_genuine_transition",
+          "confirmed_provider_contamination",
+          "cross_market_adjudicated_unresolved",
+          "observed_consistent",
+          "pending_cross_market_review",
+          "pending_unresolved",
+          "provider_composite_stale_after_transition",
+          "registry_collision_unresolved",
+          "transient_duplicate_share_class",
+          "withdrawn_source_correction"
+        ],
+        "closed_methods": [
+          "adjudicated_unresolved",
+          "approved_cross_market_provider_contamination_override",
+          "approved_genuine_transition",
+          "approved_provider_composite_override",
+          "approved_provider_contamination_override",
+          "approved_withdrawal",
+          "direct_observed",
+          "pending_review"
+        ],
+        "closed_share_class_methods": [
+          "approved_share_class_adjudication",
+          "direct_observed",
+          "not_applicable"
+        ],
+        "forbidden_identity_fields": [
+          "created_at_utc",
+          "current_release_id",
+          "runtime_provenance",
+          "tombstone_available_session"
+        ],
+        "hash_payload": "namespace_plus_rule_version_plus_subject_fields",
+        "namespace": "ame_stocks.identity.alias_resolution_version",
+        "rule_version": "ame_stocks_alias_resolution_version_id_v1",
+        "shape_invariants": [
+          "construction_and_deserialization_require_the_exact_alias_segment_subject",
+          "direct_composite_resolution_requires_zero_composite_decision_lineage_and_composite_issuer_equal_to_observed",
+          "approved_composite_override_transition_and_withdrawal_require_exact_composite_decision_lineage",
+          "composite_and_share_class_resolution_components_are_independent_and_may_compose",
+          "share_class_adjudication_requires_separate_decision_lineage_and_applies_only_after_unique_canonical_composite",
+          "share_class_component_cannot_change_composite_or_issuer_identity",
+          "composite_component_cannot_itself_change_share_class_or_issuer_identity",
+          "absent_share_class_has_only_not_applicable_representation",
+          "composite_override_must_change_observed_composite_and_cannot_silently_rewrite_lineage",
+          "unresolved_has_no_canonical_ids_and_is_not_a_tombstone",
+          "tombstone_has_null_canonical_ids_exact_predecessor_reason_and_single_resolution_availability",
+          "tombstone_cannot_have_a_successor",
+          "segment_valid_from_lte_valid_through_lte_identity_cutoff",
+          "all_knowledge_dates_gte_segment_valid_from",
+          "identity_resolution_and_evidence_cutoffs_and_availability_cannot_move_backward_in_a_successor",
+          "mechanical_successor_freezes_canonical_method_status_disposition_policy_decision_and_tombstone_facts",
+          "clean_delta_new_root_is_only_direct_observed_resolved_or_pending_review_unresolved_with_no_composite_or_share_class_approved_lineage"
+        ],
+        "subject_fields": [
+          "alias_segment_id",
+          "canonical_asset_id",
+          "canonical_cik_normalized",
+          "canonical_composite_figi",
+          "canonical_issuer_id",
+          "canonical_share_class_id",
+          "canonical_share_class_figi",
+          "decision_lineage_ids",
+          "disposition",
+          "evidence_available_session",
+          "evidence_cutoff_session",
+          "identity_cutoff_session",
+          "identity_policy_bundle_id",
+          "is_tombstone",
+          "predecessor_alias_resolution_version_id",
+          "resolution_available_session",
+          "resolution_method",
+          "resolution_status",
+          "share_class_decision_lineage_ids",
+          "share_class_resolution_method",
+          "source_record_set_digest",
+          "tombstone_reason_code",
+          "valid_through_session"
+        ]
+      },
+      "segment": {
+        "forbidden_identity_fields": [
+          "canonical_asset_id",
+          "canonical_composite_figi",
+          "canonical_share_class_figi",
+          "decision_lineage_ids",
+          "evidence_cutoff_session",
+          "identity_cutoff_session",
+          "identity_policy_bundle_id",
+          "release_id",
+          "runtime_provenance",
+          "valid_through_session"
+        ],
+        "hash_payload": "namespace_plus_rule_version_plus_subject_fields",
+        "namespace": "ame_stocks.identity.alias_segment",
+        "observed_composite_required": true,
+        "rule_version": "ame_stocks_alias_segment_id_v1",
+        "subject_fields": [
+          "observed_cik_normalized",
+          "observed_composite_figi",
+          "observed_share_class_figi",
+          "provider_id",
+          "provider_locale",
+          "provider_market",
+          "segment_origin_source_record_id",
+          "ticker",
+          "valid_from_session"
+        ]
+      }
+    },
+    "automatic_publish": {
+      "future_allowed_clean_delta_row_operations_after_fixed_dispatcher": [
+        "mechanical_successor",
+        "new_root"
+      ],
+      "gate_a_row_publication_state": "default_deny_all_row_bearing_releases_until_i3_module_owned_dispatchers_are_frozen",
+      "blocked_conditions": [
+        "critical_or_high_failure_or_warning_above_contract_limit",
+        "eligible_or_resolved_or_alias_registry_collision",
+        "missing_or_mismatched_row_semantic_proof",
+        "source_mutation_omission_or_duplication",
+        "parent_chain_or_causal_reference_conflict",
+        "resource_cap_or_disk_floor_failure",
+        "non_idempotent_logical_output"
+      ],
+      "manual_approval_required": [
+        "canonical_identity_override",
+        "registry_successor_or_withdrawal",
+        "historical_partition_addition",
+        "historical_partition_replacement",
+        "reviewed_row_version_correction_or_tombstone",
+        "identity_policy_bundle_change",
+        "qa_policy_change_via_new_base",
+        "schema_transform_or_calendar_change_via_new_base",
+        "new_base_cutover"
+      ],
+      "safe_unresolved_membership": {
+        "alias_resolution_version_id": null,
+        "alias_segment_id": null,
+        "backtest_identity_eligible": false,
+        "membership_retained": true,
+        "review_queue_required": true
+      }
+    },
+    "capabilities": {
+      "incremental_execution_authorized": false,
+      "parquet_content_read_authorized": false,
+      "publish_authorized": false,
+      "registry_mutation_authorized": false,
+      "s8_execution_authorized": false
+    },
+    "checkpoint": {
+      "authoritative": false,
+      "content_schema_state": "gate_a_envelope_frozen_i3_must_freeze_and_execute_bytes_to_state_validator_before_production_consumption",
+      "corruption_effect": "after_i3_bytes_validation_incremental_writer_fails_closed_and_parent_release_remains_readable",
+      "last_session_rule": "equals_maximum_resolved_partition_session_across_parent_and_current_changes",
+      "receipt_fields": [
+        "artifact",
+        "last_session",
+        "parent_release_id",
+        "rebuild_basis_digest",
+        "resolved_content_digest",
+        "rule_version",
+        "run_spec_id"
+      ],
+      "receipt_rule_version": "s7_5_checkpoint_receipt_v1",
+      "resolved_content_digest": "resolved_receipts_and_terminal_rows_excluding_release_chain_and_top_release_id",
+      "role": "rebuildable_run_receipt_output_cache",
+      "self_cycle_prohibition": "checkpoint_cannot_bind_the_current_release_id_or_lineage_digest"
+    },
+    "control_plane": {
+      "durable_objects": [
+        "run_spec",
+        "run_receipt",
+        "release_manifest"
+      ],
+      "exact_location_rules": [
+        "release_manifest_control_provenance_pins_run_spec_and_run_receipt_by_object_id_path_bytes_sha256",
+        "release_manifest_body_does_not_contain_its_own_path_bytes_or_sha256",
+        "external_manifest_pin_is_computed_after_canonical_body_serialization",
+        "manifest_body_embeds_release_available_session_and_exact_pin_cannot_choose_another_date",
+        "i2_i3_loader_must_verify_every_consumed_exact_byte_pin_including_inputs_manifest_run_spec_run_receipt_partition_parquet_row_index_semantic_proof_checkpoint_qa_details_evidence_and_authorization_before_minting_runtime_capabilities",
+        "resolver_rejects_bare_manifest_bodies"
+      ],
+      "availability_trust_boundary": {
+        "first_publication_backdating": "requires_i2_i3_append_only_publication_event_ledger_not_implemented_at_gate_a",
+        "same_body_repin": "prevented_by_body_bound_release_available_session_and_exact_manifest_pin"
+      },
+      "projection_validation": [
+        "successful_run_receipt_belongs_to_run_spec",
+        "manifest_semantics_parent_sources_cutoffs_and_authorization_equal_run_spec",
+        "actual_input_digest_equals_exact_run_spec_source_binding",
+        "expected_output_actual_output_qa_and_manifest_change_set_are_identical",
+        "structured_qa_policy_receipt_check_set_source_change_run_spec_availability_and_observation_coverage_match",
+        "checkpoint_parent_frontier_resolved_content_and_rebuild_basis_match",
+        "typed_correction_authorization_binds_parent_change_source_semantics_policy_scope_evidence_approval_and_availability",
+        "successful_runtime_observations_satisfy_rss_disk_and_optional_wall_clock_guards",
+        "qa_availability_not_after_run_cutoff_and_run_receipt_availability_not_before_cutoff_or_after_release_availability",
+        "all_control_object_and_manifest_pins_reproduce",
+        "complete_parent_control_chain_replays_iteratively_base_to_top_without_recursion",
+        "row_bearing_release_fails_until_a_module_owned_dispatcher_reproduces_exact_proofs"
+      ],
+      "runtime_capabilities": {
+        "content_attested_release": {
+          "durable_object": false,
+          "attestation_scope": "pure_resolved_receipt_graph_and_snapshot_digest_not_storage_byte_existence",
+          "minted_only_after": "control_projection_and_publication_cutoff_resolved_receipt_graph_reproduction",
+          "not_authority_for": "production_publication_or_new_base_cutover",
+          "production_loader_precondition": "i2_i3_verifies_every_consumed_artifact_byte_pin_and_external_publication_authority",
+          "resolver_requires": true
+        },
+        "control_validated_candidate": {
+          "durable_object": false,
+          "minted_only_by": "validate_release_projection",
+          "resolver_requires": false
+        },
+        "private_seals": "in_process_misuse_guards_not_cryptographic_or_io_trust_boundaries"
+      },
+      "production_publication_trust": {
+        "base_cutover": "default_deny_until_i2_i3_attests_exact_append_only_approval_event",
+        "correction": "default_deny_reader_capability_until_i2_i3_attests_exact_append_only_approval_event",
+        "gate_a_state": "no_production_publisher_or_trusted_io_loader"
+      },
+      "run_receipt": {
+        "failed_shape": "error_codes_required_and_only_causal_prefixes_none_or_inputs_or_inputs_outputs_or_inputs_outputs_qa_or_complete_are_valid",
+        "receipt_available_session_in_logical_id": true,
+        "runtime_observation_in_logical_id": false,
+        "successful_shape": "actual_inputs_outputs_structured_qa_checkpoint_availability_and_resource_observations_required_for_publish"
+      },
+      "run_spec": {
+        "correction_authorization_in_logical_id": true,
+        "disk_floor_required": true,
+        "exact_input_pin_count": "at_least_one",
+        "exact_input_paths_unique": true,
+        "expected_change_set_digest_required": true,
+        "qa_policy_in_logical_id": true,
+        "release_available_session_in_logical_id": true,
+        "rss_cap_required": true,
+        "source_binding_recomputed_from_exact_sorted_input_pins": true,
+        "wall_clock_cap_seconds": "nullable_no_limit"
+      }
+    },
+    "correction_authorization": {
+      "action": "publish_exact_s7_5_correction",
+      "canonical_body_and_exact_artifact_pin_required": true,
+      "gate_a_trust_state": "structural_candidate_only_content_attestation_default_denies_until_trusted_append_only_approval_event_ledger_exists",
+      "literal_version": "s7_5_correction_authorization_literal_v1",
+      "required_bindings": [
+        "validated_parent_release_id",
+        "exact_change_set_digest",
+        "derived_scope_digest",
+        "source_binding_digest",
+        "schema_transform_calendar_digests",
+        "identity_policy_before_and_after",
+        "approval_event_and_approver",
+        "approval_availability",
+        "sorted_nonempty_evidence_pins_with_availability_not_after_approval"
+      ]
+    },
+    "digest_responsibilities": {
+      "calendar_digest": "market_session_semantics",
+      "identity_policy_bundle_id": "atomic_five_registry_selection",
+      "orchestrator_digest": "control_implementation_only_not_recompute_trigger",
+      "schema_digest": "schema_primary_key_sort_nullability_enum",
+      "source_binding_digest": "exact_sorted_input_artifact_pins",
+      "transform_semantics_digest": "row_content_and_research_meaning",
+      "writer_runtime_provenance": "reproduction_metadata_excluded_from_logical_release_id"
+    },
+    "migration": {
+      "historical_as_known_before_v2_cutover": "unavailable_fail_closed",
+      "method": "one_time_native_v2_base_with_partition_equivalence",
+      "permanent_mixed_schema_adapter": false,
+      "v1_base_freeze_id": "da74c44f426310bcc6519c11751bc87352884c1be88caedb73d817bcf3a62f79",
+      "v1_release_set_id": "5ce4ad18b44d86fe70fd25c50d1023fb1aa39f25f50fa2f93a0a1c4452eb811e",
+      "v1_role": "immutable_byte_and_canonical_projection_oracle",
+      "v2_cutover_gate": "gate_c"
+    },
+    "non_session_row_versions": {
+      "asset_master": {
+        "stable_key": "asset_id",
+        "version_key": "asset_master_version_id"
+      },
+      "issuer_master": {
+        "stable_key": "issuer_id",
+        "version_key": "issuer_master_version_id"
+      },
+      "operation_domain": [
+        "mechanical_successor",
+        "new_root",
+        "reviewed_correction",
+        "tombstone"
+      ],
+      "semantic_proof_receipt": {
+        "binds": [
+          "table_name",
+          "stable_row_key",
+          "row_version_id",
+          "predecessor_row_version_id_and_payload_digest",
+          "operation",
+          "row_payload_digest",
+          "validator_semantics_digest",
+          "exact_proof_artifact_pin"
+        ],
+        "caller_callback_allowed": false,
+        "gate_a_dispatcher_state": "disabled_default_deny",
+        "i3_requirement": "module_owned_closed_dispatcher_with_asset_issuer_and_ticker_alias_fixed_tests_and_calendar_aware_exact_source_coverage_for_alias_interval_extension"
+      },
+      "ticker_alias": {
+        "stable_key": "alias_segment_id",
+        "version_key": "alias_resolution_version_id"
+      }
+    },
+    "release": {
+      "change_rules": {
+        "base": "no_parent_and_at_least_one_universe_session_partition_row_publication_disabled_at_gate_a",
+        "correction": "validated_parent_exact_typed_authorization_and_partition_addition_or_replacement_row_publication_disabled_at_gate_a",
+        "delta": "validated_parent_and_at_least_one_new_session_partition_row_publication_disabled_at_gate_a"
+      },
+      "compatibility_matrix": {
+        "correction": "schema_transform_and_calendar_unchanged_identity_policy_may_change_only_after_exact_authorization_and_trusted_approval_event_attestation",
+        "delta": "schema_transform_calendar_and_identity_policy_unchanged",
+        "schema_transform_or_calendar_change": "new_base_required"
+      },
+      "logical_identity_fields": [
+        "added_partition_receipts",
+        "added_row_version_receipts",
+        "availability_cutoff_session",
+        "calendar_digest",
+        "correction_authorization_id",
+        "identity_policy_bundle_id",
+        "parent_release_pin",
+        "partition_replacements",
+        "qa_policy_id",
+        "release_available_session",
+        "release_type",
+        "resolved_content_digest",
+        "resolved_view",
+        "schema_digest",
+        "source_binding_digest",
+        "source_cutoff_session",
+        "superseded_row_version_ids",
+        "transform_semantics_digest"
+      ],
+      "control_envelope_fields": [
+        "qa_receipt_id",
+        "run_receipt_pin",
+        "run_spec_pin"
+      ],
+      "reserved_future_envelope_fields": [
+        "created_at_utc",
+        "writer_runtime_provenance"
+      ],
+      "no_op_release_allowed": false,
+      "parent_pin_fields": [
+        "release_id",
+        "manifest_path",
+        "manifest_bytes",
+        "manifest_sha256",
+        "release_available_session"
+      ],
+      "release_id_excludes": [
+        "resource_caps",
+        "run_receipt_id",
+        "run_spec_id",
+        "runtime_observations",
+        "qa_receipt_id",
+        "self_manifest_pin"
+      ],
+      "types": [
+        "base",
+        "correction",
+        "delta"
+      ]
+    },
+    "resolver": {
+      "compatibility_rules": [
+        "all_non_base_releases_keep_schema_transform_calendar_qa_policy_and_resolved_view",
+        "delta_also_keeps_identity_policy_bundle",
+        "correction_may_change_identity_policy_only_with_contract_valid_authorization"
+      ],
+      "fail_closed_conditions": [
+        "cycle",
+        "missing_parent",
+        "same_release_id_different_pin",
+        "manifest_body_release_id_mismatch",
+        "bare_manifest_or_control_only_candidate_without_content_attestation",
+        "publication_cutoff_content_or_snapshot_attestation_mismatch",
+        "manifest_pin_body_release_availability_mismatch",
+        "duplicate_partition_or_row_version_key",
+        "delta_replacement",
+        "correction_not_replacing_exact_current_receipt",
+        "replacement_cross_table_or_partition_key",
+        "missing_or_future_predecessor",
+        "row_version_fork_or_loop",
+        "stable_key_mismatch",
+        "tombstone_without_reason",
+        "missing_or_future_historical_foreign_key",
+        "referenced_row_version_availability_after_partition_availability",
+        "receipt_or_child_availability_time_reversal",
+        "child_availability_cutoff_before_parent_release_availability",
+        "compatibility_drift"
+      ],
+      "input": "exact_top_release_pin_plus_explicit_view_cutoff_and_content_attested_release_loader",
+      "latest_discovery": false,
+      "output": [
+        "ordered_exact_release_chain",
+        "resolved_partition_map",
+        "selected_row_version_catalog",
+        "audit_all_chain_row_version_catalog",
+        "terminal_row_versions",
+        "tombstones",
+        "lineage_digest",
+        "resolved_content_digest_without_release_lineage",
+        "snapshot_digest_with_lineage"
+      ],
+      "projection_model": "validate_complete_chain_structure_then_build_separate_cutoff_selected_view",
+      "scaling": "iterative_exact_chain_walk_running_partition_frontier_and_linear_row_cycle_detection"
+    },
+    "structured_qa": {
+      "blocking_failure_policy": {
+        "critical": "zero_limit",
+        "high": "zero_limit",
+        "warning": "immutable_contract_defined_limit",
+        "info": "nonblocking"
+      },
+      "info_failure_count_role": "nonblocking_metric",
+      "policy_check_fields": [
+        "check_id",
+        "max_publish_failure_count",
+        "semantics_digest",
+        "severity"
+      ],
+      "result_fields": [
+        "check_id",
+        "details_artifact",
+        "failure_count",
+        "observed_count",
+        "semantics_digest"
+      ],
+      "details_artifact_invariant": "exact_normalized_path_positive_bytes_and_sha256",
+      "gate_a_checker_execution_state": "disabled_for_production_publication_shape_validation_only",
+      "i3_checker_dispatcher_requirement": "closed_check_id_to_exact_semantics_digest_severity_and_warning_limit_whitelist_with_module_owned_executors",
+      "result_semantics_invariant": "result_semantics_digest_equals_frozen_policy_check_semantics_digest",
+      "result_trust_boundary": "gate_a_freezes_structured_attestation_shape_only_i3_freezes_and_executes_checker_whitelist_and_verifies_exact_details_artifact_bytes",
+      "receipt_bindings": [
+        "change_set_digest",
+        "qa_policy_id",
+        "qa_available_session",
+        "results",
+        "run_spec_id",
+        "source_binding_digest"
+      ],
+      "receipt_results_invariant": "exact_sorted_unique_check_results",
+      "required_checks": {
+        "partition_session_calendar_contiguous": "high",
+        "row_semantic_proof_complete": "critical"
+      },
+      "waiver_flag_supported": false
+    },
+    "universe_partition": {
+      "correction_replacement": "new_receipt_plus_exact_current_replaced_receipt",
+      "delta_replacement_allowed": false,
+      "historical_fk_rule": "target_row_version_introduced_same_or_earlier_release_available_no_later_than_partition_and_applicable_in_selected_view",
+      "partition_key": "session_date",
+      "table_name": "universe_daily"
+    },
+    "views": {
+      "historical_as_known": {
+        "base_newer_than_cutoff": "fail_closed",
+        "catalog_visibility": "future_row_versions_excluded_from_consumer_catalog_but_retained_in_explicit_audit_catalog",
+        "selection": "release_and_row_version_availability_lte_explicit_cutoff"
+      },
+      "latest_reviewed_research": {
+        "availability_lineage_retained": true,
+        "selection": "exact_reviewed_top_release_chain"
+      }
+    }
+  }
+}
