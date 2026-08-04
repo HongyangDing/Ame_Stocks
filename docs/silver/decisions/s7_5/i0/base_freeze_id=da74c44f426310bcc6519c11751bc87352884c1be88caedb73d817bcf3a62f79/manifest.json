@@ -1,0 +1,349 @@
+{
+  "artifact_type": "s7_5_i0_base_freeze",
+  "base_freeze_id": "da74c44f426310bcc6519c11751bc87352884c1be88caedb73d817bcf3a62f79",
+  "captured_at_utc": "2026-08-04T11:26:30Z",
+  "captured_by": "ame_stocks_s7_5_i0_read_only_capture_v1",
+  "logical_payload": {
+    "base_role": "immutable_equivalence_oracle",
+    "capabilities": {
+      "base_mutation": false,
+      "incremental_execution": false,
+      "parquet_content_read": false,
+      "publish": false,
+      "registry_mutation": false,
+      "s7_execution": false,
+      "s8_execution": false
+    },
+    "document_pins": [
+      {
+        "bytes": 58308,
+        "path": "docs/silver-processing-plan.md",
+        "sha256": "db46b1a15e8c4b4e90d8dd0a6117d0d9df159f00c1491a93b86ee358843bc033"
+      },
+      {
+        "bytes": 29252,
+        "path": "docs/silver-s7-to-s8-incremental-architecture-plan.md",
+        "sha256": "693ea5cf2122d5327c06f2c70bea7f52926b4c0402ee2e250f2dba07d625132d"
+      },
+      {
+        "bytes": 2466,
+        "path": "docs/silver/evidence/s7_5/s7-long-wallclock-20260731.log",
+        "sha256": "df0dbfa63136ffce822e289fe1af84a99d946b9dc87e6305bfa51a540f5c5b6a"
+      }
+    ],
+    "fixture_index": [
+      {
+        "case_id": "normal-session-2023-06-20-v1",
+        "case_type": "normal_session",
+        "expected_invariants": [
+          "one source membership row maps to one universe row",
+          "clean input does not require an identity override"
+        ],
+        "sessions": ["2023-06-20"],
+        "source_reference": "tests/test_silver_identity_materialization.py::test_four_tables_materialize_atomically_and_idempotently"
+      },
+      {
+        "case_id": "half-day-2023-11-24-v1",
+        "case_type": "half_day",
+        "expected_invariants": [
+          "calendar session is retained without treating an early close as a source gap"
+        ],
+        "sessions": ["2023-11-24"],
+        "source_reference": "XNYS calendar fixture for I5 shadow equivalence"
+      },
+      {
+        "case_id": "new-ticker-xzo-v1",
+        "case_type": "new_ticker",
+        "expected_invariants": [
+          "first membership is retained",
+          "unresolved identity remains ineligible without an alias"
+        ],
+        "sessions": ["2025-11-05", "2025-11-06"],
+        "source_reference": "tests/test_silver_identity_relation_registries.py::test_xzo_share_class_correction_requires_unique_composite"
+      },
+      {
+        "case_id": "ticker-gap-reopen-v1",
+        "case_type": "ticker_gap",
+        "expected_invariants": [
+          "no alias interval crosses an absent membership session",
+          "reappearance opens a new stable segment"
+        ],
+        "sessions": ["2024-01-02", "2024-01-03", "2024-01-04"],
+        "source_reference": "tests/test_silver_identity_materialization_streaming.py::test_two_pass_real_parquet_preserves_inactive_and_gaps"
+      },
+      {
+        "case_id": "multi-registry-composite-collision-v1",
+        "case_type": "identity_collision",
+        "expected_invariants": [
+          "membership is retained",
+          "identity is unresolved and ineligible",
+          "no alias is emitted"
+        ],
+        "sessions": ["2022-02-08"],
+        "source_reference": "tests/test_silver_identity_materialization.py::test_raw_composite_collision_is_retained_only_as_ineligible_membership"
+      },
+      {
+        "case_id": "sor-transition-and-stale-composite-v1",
+        "case_type": "historical_correction",
+        "expected_invariants": [
+          "asset transition and provider Composite override remain separate",
+          "correction scope is exact and does not rewrite observed lineage"
+        ],
+        "sessions": ["2024-12-31", "2025-01-02"],
+        "source_reference": "tests/test_silver_identity_relation_registries.py::test_sor_transition_and_provider_override_have_separate_effects_and_exact_scope"
+      }
+    ],
+    "full_completion": {
+      "candidate_id": "0d5d0ef338144ea037a978cf189b7926105a62d0b5aead0fce93ab755a9b55de",
+      "candidate_manifest": {
+        "bytes": 674192,
+        "path": "silver/identity/s7-streaming-full-candidates/candidate_id=0d5d0ef338144ea037a978cf189b7926105a62d0b5aead0fce93ab755a9b55de/manifest.json",
+        "sha256": "827a016678813c00d8297985c2cf167d4b7c6fa2f4bcdb21dc9ad1a7f254f1ba"
+      },
+      "complete": true,
+      "completion_id": "14e38c40f37ee8b17e6b373d8e9c841b5a455dee039a33c3c4b53011ee079419",
+      "manifest": {
+        "bytes": 1208,
+        "path": "manifests/silver/identity/s7-streaming-full-execution-completions/plan_id=ab5dc95b64a3ccd2f20685930236c7edd0ae0af8edf89bf05bbf59cadd33c26c/approval_id=b7592cbae81a4746c9559d9548abe93a141bba37c0e376d6fe42bb352f7ca5ff/manifest.json",
+        "sha256": "abcebf173b4edd82ce616e0d3cb0f64df358e0c96083f5627fdd69fd181e70f6"
+      },
+      "plan_id": "ab5dc95b64a3ccd2f20685930236c7edd0ae0af8edf89bf05bbf59cadd33c26c"
+    },
+    "members": [
+      {
+        "contract_id": "4d85c7cc73ee4b61ca548aec4b64aa6cb05e779d3c3beb1a8f601023d96f8df1",
+        "first_partition_session": null,
+        "last_partition_session": null,
+        "manifest": {
+          "bytes": 3386,
+          "path": "manifests/silver/identity/s7-four-table-releases/table_name=asset_master/release_id=433e447c48f6533be5770c4d05c89a8dcaed7b60800815984f6a170660f2d44c/manifest.json",
+          "sha256": "0265ba2c20ed658afa99017511dc5842e511dbd1124e3975f9683b14da01c6b0"
+        },
+        "output_bytes": 1483478,
+        "output_set_digest": "51b9fc262eabfc51e7bbfe3131f754ab8cc5a952d926cf9532b66304ebf24168",
+        "partition_count": 1,
+        "release_id": "433e447c48f6533be5770c4d05c89a8dcaed7b60800815984f6a170660f2d44c",
+        "resource_sha256": "cc14c11dca1f449a3c8fcdbe4f0e419a26dc15312b75116db767706699f0b849",
+        "row_count": 14865,
+        "schema_digest": "d20c31bba79e5c2507f8f74ac61d3f0a9caa89a93f44e4f1b0d635ceb0384493",
+        "table_name": "asset_master"
+      },
+      {
+        "contract_id": "796423964d875daa3aa25fc2d14b06dcebd436bb91d42629866f0995dbc2931e",
+        "first_partition_session": null,
+        "last_partition_session": null,
+        "manifest": {
+          "bytes": 3386,
+          "path": "manifests/silver/identity/s7-four-table-releases/table_name=ticker_alias/release_id=e43fd677627adbf38f4ede7c57ecdfdf12234cade1890c236568a204bc194432/manifest.json",
+          "sha256": "d0fbc98622b88ba53dd5747be58e573f9e3c4b7a9d2c7967d5eaa297319aea91"
+        },
+        "output_bytes": 6859977,
+        "output_set_digest": "c42270af75d8ab693b5ea9338df3962f51b0eb6545707d35fbbe48c0b5ad476a",
+        "partition_count": 1,
+        "release_id": "e43fd677627adbf38f4ede7c57ecdfdf12234cade1890c236568a204bc194432",
+        "resource_sha256": "89c1f05a545ab18100dafc7b3b27210aff38ecceeddb0e1d048419a30b8f83de",
+        "row_count": 33081,
+        "schema_digest": "2f7fd74487df3d4255e46c90ec0189f109deb1d3618642f1e3716948cbae06fc",
+        "table_name": "ticker_alias"
+      },
+      {
+        "contract_id": "0e46c0e939989205b4dcd48f11e3443ec5c3e72b366dcd5684c417bb134d6b70",
+        "first_partition_session": null,
+        "last_partition_session": null,
+        "manifest": {
+          "bytes": 3387,
+          "path": "manifests/silver/identity/s7-four-table-releases/table_name=issuer_master/release_id=ff1d10e8b04e58843d3c95cfa4417fc38db4e7f87293ff61a0315db133bc10f6/manifest.json",
+          "sha256": "83088d8df80bb4855814d567dfc2af5e15e63cda21837b804e4417c79ed5ec15"
+        },
+        "output_bytes": 811477,
+        "output_set_digest": "c38ed7d2f5e2241f204e7a5dc93f211ad8aadb06103e6a0fe92777e3e0562272",
+        "partition_count": 1,
+        "release_id": "ff1d10e8b04e58843d3c95cfa4417fc38db4e7f87293ff61a0315db133bc10f6",
+        "resource_sha256": "17108231fa5ab46fd98095b52a06fda88a1ababf9e9e3b3dae8ce66bdd7f8c50",
+        "row_count": 14955,
+        "schema_digest": "a53e9c66db027dc5a6e2883fe4c0596897776a831ea1ade798975feecbd18cd1",
+        "table_name": "issuer_master"
+      },
+      {
+        "contract_id": "bf1ab110844f1d7a572db2d4e14e725b83ca0a99b566c61b1af89aa24d514fbf",
+        "first_partition_session": "2016-07-11",
+        "last_partition_session": "2026-07-09",
+        "manifest": {
+          "bytes": 983108,
+          "path": "manifests/silver/identity/s7-four-table-releases/table_name=universe_daily/release_id=88045b2c063baf94954194f75828a5da61161fc17f79ae46b7f1de340d3cd3df/manifest.json",
+          "sha256": "3ee59c856269de2c71079ffd6d1e85f2685593c1ca9142a3dea03232374a3d43"
+        },
+        "output_bytes": 8679860186,
+        "output_set_digest": "51ad8e4614708a132633a3cf6e4e96896f88eb76ec480c7bf8161019d3788046",
+        "partition_count": 2513,
+        "release_id": "88045b2c063baf94954194f75828a5da61161fc17f79ae46b7f1de340d3cd3df",
+        "resource_sha256": "c83327b1e38defa8f56bc1ea87f011bb360692da327323cae41cc8eeee2d54be",
+        "row_count": 69376329,
+        "schema_digest": "905694a195817cdabe2117568460eb0cbebd3aedbb8c17efb4200396a2dbfca7",
+        "table_name": "universe_daily"
+      }
+    ],
+    "next_gate": "i1_contract_design",
+    "performance_baseline": {
+      "disk_observation": {
+        "available_bytes": 100981534720,
+        "filesystem": "/dev/sdb",
+        "measurement_role": "capture_time_nonsemantic_observation",
+        "total_bytes": 210241560576,
+        "used_bytes": 98505830400
+      },
+      "full_resource_contract": {
+        "batch_size": 65536,
+        "disk_floor_bytes": 42949672960,
+        "peak_rss_bytes": null,
+        "peak_rss_measurement_status": "not_recorded_by_v1_completion",
+        "rss_cap_bytes": 2147483648,
+        "worker_count": 1
+      },
+      "profile_completion": {
+        "completion_id": "f8a2d07f9cce5564668893532e8f1775142621f4e227f77ed69024d3abd14411",
+        "manifest": {
+          "bytes": 1574,
+          "path": "manifests/silver/identity/s7-streaming-bounded-size-profile-completions/plan_id=490b49c4266c7f1c85d91a0eeb675a63cffbd01a42fc23ed5c24ec064fea4cf4/approval_id=9b4a60c3e9a73dc3b30d8e3fd1c6b49dfb14d7f5f7f0a9d3bc1aa206a66ee7c7/manifest.json",
+          "sha256": "38acd6da8d92135eba84a52711518de6136f4cc46268a20f62599c219c73aab3"
+        },
+        "metrics": {
+          "critical_failure_count": 0,
+          "full_row_count": 69376329,
+          "projected_full_output_bytes": 9385174263,
+          "projected_full_peak_staging_bytes": 27021819150,
+          "sample_output_bytes": 93925160,
+          "sample_row_count": 694306,
+          "sample_session_count": 25
+        }
+      },
+      "stage_seconds": {
+        "full_run": 78501.446429,
+        "profile_run": 22548.606095,
+        "publish_approval": 28970.711115,
+        "publish_prepare": 29030.840898,
+        "publish_release_set": 73993.960038,
+        "publish_verify": 22159.649902,
+        "wrapper_total": 255220.363554
+      },
+      "wall_clock_log": {
+        "bytes": 2466,
+        "path": "docs/silver/evidence/s7_5/s7-long-wallclock-20260731.log",
+        "sha256": "df0dbfa63136ffce822e289fe1af84a99d946b9dc87e6305bfa51a540f5c5b6a"
+      }
+    },
+    "quality": {
+      "critical_failure_count": 0,
+      "gate_b_relation_share_class_conflict_rows": 1191,
+      "gate_b_relation_share_class_mismatch_rows": 3,
+      "identity_quality_forced_liquidation_rows": 0,
+      "missing_eligible_alias_rows": 0,
+      "multi_registry_composite_override_collision_rows": 0,
+      "qa": {
+        "bytes": 35809,
+        "path": "silver/identity/s7-streaming-full-candidates/candidate_id=0d5d0ef338144ea037a978cf189b7926105a62d0b5aead0fce93ab755a9b55de/qa/qa.json",
+        "sha256": "d3807682b8b74a5c9e6049acf94c748484d5292352b4effbf5f992e00b524c57"
+      },
+      "source_membership_omission_or_duplication_rows": 0,
+      "source_membership_streaming_lineage_digest": "a45cabf5aafb9f16f50b488749c6ee235dbca4f256df89ba636016b3edbb3888",
+      "unapproved_canonical_override_rows": 0,
+      "unknown_or_unapproved_foreign_identity_eligible_rows": 0,
+      "unresolved_rows": 47205426
+    },
+    "registry_bundle": {
+      "registry_pins": [
+        {
+          "manifest": {
+            "bytes": 3484,
+            "path": "manifests/silver/identity/registry-releases/registry=identity_adjudication/release_id=0bc7e5e6754e1c166381fffb0a7b2b422a2900f60a0d1c6d5aeacb68306b9a43/manifest.json",
+            "sha256": "481cf92e69b094dd7a875c738945430903755a06232cbc01f973826108cacb96"
+          },
+          "registry_name": "identity_adjudication",
+          "release_available_session": "2026-07-29",
+          "release_id": "0bc7e5e6754e1c166381fffb0a7b2b422a2900f60a0d1c6d5aeacb68306b9a43"
+        },
+        {
+          "manifest": {
+            "bytes": 8908,
+            "path": "manifests/silver/identity/registry-releases/registry=identity_cross_market_adjudication/release_id=4dd3c51311392e0c479ecee8ed8954fb91535563b0514240e2988ae40fe04428/manifest.json",
+            "sha256": "7a3eae351f6f3375de3b8ae8d709fcf1ae967b600c864ad3e07ae3604b3f1a39"
+          },
+          "registry_name": "identity_cross_market_adjudication",
+          "release_available_session": "2026-07-29",
+          "release_id": "4dd3c51311392e0c479ecee8ed8954fb91535563b0514240e2988ae40fe04428"
+        },
+        {
+          "manifest": {
+            "bytes": 4128,
+            "path": "manifests/silver/identity/registry-releases/registry=provider_composite_override/release_id=597c2d07c1224a8108b0421cca637cbabcee6c8e6ae39070809d1d9fc969c569/manifest.json",
+            "sha256": "fe3220347d379744521440c4d827c1783a517dd050f1a0e7429da4abc25ba954"
+          },
+          "registry_name": "provider_composite_override",
+          "release_available_session": "2026-07-29",
+          "release_id": "597c2d07c1224a8108b0421cca637cbabcee6c8e6ae39070809d1d9fc969c569"
+        },
+        {
+          "manifest": {
+            "bytes": 4688,
+            "path": "manifests/silver/identity/registry-releases/registry=share_class_adjudication/release_id=22be9377c0fa48196c7f07d4c4ac3b75abe5dbdaee62fa5cff4a04464bcaa892/manifest.json",
+            "sha256": "c0ff603ee9329b9a8faaf46ec91c969e4d20ce7029adf1a30310fc06c1f3b837"
+          },
+          "registry_name": "share_class_adjudication",
+          "release_available_session": "2026-07-29",
+          "release_id": "22be9377c0fa48196c7f07d4c4ac3b75abe5dbdaee62fa5cff4a04464bcaa892"
+        },
+        {
+          "manifest": {
+            "bytes": 4033,
+            "path": "manifests/silver/identity/registry-releases/registry=asset_transition/release_id=8128be8e9d35977004284b60be30945f72d2f7e88ebf201ddf2f2ea84e14b033/manifest.json",
+            "sha256": "5255dec017bf70178d2d7d009285789ea51d18baf17d908e7b7329d0988aea25"
+          },
+          "registry_name": "asset_transition",
+          "release_available_session": "2026-07-28",
+          "release_id": "8128be8e9d35977004284b60be30945f72d2f7e88ebf201ddf2f2ea84e14b033"
+        }
+      ],
+      "registry_pins_digest": "72cd05e9ce9aea87dc21bead2b252991d73c7d2d1dc594fcb8fcc7f0c78faaae"
+    },
+    "release_set": {
+      "available_session": "2026-08-03",
+      "manifest": {
+        "bytes": 4668,
+        "path": "manifests/silver/identity/s7-four-table-release-sets/release_set_id=5ce4ad18b44d86fe70fd25c50d1023fb1aa39f25f50fa2f93a0a1c4452eb811e/manifest.json",
+        "sha256": "3690046fc32801dc23e85d4713d90b476b188988ec2426bd1d1c13fcdd9f1c0b"
+      },
+      "published_at_utc": "2026-08-02T00:58:43.178962+00:00",
+      "release_set_id": "5ce4ad18b44d86fe70fd25c50d1023fb1aa39f25f50fa2f93a0a1c4452eb811e",
+      "release_set_version": 1,
+      "source_binding_id": "9b895f73f7987a92b4208ba22e957e0f5931d5a11b2622642e80f5a0109d97a9",
+      "source_cutoff_session": "2026-07-29",
+      "state": "published",
+      "visibility_rule": "all_four_members_visible_only_through_this_exact_marker_v1"
+    },
+    "resolved_view": "latest_reviewed_research_at_source_cutoff",
+    "source_snapshot": {
+      "calendar_artifact_id": "31cc575ae55542a580ee17e09aa242159bbcaedd0a001fd2184021a541b734bd",
+      "calendar_artifact_sha256": "3f026761a9f752d1e00c89c9f72383e7d8c0a7f7dcb2cdf8ef82e5831dfc0da7",
+      "declared_source_bytes": 7673107305,
+      "membership_row_count": 69376329,
+      "s4_release_set": {
+        "manifest": {
+          "bytes": 4440685,
+          "path": "manifests/silver/release-sets/assets/release_set_id=f81c7ee28939db3350fce809326723e911b6d486c6db166d2575fcc92cb2101d/manifest.json",
+          "sha256": "937eaf4ed502fb2786dafb0dce9ec613bcaccb2cd488812cc5900118238d6c13"
+        },
+        "release_set_id": "f81c7ee28939db3350fce809326723e911b6d486c6db166d2575fcc92cb2101d"
+      },
+      "session_count": 2513,
+      "six_release_binding_id": "49f3d20725f2609b43d6736df78993b2975c9f1b71947af93190dc0658366c64",
+      "source_binding_id": "9b895f73f7987a92b4208ba22e957e0f5931d5a11b2622642e80f5a0109d97a9",
+      "source_binding_manifest": {
+        "bytes": 911644,
+        "path": "manifests/silver/identity/s7-streaming-full-source-bindings/source_binding_id=9b895f73f7987a92b4208ba22e957e0f5931d5a11b2622642e80f5a0109d97a9/manifest.json",
+        "sha256": "48f7f52e761b843dbca7ce1111fb7339540d054aa24daa631bea3cb09b76bac0"
+      },
+      "source_cutoff_session": "2026-07-29"
+    }
+  },
+  "schema_version": 1
+}

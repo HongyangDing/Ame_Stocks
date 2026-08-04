@@ -73,6 +73,11 @@ planned → schema_review → code_ready → preview_ready → awaiting_review
 
 失败或拒绝的 build 保留证据，不通过覆盖文件或删除异常来“变绿”。
 
+上述逐级人工审批适用于初始 baseline、schema/transform 语义变化和周期性 Full rebuild。S7.5 正式切换后，
+语义不变、只新增 session 且 Critical/High QA 全部通过的 clean daily delta 改走预先批准的自动发布合同；
+新 identity case、canonical override、历史 replacement、warning waiver 和任何语义变化仍需人工 gate。具体
+边界见 [`silver-s7-to-s8-incremental-architecture-plan.md`](silver-s7-to-s8-incremental-architecture-plan.md)。
+
 ## 2. 正式 Silver 的统一输出合同
 
 ### 2.1 版本化目录
@@ -265,18 +270,20 @@ threshold, bounded_examples_path
 flowchart TD
     C["S0 统一 Silver 合同"] --> D["小型参考字典"]
     D --> A["Assets 每日观察"]
-    A --> I["Ticker Events + Overview + IPO"]
-    I --> M["最终 asset_id / alias / universe"]
-    M --> CA["Splits + Dividends"]
-    M --> P["Flat Day + REST Daily + Minute"]
+    A --> I["Ticker Events + Overview"]
+    I --> M["S7 最终 asset_id / alias / universe"]
+    M --> U["S7.5 增量架构"]
+    U --> IPO["IPO / listing events"]
+    U --> CA["Splits + Dividends"]
+    U --> P["Flat Day + REST Daily + Minute"]
     CA --> R["复权与日收益"]
     P --> R
-    M --> S["Short / Float"]
-    M --> E["EDGAR spine"]
+    U --> S["Short / Float"]
+    U --> E["EDGAR spine"]
     E --> O["Forms 3/4/13F"]
     E --> T["10-K / 8-K / Risk"]
     E --> F["Legacy Financials"]
-    M --> N["News"]
+    U --> N["News"]
     C --> X["Macro"]
 ```
 
@@ -567,6 +574,18 @@ S7 必须在 S4–S6 分别验收后单独审批：
   不确定时不强平、不填零收益、不静默 carry stale price 的实际执行逻辑，必须在后续 backtest engine
   fixture 中作为独立 blocker test 验证，不能由 schema approval 代替；
 - 输出 identity coverage、conflict、provisional 和人工 review 清单。
+
+### S7.5 — S7 后、S8 前的 Silver 增量架构改造门
+
+S7 四表正式发布后，先执行
+[`silver-s7-to-s8-incremental-architecture-plan.md`](silver-s7-to-s8-incremental-architecture-plan.md)，
+把当前十年 S7 release 冻结为只读 base，再实现 parent+delta/correction release、按 session 追加、
+有界身份修正、checkpoint 和周期性 Full reconciliation。该步骤不是新的 Bronze family，也不改变
+S1–S7 历史产物；它用于避免未来每补一个交易日都重新执行 S4/S7 全历史控制链。
+
+S7.5 只保留合同设计、影子等价和正式切换三个 Gate。正常、语义不变且 Critical/High QA 全部通过的
+日更可以自动发布；新 canonical override、历史 replacement、语义变化和新 base cutover 仍需人工批准。
+S7.5 Gate C 通过前，S8 只允许做 schema/source-profile 讨论，不运行正式 preview、Full 或 Publish。
 
 ### S8 — `ipos`
 
@@ -902,6 +921,9 @@ S0–S6 已分别通过独立审批并完成；S7 bounded detector preview、完
    case 只作为 preserved lineage，不逐案静默改写；
 7. 各 registry snapshots 仍需显式批准，四张派生表再按 bounded preview → review → 单独批准
    Full/Publish 推进。
+
+S7 四表发布并验收后，必须先完成 S7.5 的合同设计、影子等价和正式切换三个 Gate，再开始 S8 正式
+preview/Full/Publish。S7.5 不重写 S7 base，而是以它作为 immutable equivalence oracle 和首个父 release。
 
 当 S4–S15（身份、公司行动、三套行情、复权和收益）完成并发布后，price-derived Barra 和
 普通日频因子即可开始；S16–S34 可以继续逐项扩充，不应阻塞第一批价格型因子。

@@ -1,0 +1,286 @@
+{
+  "$id": "ame-stocks://silver/control/s7_5_i0_base_freeze.schema-v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "artifact_type": {
+      "const": "s7_5_i0_base_freeze"
+    },
+    "base_freeze_id": {
+      "$ref": "#/$defs/digest"
+    },
+    "captured_at_utc": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "captured_by": {
+      "const": "ame_stocks_s7_5_i0_read_only_capture_v1"
+    },
+    "logical_payload": {
+      "additionalProperties": false,
+      "properties": {
+        "base_role": {
+          "const": "immutable_equivalence_oracle"
+        },
+        "capabilities": {
+          "additionalProperties": false,
+          "properties": {
+            "base_mutation": {"const": false},
+            "incremental_execution": {"const": false},
+            "parquet_content_read": {"const": false},
+            "publish": {"const": false},
+            "registry_mutation": {"const": false},
+            "s7_execution": {"const": false},
+            "s8_execution": {"const": false}
+          },
+          "required": [
+            "base_mutation",
+            "incremental_execution",
+            "parquet_content_read",
+            "publish",
+            "registry_mutation",
+            "s7_execution",
+            "s8_execution"
+          ],
+          "type": "object"
+        },
+        "document_pins": {
+          "items": {"$ref": "#/$defs/repository_file_pin"},
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "fixture_index": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "case_id": {"type": "string"},
+              "case_type": {
+                "enum": [
+                  "normal_session",
+                  "new_ticker",
+                  "ticker_gap",
+                  "identity_collision",
+                  "historical_correction",
+                  "half_day"
+                ]
+              },
+              "expected_invariants": {
+                "items": {"type": "string"},
+                "minItems": 1,
+                "type": "array"
+              },
+              "sessions": {
+                "items": {"format": "date", "type": "string"},
+                "minItems": 1,
+                "type": "array"
+              },
+              "source_reference": {"type": "string"}
+            },
+            "required": [
+              "case_id",
+              "case_type",
+              "sessions",
+              "source_reference",
+              "expected_invariants"
+            ],
+            "type": "object"
+          },
+          "minItems": 6,
+          "type": "array"
+        },
+        "full_completion": {
+          "additionalProperties": false,
+          "properties": {
+            "candidate_id": {"$ref": "#/$defs/digest"},
+            "candidate_manifest": {"$ref": "#/$defs/data_file_pin"},
+            "complete": {"const": true},
+            "completion_id": {"$ref": "#/$defs/digest"},
+            "manifest": {"$ref": "#/$defs/data_file_pin"},
+            "plan_id": {"$ref": "#/$defs/digest"}
+          },
+          "required": [
+            "completion_id",
+            "complete",
+            "plan_id",
+            "candidate_id",
+            "manifest",
+            "candidate_manifest"
+          ],
+          "type": "object"
+        },
+        "members": {
+          "items": {"$ref": "#/$defs/member"},
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "next_gate": {
+          "const": "i1_contract_design"
+        },
+        "performance_baseline": {
+          "type": "object"
+        },
+        "quality": {
+          "type": "object"
+        },
+        "registry_bundle": {
+          "additionalProperties": false,
+          "properties": {
+            "registry_pins": {
+              "items": {"$ref": "#/$defs/registry_pin"},
+              "maxItems": 5,
+              "minItems": 5,
+              "type": "array"
+            },
+            "registry_pins_digest": {"$ref": "#/$defs/digest"}
+          },
+          "required": ["registry_pins_digest", "registry_pins"],
+          "type": "object"
+        },
+        "release_set": {
+          "additionalProperties": false,
+          "properties": {
+            "available_session": {"format": "date", "type": "string"},
+            "manifest": {"$ref": "#/$defs/data_file_pin"},
+            "published_at_utc": {"format": "date-time", "type": "string"},
+            "release_set_id": {"$ref": "#/$defs/digest"},
+            "release_set_version": {"const": 1},
+            "source_binding_id": {"$ref": "#/$defs/digest"},
+            "source_cutoff_session": {"format": "date", "type": "string"},
+            "state": {"const": "published"},
+            "visibility_rule": {
+              "const": "all_four_members_visible_only_through_this_exact_marker_v1"
+            }
+          },
+          "required": [
+            "release_set_id",
+            "release_set_version",
+            "state",
+            "source_binding_id",
+            "source_cutoff_session",
+            "available_session",
+            "published_at_utc",
+            "visibility_rule",
+            "manifest"
+          ],
+          "type": "object"
+        },
+        "resolved_view": {
+          "const": "latest_reviewed_research_at_source_cutoff"
+        },
+        "source_snapshot": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "base_role",
+        "resolved_view",
+        "release_set",
+        "source_snapshot",
+        "full_completion",
+        "members",
+        "registry_bundle",
+        "quality",
+        "performance_baseline",
+        "fixture_index",
+        "document_pins",
+        "capabilities",
+        "next_gate"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1
+    }
+  },
+  "required": [
+    "artifact_type",
+    "schema_version",
+    "base_freeze_id",
+    "logical_payload",
+    "captured_at_utc",
+    "captured_by"
+  ],
+  "title": "S7.5 I0 immutable S7 base freeze",
+  "type": "object",
+  "$defs": {
+    "data_file_pin": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {"minimum": 1, "type": "integer"},
+        "path": {"pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$", "type": "string"},
+        "sha256": {"$ref": "#/$defs/digest"}
+      },
+      "required": ["path", "bytes", "sha256"],
+      "type": "object"
+    },
+    "digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "member": {
+      "additionalProperties": false,
+      "properties": {
+        "contract_id": {"$ref": "#/$defs/digest"},
+        "first_partition_session": {"format": "date", "type": ["string", "null"]},
+        "last_partition_session": {"format": "date", "type": ["string", "null"]},
+        "manifest": {"$ref": "#/$defs/data_file_pin"},
+        "output_bytes": {"minimum": 1, "type": "integer"},
+        "output_set_digest": {"$ref": "#/$defs/digest"},
+        "partition_count": {"minimum": 1, "type": "integer"},
+        "release_id": {"$ref": "#/$defs/digest"},
+        "resource_sha256": {"$ref": "#/$defs/digest"},
+        "row_count": {"minimum": 1, "type": "integer"},
+        "schema_digest": {"$ref": "#/$defs/digest"},
+        "table_name": {
+          "enum": ["asset_master", "ticker_alias", "issuer_master", "universe_daily"]
+        }
+      },
+      "required": [
+        "table_name",
+        "release_id",
+        "manifest",
+        "row_count",
+        "output_bytes",
+        "partition_count",
+        "output_set_digest",
+        "contract_id",
+        "resource_sha256",
+        "schema_digest",
+        "first_partition_session",
+        "last_partition_session"
+      ],
+      "type": "object"
+    },
+    "registry_pin": {
+      "additionalProperties": false,
+      "properties": {
+        "manifest": {"$ref": "#/$defs/data_file_pin"},
+        "registry_name": {
+          "enum": [
+            "identity_adjudication",
+            "identity_cross_market_adjudication",
+            "provider_composite_override",
+            "share_class_adjudication",
+            "asset_transition"
+          ]
+        },
+        "release_available_session": {"format": "date", "type": "string"},
+        "release_id": {"$ref": "#/$defs/digest"}
+      },
+      "required": ["registry_name", "release_id", "release_available_session", "manifest"],
+      "type": "object"
+    },
+    "repository_file_pin": {
+      "allOf": [
+        {"$ref": "#/$defs/data_file_pin"},
+        {
+          "properties": {
+            "path": {"pattern": "^(docs/|tests/).+", "type": "string"}
+          }
+        }
+      ]
+    }
+  }
+}

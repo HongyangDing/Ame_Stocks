@@ -1,0 +1,26 @@
+S7_LONG_WALLCLOCK {"source_binding_id": "9b895f73f7987a92b4208ba22e957e0f5931d5a11b2622642e80f5a0109d97a9", "wall_clock_seconds_cap": 2592000}
+2026-07-31T04:47:33.416793+00:00 STAGE_START streaming_profile_prepare
+2026-07-31T04:47:38.124938+00:00 STAGE_DONE streaming_profile_prepare
+2026-07-31T04:47:38.124987+00:00 STAGE_START streaming_profile_approve
+2026-07-31T04:47:40.024426+00:00 STAGE_DONE streaming_profile_approve
+2026-07-31T04:47:40.024508+00:00 STAGE_START streaming_profile_run
+2026-07-31T11:03:28.630603+00:00 STAGE_DONE streaming_profile_run
+PROFILE_METRICS {"critical_failure_count": 0, "expected_remaining_free_bytes_at_peak": 82666897529, "full_row_count": 69376329, "observed_disk_free_bytes_during_profile": 109418287104, "output_bytes_per_million_rows": 135279200, "peak_staging_bytes_per_million_rows": 389496238, "projected_full_output_bytes": 9385174263, "projected_full_peak_staging_bytes": 27021819150, "sample_output_bytes": 93925160, "sample_output_to_source_ratio_ppm": 1224094, "sample_peak_staging_bytes": 270429575, "sample_peak_staging_to_output_ratio_ppm": 2879203, "sample_row_count": 694306, "sample_session_count": 25, "sample_source_compressed_bytes": 76730366, "source_compressed_bytes_per_million_rows": 110513760}
+2026-07-31T11:03:28.631453+00:00 STAGE_START streaming_full_prepare
+2026-07-31T11:03:31.697099+00:00 STAGE_DONE streaming_full_prepare
+2026-07-31T11:03:31.697145+00:00 STAGE_START streaming_full_request
+2026-07-31T11:03:34.197953+00:00 STAGE_DONE streaming_full_request
+2026-07-31T11:03:34.197998+00:00 STAGE_START streaming_full_approve
+2026-07-31T11:03:37.168940+00:00 STAGE_DONE streaming_full_approve
+2026-07-31T11:03:37.168969+00:00 STAGE_START streaming_full_run
+2026-08-01T08:51:58.615398+00:00 STAGE_DONE streaming_full_run
+FULL_COUNTS {"asset_master": 14865, "issuer_master": 14955, "ticker_alias": 33081, "universe_daily": 69376329}
+2026-08-01T08:51:58.616459+00:00 STAGE_START publish_prepare
+2026-08-01T16:55:49.457357+00:00 STAGE_DONE publish_prepare
+2026-08-01T16:55:49.458259+00:00 STAGE_START publish_approve
+2026-08-02T00:58:40.169374+00:00 STAGE_DONE publish_approve
+2026-08-02T00:58:40.169867+00:00 STAGE_START publish_release_set
+2026-08-02T21:31:54.129905+00:00 STAGE_DONE publish_release_set
+2026-08-02T21:31:54.130445+00:00 STAGE_START publish_verify
+2026-08-03T03:41:13.780347+00:00 STAGE_DONE publish_verify
+S7_COMPLETE 5ce4ad18b44d86fe70fd25c50d1023fb1aa39f25f50fa2f93a0a1c4452eb811e
