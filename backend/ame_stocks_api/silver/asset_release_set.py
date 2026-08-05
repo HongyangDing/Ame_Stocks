@@ -1831,6 +1831,41 @@ def require_asset_release_set_membership(
     return verified
 
 
+def load_exact_asset_release_set_control(
+    data_root: Path,
+    *,
+    release_set_id: str,
+    expected_sha256: str,
+    expected_bytes: int,
+) -> tuple[AssetReleaseSet, StoredDocument]:
+    """Authenticate one exact production S4 release set without reading DATA.
+
+    The caller supplies the complete content-addressed marker pin. Unlike the
+    public evidence reader, this bootstrap boundary verifies only the immutable
+    control plane; it deliberately does not open any historical S4 Parquet.
+    """
+
+    identifier = _digest(release_set_id, "release-set ID")
+    sha256 = _digest(expected_sha256, "release-set marker SHA")
+    size = _positive_int(expected_bytes, "release-set marker bytes")
+    root = data_root.expanduser().resolve()
+    relative = (
+        "manifests/silver/release-sets/assets/"
+        f"release_set_id={identifier}/manifest.json"
+    )
+    content = _read_immutable_bytes(root, relative, sha256, size)
+    try:
+        release_set = AssetReleaseSet.from_dict(json.loads(content))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SilverStoreError("S4 release-set marker is invalid JSON") from exc
+    if release_set.release_set_id != identifier:
+        raise SilverStoreError("S4 release-set marker path identity changed")
+    document = StoredDocument(path=relative, sha256=sha256, bytes=size)
+    verified = _verify_release_set_control_plane(root, release_set, document)
+    _require_production_release_authority(root, verified)
+    return verified, document
+
+
 def _require_asset_release_set_control_membership(
     data_root: Path,
     release_id: str,
@@ -2319,6 +2354,7 @@ __all__ = [
     "AssetReleaseSetMember",
     "AssetReleaseSetRun",
     "asset_release_requires_set",
+    "load_exact_asset_release_set_control",
     "release_asset_publish_plan",
     "require_asset_release_set_membership",
 ]

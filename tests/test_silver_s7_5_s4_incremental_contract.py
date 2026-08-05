@@ -14,6 +14,7 @@ from ame_stocks_api.silver.asset_contract import ASSET_CONTRACTS
 from ame_stocks_api.silver.asset_incremental import (
     S4_ASSET_INCREMENTAL_PARQUET_WRITER_POLICY,
     S4_ASSET_INCREMENTAL_TRANSFORM_SEMANTICS_DIGEST,
+    S4_BASE_TERMINAL_PARTITION_SET_RULE_VERSION,
     run_s4_asset_session_incremental,
 )
 from ame_stocks_api.silver.asset_incremental_contract import (
@@ -44,8 +45,8 @@ TABLES = (
     "universe_source_daily",
 )
 REPO_ROOT = Path(__file__).resolve().parents[1]
-I2_CONTRACT_ID = "1d1c814f3cd4cca3aa29e6b18d3ea8f82135900443c37abff5a85d128930dc13"
-I2_CANDIDATE_SHA256 = "8d1007c1dfa11c3bfb30909756181977a0c696e1128cff454f54279ad187018e"
+I2_CONTRACT_ID = "400a788ff4a6cc173b7814ac3b81b5609b75302d3f455bfcfe9b1e4a17b905a0"
+I2_CANDIDATE_SHA256 = "43d1f8e9030cd36daa6d2423c87cb5f98eaa3a025e26541644dbad4e42986a2c"
 I2_CANDIDATE_PATH = (
     REPO_ROOT / "docs/silver/contracts/control/s7_5_s4_session_incremental_bundle-v1.candidate.json"
 )
@@ -112,9 +113,18 @@ def _reference() -> S4ReferenceBinding:
     )
 
 
-def _parent() -> S4ParentFrontierPin:
-    base = S4BaseFrontier(
-        base_release_set_id=_digest("s4-base-release-set"),
+def _base() -> S4BaseFrontier:
+    release_set_id = _digest("s4-base-release-set")
+    return S4BaseFrontier(
+        base_release_set_id=release_set_id,
+        base_release_set_artifact=ArtifactPin(
+            path=(
+                "manifests/silver/release-sets/assets/"
+                f"release_set_id={release_set_id}/manifest.json"
+            ),
+            sha256=_digest("s4-base-release-set-marker"),
+            bytes=1_000,
+        ),
         terminal_session=date(2026, 5, 8),
         terminal_partition_set_digest=_digest("terminal-partitions"),
         calendar_artifact_id=_digest("calendar"),
@@ -129,6 +139,10 @@ def _parent() -> S4ParentFrontierPin:
         },
         release_available_session=date(2026, 7, 10),
     )
+
+
+def _parent() -> S4ParentFrontierPin:
+    base = _base()
     return S4ParentFrontierPin(
         parent_kind=S4ParentKind.BASE_RELEASE,
         terminal_session=base.terminal_session,
@@ -194,8 +208,17 @@ def _receipt(spec: S4SessionRunSpec) -> S4SessionRunReceipt:
 
 
 def test_s4_incremental_contracts_round_trip_and_allow_empty_version_partition() -> None:
+    release_set_id = _digest("base")
     base = S4BaseFrontier(
-        base_release_set_id=_digest("base"),
+        base_release_set_id=release_set_id,
+        base_release_set_artifact=ArtifactPin(
+            path=(
+                "manifests/silver/release-sets/assets/"
+                f"release_set_id={release_set_id}/manifest.json"
+            ),
+            sha256=_digest("base-marker"),
+            bytes=1_000,
+        ),
         terminal_session=date(2026, 5, 8),
         terminal_partition_set_digest=_digest("partitions"),
         calendar_artifact_id=_digest("calendar"),
@@ -240,6 +263,27 @@ def test_i2_candidate_hashes_and_code_semantics_reproduce() -> None:
         assert frozen["schema_digest"] == arrow_schema_digest(contract.arrow_schema)
     assert set(_spec().to_dict()) == set(logical["control_objects"]["run_spec_fields"])
     assert set(_receipt(_spec()).to_dict()) == set(logical["control_objects"]["run_receipt_fields"])
+    assert set(_base().to_dict()) == set(logical["control_objects"]["base_frontier_fields"])
+    assert (
+        logical["calendar_and_frontier"]["base_frontier_rule_version"]
+        == (_base().to_dict()["rule_version"])
+    )
+    assert (
+        logical["calendar_and_frontier"]["base_frontier_bootstrap"][
+            "terminal_partition_set_rule_version"
+        ]
+        == S4_BASE_TERMINAL_PARTITION_SET_RULE_VERSION
+    )
+    assert (
+        logical["calendar_and_frontier"]["base_frontier_bootstrap"][
+            "historical_s4_data_parquet_read"
+        ]
+        is False
+    )
+    assert (
+        "inventory_serialization_order_is_irrelevant"
+        in logical["source_selection"]["upstream_manifest_order_rule"]
+    )
     assert "s4_base_frontier_bootstrap_adapter" in logical["control_objects"]["nested_values"]
     assert "transform_fn" not in inspect.signature(run_s4_asset_session_incremental).parameters
 

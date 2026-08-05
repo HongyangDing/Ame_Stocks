@@ -12,12 +12,13 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import stat
 import subprocess
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from inspect import getfile
 from pathlib import Path
 from types import MappingProxyType
@@ -47,6 +48,7 @@ from ame_stocks_api.silver.asset_preview import (
     CURRENT_ASSET_PREVIEW_AUTHORIZATION,
     _load_reference_dictionaries,
 )
+from ame_stocks_api.silver.asset_release_set import load_exact_asset_release_set_control
 from ame_stocks_api.silver.asset_source import (
     AssetSourceError,
     AssetSourceReader,
@@ -70,7 +72,7 @@ from ame_stocks_api.silver.calendar_artifact import (
     XNYSCalendarArtifact,
     load_xnys_calendar_artifact,
 )
-from ame_stocks_api.silver.contracts import arrow_schema_digest
+from ame_stocks_api.silver.contracts import ArtifactRef, arrow_schema_digest
 from ame_stocks_api.silver.exchange_contract import EXCHANGE_DIM_CONTRACT
 from ame_stocks_api.silver.incremental_contract import ArtifactPin
 from ame_stocks_api.silver.reader import PublishedSilverReader
@@ -78,6 +80,7 @@ from ame_stocks_api.silver.store import SilverStore
 from ame_stocks_api.silver.ticker_type_contract import TICKER_TYPE_DIM_CONTRACT
 
 S4_ASSET_INCREMENTAL_POLICY_VERSION = "s4-assets-session-incremental-v1"
+S4_BASE_TERMINAL_PARTITION_SET_RULE_VERSION = "s4_assets_base_terminal_partition_set_v1"
 S4_ASSET_INCREMENTAL_PARQUET_WRITER_POLICY: Mapping[str, object] = MappingProxyType(
     {
         "compression": "zstd",
@@ -103,6 +106,21 @@ S4_ASSET_INCREMENTAL_TRANSFORM_SEMANTICS_DIGEST = stable_digest(
 
 _TABLES = tuple(sorted(ASSET_CONTRACTS))
 _DEFERRED_FULL_HISTORY_CHECKS = frozenset({"cross_session_ticker_identity_churn_groups"})
+_FULL_PLAN_COMPATIBILITY_PARAMETERS: Mapping[str, object] = MappingProxyType(
+    {
+        "asset_metadata_time_scope": ASSET_METADATA_TIME_SCOPE,
+        "asset_reference_time_scope": ASSET_REFERENCE_TIME_SCOPE,
+        "asset_source_availability_quality": ASSET_SOURCE_AVAILABILITY_QUALITY,
+        "asset_source_availability_rule": ASSET_SOURCE_AVAILABILITY_RULE,
+        "asset_version_selection_rule": ASSET_VERSION_SELECTION_RULE,
+        "calendar_name": "XNYS",
+        "universe_source_availability_rule": UNIVERSE_SOURCE_AVAILABILITY_RULE,
+    }
+)
+_FULL_PARTITION_SUFFIX = re.compile(
+    r"data/session_year=(?P<year>[0-9]{4})/"
+    r"session_date=(?P<session>[0-9]{4}-[0-9]{2}-[0-9]{2})/part-00000[.]parquet"
+)
 
 
 class S4AssetIncrementalError(S4AssetIncrementalContractError):
@@ -133,6 +151,9 @@ def verify_s4_incremental_git_checkout(repo_root: Path, git_commit: str) -> None
                 {
                     Path(__file__).resolve().relative_to(root).as_posix(),
                     Path(getfile(S4SessionRunSpec)).resolve().relative_to(root).as_posix(),
+                    "backend/ame_stocks_api/cli/silver_assets_incremental.py",
+                    "backend/ame_stocks_api/cli/silver_assets_incremental_bootstrap.py",
+                    "pyproject.toml",
                 }
             )
         )
@@ -153,6 +174,200 @@ def verify_s4_incremental_git_checkout(repo_root: Path, git_commit: str) -> None
         raise S4AssetIncrementalError("S4 incremental modules are not tracked source")
     if status:
         raise S4AssetIncrementalError("S4 incremental Git checkout is not clean")
+
+
+def derive_s4_base_frontier(
+    data_root: Path,
+    *,
+    release_set_artifact: ArtifactPin,
+    calendar_artifact_id: str,
+    calendar_artifact_sha256: str,
+    reference_binding: S4ReferenceBinding,
+) -> S4BaseFrontier:
+    """Derive one trusted base adapter from exact published S4 controls.
+
+    This boundary authenticates the release-set control plane and its declared
+    partition metadata.  It intentionally never opens an historical S4 DATA
+    Parquet file; the only Parquet reads are the two tiny, exact S1/S2 releases
+    used to reproduce ``reference_binding``.
+    """
+
+    root = data_root.expanduser().resolve()
+    release_set_id = _release_set_id_from_artifact(release_set_artifact)
+    release_set, release_document = load_exact_asset_release_set_control(
+        root,
+        release_set_id=release_set_id,
+        expected_sha256=release_set_artifact.sha256,
+        expected_bytes=release_set_artifact.bytes,
+    )
+    release_document_pin = ArtifactPin(
+        path=release_document.path,
+        sha256=release_document.sha256,
+        bytes=release_document.bytes,
+    )
+    if release_document_pin != release_set_artifact:
+        raise S4AssetIncrementalError("S4 base release-set artifact pin changed")
+
+    calendar = load_xnys_calendar_artifact(
+        root,
+        calendar_artifact_id=calendar_artifact_id,
+        expected_sha256=calendar_artifact_sha256,
+    )
+    if _pin_existing(root, calendar.relative_path).sha256 != calendar_artifact_sha256:
+        raise S4AssetIncrementalError("S4 base calendar artifact pin changed")
+    verified_reference = _load_reference_binding_from_exact_releases(
+        root,
+        reference_binding.dependency_pins,
+    )
+    if verified_reference != reference_binding:
+        raise S4AssetIncrementalError(
+            "S4 base reference values differ from their exact published releases"
+        )
+
+    expected_contracts = {
+        table: contract.contract_id for table, contract in ASSET_CONTRACTS.items()
+    }
+    expected_schemas = {
+        table: arrow_schema_digest(contract.arrow_schema)
+        for table, contract in ASSET_CONTRACTS.items()
+    }
+    members = {item.table: item for item in release_set.members}
+    if set(members) != set(_TABLES):
+        raise S4AssetIncrementalError("S4 base release set does not contain three exact tables")
+
+    store = SilverStore(root)
+    sessions_by_table: dict[str, tuple[date, ...]] = {}
+    outputs_by_table: dict[str, dict[date, ArtifactRef]] = {}
+    full_date_ranges: set[tuple[date, date]] = set()
+    expected_reference_release_pins: set[tuple[str, str]] = set()
+    for table in _TABLES:
+        member = members[table]
+        contract = ASSET_CONTRACTS[table]
+        if (
+            member.domain != contract.domain
+            or member.schema_version != contract.schema_version
+            or member.contract_id != contract.contract_id
+        ):
+            raise S4AssetIncrementalError(f"S4 base member contract changed for {table}")
+
+        full_plan, full_plan_document = store.load_full_run_plan(
+            table,
+            member.full_run_plan_id,
+        )
+        full_writer_policy = full_plan.parameters.get("parquet_writer_policy")
+        if (
+            full_plan_document.sha256 != member.full_run_plan_sha256
+            or full_plan.table != table
+            or full_plan.domain != member.domain
+            or full_plan.schema_version != member.schema_version
+            or full_plan.contract_id != member.contract_id
+            or full_plan.transform_version != ASSET_TRANSFORM_VERSION
+            or any(
+                full_plan.parameters.get(key) != value
+                for key, value in _FULL_PLAN_COMPATIBILITY_PARAMETERS.items()
+            )
+            or not isinstance(full_writer_policy, Mapping)
+            or dict(full_writer_policy) != dict(S4_ASSET_INCREMENTAL_PARQUET_WRITER_POLICY)
+        ):
+            raise S4AssetIncrementalError(
+                f"S4 base FullRunPlan is not incrementally compatible for {table}"
+            )
+        full_start = _date_parameter(full_plan.parameters.get("date_start"), "date_start")
+        full_end = _date_parameter(full_plan.parameters.get("date_end"), "date_end")
+        if full_start > full_end:
+            raise S4AssetIncrementalError("S4 base FullRunPlan date range is invalid")
+        full_date_ranges.add((full_start, full_end))
+        expected_reference_release_pins.update(
+            {
+                _full_plan_reference_pin(full_plan.parameters, "exchange"),
+                _full_plan_reference_pin(full_plan.parameters, "ticker_type"),
+            }
+        )
+
+        output_by_session: dict[date, ArtifactRef] = {}
+        prefix = (
+            f"silver/schema=v{member.schema_version}/{member.domain}/{table}/"
+            f"build_id={member.build_id}/"
+        )
+        for output in member.outputs:
+            if (
+                not output.path.startswith(prefix)
+                or output.schema_digest != expected_schemas[table]
+                or output.table != table
+            ):
+                raise S4AssetIncrementalError(f"S4 base partition metadata changed for {table}")
+            suffix = output.path[len(prefix) :]
+            match = _FULL_PARTITION_SUFFIX.fullmatch(suffix)
+            if match is None:
+                raise S4AssetIncrementalError(f"S4 base partition path is noncanonical for {table}")
+            session = _date_parameter(match.group("session"), "partition session")
+            if int(match.group("year")) != session.year or session in output_by_session:
+                raise S4AssetIncrementalError(
+                    f"S4 base partition session is invalid or duplicated for {table}"
+                )
+            output_by_session[session] = output
+        sessions_by_table[table] = tuple(sorted(output_by_session))
+        outputs_by_table[table] = output_by_session
+
+    if len(full_date_ranges) != 1 or len(expected_reference_release_pins) != 2:
+        raise S4AssetIncrementalError("S4 base FullRunPlan controls disagree across tables")
+    actual_reference_release_pins = {
+        (item.path, item.sha256) for item in reference_binding.dependency_pins
+    }
+    if actual_reference_release_pins != expected_reference_release_pins:
+        raise S4AssetIncrementalError(
+            "S4 base reference releases differ from the published FullRunPlans"
+        )
+    session_sets = {sessions for sessions in sessions_by_table.values()}
+    if len(session_sets) != 1:
+        raise S4AssetIncrementalError("S4 base table session sets differ")
+    sessions = next(iter(session_sets))
+    if not sessions:
+        raise S4AssetIncrementalError("S4 base table session set is empty")
+    full_start, full_end = next(iter(full_date_ranges))
+    expected_sessions = tuple(
+        item.session_date
+        for item in calendar.sessions
+        if full_start <= item.session_date <= full_end
+    )
+    if sessions != expected_sessions or sessions[0] != full_start or sessions[-1] != full_end:
+        raise S4AssetIncrementalError(
+            "S4 base partitions are not the complete pinned-calendar FullRunPlan range"
+        )
+
+    terminal_session = sessions[-1]
+    terminal_partition_set_digest = stable_digest(
+        {
+            "base_release_set_id": release_set.release_set_id,
+            "partitions": [
+                {
+                    "artifact": outputs_by_table[table][terminal_session].to_dict(),
+                    "contract_id": expected_contracts[table],
+                    "table": table,
+                }
+                for table in _TABLES
+            ],
+            "rule_version": S4_BASE_TERMINAL_PARTITION_SET_RULE_VERSION,
+            "terminal_session": terminal_session.isoformat(),
+        }
+    )
+    committed_at = datetime.fromisoformat(release_set.committed_at.replace("Z", "+00:00"))
+    release_available_session, _ = calendar.first_open_after(committed_at)
+    if release_available_session < terminal_session:
+        raise S4AssetIncrementalError("S4 base release availability precedes its terminal data")
+    return S4BaseFrontier(
+        base_release_set_id=release_set.release_set_id,
+        base_release_set_artifact=release_set_artifact,
+        terminal_session=terminal_session,
+        terminal_partition_set_digest=terminal_partition_set_digest,
+        calendar_artifact_id=calendar.calendar_artifact_id,
+        reference_binding_id=reference_binding.binding_id,
+        contract_ids_by_table=expected_contracts,
+        schema_digests_by_table=expected_schemas,
+        transform_semantics_digest=S4_ASSET_INCREMENTAL_TRANSFORM_SEMANTICS_DIGEST,
+        parquet_writer_policy=S4_ASSET_INCREMENTAL_PARQUET_WRITER_POLICY,
+        release_available_session=release_available_session,
+    )
 
 
 def write_s4_base_frontier(
@@ -302,8 +517,10 @@ def prepare_s4_asset_session_run_spec(
 
     if isinstance(parent, S4BaseFrontier):
         _require_base_compatibility(
+            root,
             parent,
             calendar_artifact_id=calendar_artifact_id,
+            calendar_artifact_sha256=calendar_artifact_sha256,
             reference_binding=reference_binding,
         )
 
@@ -518,8 +735,10 @@ def _validate_run_spec_inputs(
     )
     if isinstance(parent, S4BaseFrontier):
         _require_base_compatibility(
+            root,
             parent,
             calendar_artifact_id=run_spec.calendar_artifact_id,
+            calendar_artifact_sha256=run_spec.calendar_artifact.sha256,
             reference_binding=run_spec.reference_binding,
         )
     else:
@@ -544,9 +763,12 @@ def _validate_run_spec_inputs(
 def _validate_canonical_source_projection(binding: S4SessionSourceBinding) -> None:
     canonical_manifest_paths = canonical_asset_session_manifest_paths(binding.session_date)
     canonical_request_ids = tuple(Path(path).stem for path in canonical_manifest_paths)
-    if (binding.active_request_id, binding.inactive_request_id) != canonical_request_ids or tuple(
+    if (
+        binding.active_request_id,
+        binding.inactive_request_id,
+    ) != canonical_request_ids or frozenset(
         item.path for item in binding.inventory.upstream_manifests
-    ) != canonical_manifest_paths:
+    ) != frozenset(canonical_manifest_paths):
         raise S4AssetIncrementalError(
             "S4 source binding is not the canonical active/inactive request pair"
         )
@@ -577,26 +799,21 @@ def _reauthenticate_completed_source_manifests(
 
 
 def _require_base_compatibility(
+    root: Path,
     base: S4BaseFrontier,
     *,
     calendar_artifact_id: str,
+    calendar_artifact_sha256: str,
     reference_binding: S4ReferenceBinding,
 ) -> None:
-    expected_contracts = {
-        table: contract.contract_id for table, contract in ASSET_CONTRACTS.items()
-    }
-    expected_schemas = {
-        table: arrow_schema_digest(contract.arrow_schema)
-        for table, contract in ASSET_CONTRACTS.items()
-    }
-    if (
-        base.calendar_artifact_id != calendar_artifact_id
-        or base.reference_binding_id != reference_binding.binding_id
-        or base.transform_semantics_digest != S4_ASSET_INCREMENTAL_TRANSFORM_SEMANTICS_DIGEST
-        or dict(base.contract_ids_by_table) != expected_contracts
-        or dict(base.schema_digests_by_table) != expected_schemas
-        or dict(base.parquet_writer_policy) != dict(S4_ASSET_INCREMENTAL_PARQUET_WRITER_POLICY)
-    ):
+    derived = derive_s4_base_frontier(
+        root,
+        release_set_artifact=base.base_release_set_artifact,
+        calendar_artifact_id=calendar_artifact_id,
+        calendar_artifact_sha256=calendar_artifact_sha256,
+        reference_binding=reference_binding,
+    )
+    if derived != base:
         raise S4AssetIncrementalError(
             "base frontier is not clean-append compatible with the S4 incremental runner"
         )
@@ -685,8 +902,8 @@ def _validate_reader_against_binding(
         or reader.declared_row_count != binding.declared_row_count
         or expected_request_ids != canonical_request_ids
         or expected_request_ids != (binding.active_request_id, binding.inactive_request_id)
-        or tuple(item.path for item in binding.inventory.upstream_manifests)
-        != canonical_manifest_paths
+        or frozenset(item.path for item in binding.inventory.upstream_manifests)
+        != frozenset(canonical_manifest_paths)
         or tuple(item.source_manifest_path for item in session.requests) != canonical_manifest_paths
         or session.capture_completed_at_utc != binding.pair_capture_completed_at_utc
     ):
@@ -1031,6 +1248,52 @@ def _lock_relative_path(session: date) -> str:
     return f"manifests/silver/locks/s4-assets-incremental-{session.isoformat()}.lock"
 
 
+def _release_set_id_from_artifact(artifact: ArtifactPin) -> str:
+    prefix = "manifests/silver/release-sets/assets/release_set_id="
+    suffix = "/manifest.json"
+    if not artifact.path.startswith(prefix) or not artifact.path.endswith(suffix):
+        raise S4AssetIncrementalError("S4 base release-set artifact path is noncanonical")
+    release_set_id = artifact.path[len(prefix) : -len(suffix)]
+    if len(release_set_id) != 64 or any(
+        character not in "0123456789abcdef" for character in release_set_id
+    ):
+        raise S4AssetIncrementalError("S4 base release-set artifact ID is invalid")
+    return release_set_id
+
+
+def _date_parameter(value: object, label: str) -> date:
+    if not isinstance(value, str):
+        raise S4AssetIncrementalError(f"S4 base {label} is not an ISO date")
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as exc:
+        raise S4AssetIncrementalError(f"S4 base {label} is not an ISO date") from exc
+    if parsed.isoformat() != value:
+        raise S4AssetIncrementalError(f"S4 base {label} is not a canonical ISO date")
+    return parsed
+
+
+def _full_plan_reference_pin(
+    parameters: Mapping[str, object],
+    role: str,
+) -> tuple[str, str]:
+    release_id = parameters.get(f"{role}_release_id")
+    release_sha256 = parameters.get(f"{role}_release_sha256")
+    if (
+        not isinstance(release_id, str)
+        or len(release_id) != 64
+        or any(character not in "0123456789abcdef" for character in release_id)
+        or not isinstance(release_sha256, str)
+        or len(release_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in release_sha256)
+    ):
+        raise S4AssetIncrementalError(f"S4 base {role} release pin is invalid")
+    return (
+        f"manifests/silver/releases/release_id={release_id}.json",
+        release_sha256,
+    )
+
+
 def _pin_existing(root: Path, relative_path: str) -> ArtifactPin:
     path = safe_relative_path(root, relative_path)
     if not path.is_file() or path.is_symlink():
@@ -1138,8 +1401,10 @@ __all__ = [
     "S4_ASSET_INCREMENTAL_PARQUET_WRITER_POLICY",
     "S4_ASSET_INCREMENTAL_POLICY_VERSION",
     "S4_ASSET_INCREMENTAL_TRANSFORM_SEMANTICS_DIGEST",
+    "S4_BASE_TERMINAL_PARTITION_SET_RULE_VERSION",
     "S4AssetIncrementalError",
     "S4AssetIncrementalRun",
+    "derive_s4_base_frontier",
     "load_completed_s4_asset_session_run",
     "load_current_s4_reference_binding",
     "parent_frontier_from_session_receipt",

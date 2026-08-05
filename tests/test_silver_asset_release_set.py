@@ -21,6 +21,7 @@ from ame_stocks_api.silver.asset_release_set import (
     AssetReleaseSetApproval,
     AssetReleaseSetIntent,
     _release_asset_publish_plan,
+    load_exact_asset_release_set_control,
     release_asset_publish_plan,
     require_asset_release_set_membership,
 )
@@ -157,6 +158,36 @@ def test_asset_release_set_is_visibility_atomic_and_idempotent(
     assert all(
         len(store.workflow_events(fixture.plan.workflow_ids[table])) == 10 for table in TABLES
     )
+
+
+def test_exact_release_set_control_loader_does_not_verify_data_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture, _publish_run, arguments = _release_fixture(tmp_path, monkeypatch)
+    run = _release_asset_publish_plan(fixture.plan.data_root, **arguments)
+    monkeypatch.setattr(
+        asset_release_set,
+        "_require_production_release_authority",
+        lambda *_args: None,
+    )
+
+    def forbidden_data_verification(*_args, **_kwargs):
+        raise AssertionError("control-only loader must not verify S4 DATA artifacts")
+
+    monkeypatch.setattr(
+        asset_release_set.SilverStore,
+        "verify_artifact",
+        forbidden_data_verification,
+    )
+    observed, document = load_exact_asset_release_set_control(
+        fixture.plan.data_root,
+        release_set_id=run.release_set.release_set_id,
+        expected_sha256=run.document.sha256,
+        expected_bytes=run.document.bytes,
+    )
+    assert observed == run.release_set
+    assert document == run.document
 
 
 def test_release_recorded_at_cannot_predate_any_full_ready_event(
@@ -681,18 +712,10 @@ def test_release_set_cli_prints_the_complete_approval_evidence(
         "accepted": True,
         "digest": run.release_set.runtime_review_digest,
     }
-    assert output["accepted_quarantine_issue_ids_by_table"] == {
-        table: [] for table in TABLES
-    }
-    warning_counts = {
-        table: output["tables"][table]["warning_count"] for table in TABLES
-    }
+    assert output["accepted_quarantine_issue_ids_by_table"] == {table: [] for table in TABLES}
+    warning_counts = {table: output["tables"][table]["warning_count"] for table in TABLES}
     assert warning_counts == {
-        member.table: len(member.warning_result_ids)
-        for member in run.release_set.members
+        member.table: len(member.warning_result_ids) for member in run.release_set.members
     }
-    assert all(
-        output["tables"][table]["accepted_quarantine_issue_ids"] == []
-        for table in TABLES
-    )
+    assert all(output["tables"][table]["accepted_quarantine_issue_ids"] == [] for table in TABLES)
     assert output["backtest_identity_eligible"] is False

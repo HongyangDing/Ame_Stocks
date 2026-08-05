@@ -52,6 +52,7 @@ class S4BaseFrontier:
     """Metadata-only adapter for the immutable published S4 base frontier."""
 
     base_release_set_id: str
+    base_release_set_artifact: ArtifactPin
     terminal_session: date
     terminal_partition_set_digest: str
     calendar_artifact_id: str
@@ -64,6 +65,14 @@ class S4BaseFrontier:
 
     def __post_init__(self) -> None:
         _digest(self.base_release_set_id, "base release-set ID")
+        if not isinstance(self.base_release_set_artifact, ArtifactPin):
+            raise S4AssetIncrementalContractError("base release-set artifact pin is invalid")
+        expected_release_path = (
+            "manifests/silver/release-sets/assets/"
+            f"release_set_id={self.base_release_set_id}/manifest.json"
+        )
+        if self.base_release_set_artifact.path != expected_release_path:
+            raise S4AssetIncrementalContractError("base release-set artifact path is not canonical")
         _session(self.terminal_session, "base terminal session")
         _digest(self.terminal_partition_set_digest, "base terminal partition-set digest")
         _digest(self.calendar_artifact_id, "base calendar artifact ID")
@@ -96,13 +105,14 @@ class S4BaseFrontier:
 
     def logical_payload(self) -> dict[str, object]:
         return {
+            "base_release_set_artifact": self.base_release_set_artifact.to_dict(),
             "base_release_set_id": self.base_release_set_id,
             "calendar_artifact_id": self.calendar_artifact_id,
             "contract_ids_by_table": dict(self.contract_ids_by_table),
             "parquet_writer_policy": dict(self.parquet_writer_policy),
             "reference_binding_id": self.reference_binding_id,
             "release_available_session": self.release_available_session.isoformat(),
-            "rule_version": "s4_assets_base_frontier_v1",
+            "rule_version": "s4_assets_base_frontier_v2",
             "schema_digests_by_table": dict(self.schema_digests_by_table),
             "terminal_partition_set_digest": self.terminal_partition_set_digest,
             "terminal_session": self.terminal_session.isoformat(),
@@ -118,6 +128,7 @@ class S4BaseFrontier:
         _exact_keys(
             document,
             {
+                "base_release_set_artifact",
                 "base_release_set_id",
                 "calendar_artifact_id",
                 "contract_ids_by_table",
@@ -133,10 +144,13 @@ class S4BaseFrontier:
             },
             "S4 base frontier",
         )
-        if document["rule_version"] != "s4_assets_base_frontier_v1":
+        if document["rule_version"] != "s4_assets_base_frontier_v2":
             raise S4AssetIncrementalContractError("S4 base frontier rule version changed")
         result = cls(
             base_release_set_id=_text(document["base_release_set_id"], "base release-set ID"),
+            base_release_set_artifact=ArtifactPin(
+                **_artifact_kwargs(document["base_release_set_artifact"])
+            ),
             terminal_session=_date_text(document["terminal_session"], "base terminal session"),
             terminal_partition_set_digest=_text(
                 document["terminal_partition_set_digest"],

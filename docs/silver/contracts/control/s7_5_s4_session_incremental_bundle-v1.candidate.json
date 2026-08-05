@@ -1,13 +1,13 @@
 {
   "artifact_type": "s7_5_s4_session_incremental_contract_bundle_candidate",
-  "contract_id": "1d1c814f3cd4cca3aa29e6b18d3ea8f82135900443c37abff5a85d128930dc13",
-  "contract_version": 1,
+  "contract_id": "400a788ff4a6cc173b7814ac3b81b5609b75302d3f455bfcfe9b1e4a17b905a0",
+  "contract_version": 2,
   "logical_contract": {
     "authorization_state": {
       "local_fixture_execution": true,
       "production_checkpoint_creation": false,
-      "production_or_remote_artifact_read": false,
-      "production_or_remote_incremental_execution": false,
+      "production_or_remote_artifact_read": true,
+      "production_or_remote_incremental_execution": true,
       "publish": false,
       "registry_mutation": false,
       "s7_execution": false,
@@ -18,9 +18,21 @@
         "base_release",
         "session_receipt"
       ],
+      "base_frontier_bootstrap": {
+        "availability_rule": "release_available_session_is_first_pinned_xnys_open_strictly_after_release_set_committed_at",
+        "historical_s4_data_parquet_read": false,
+        "reference_data_read": "exact_two_small_published_s1_s2_tables_only",
+        "release_set_selection": "exact_canonical_marker_path_plus_release_set_id_sha256_and_bytes_no_discovery",
+        "release_set_verification": "complete_production_control_plane_without_member_data_verification",
+        "session_set_rule": "three_tables_have_identical_nonempty_duplicate_free_partition_sessions_equal_to_complete_full_run_plan_range_in_pinned_calendar",
+        "terminal_partition_set_rule_version": "s4_assets_base_terminal_partition_set_v1"
+      },
+      "base_frontier_revalidation": "every_base_consumer_rederives_from_exact_release_set_calendar_and_reference_controls_and_requires_full_object_equality",
+      "base_frontier_rule_version": "s4_assets_base_frontier_v2",
       "clean_append_rule": "target_session_equals_exact_next_session_in_pinned_xnys_calendar",
-      "parent_content_read": "exact_metadata_frontier_and_parent_run_spec_only_no_parent_parquet",
+      "parent_content_read": "exact_metadata_frontier_release_set_control_and_parent_run_spec_only_no_historical_s4_data_parquet",
       "parent_compatibility": [
+        "exact_base_release_set_artifact",
         "calendar_artifact",
         "reference_binding",
         "transform_semantics_digest",
@@ -34,6 +46,21 @@
       "session_parent_visibility_field": "receipt_available_session"
     },
     "control_objects": {
+      "base_frontier_fields": [
+        "base_release_set_artifact",
+        "base_release_set_id",
+        "calendar_artifact_id",
+        "contract_ids_by_table",
+        "frontier_id",
+        "parquet_writer_policy",
+        "reference_binding_id",
+        "release_available_session",
+        "rule_version",
+        "schema_digests_by_table",
+        "terminal_partition_set_digest",
+        "terminal_session",
+        "transform_semantics_digest"
+      ],
       "durable_objects": [
         "s4_session_run_spec",
         "s4_session_run_receipt"
@@ -82,6 +109,7 @@
     },
     "failure_semantics": {
       "blocking_qa_or_quarantine": "no_final_receipt",
+      "caller_written_or_stale_base_frontier": "fail_closed_before_source_or_output_read",
       "existing_session_different_source_binding": "correction_required",
       "final_visibility_marker": "immutable_run_receipt_written_last",
       "interrupted_staging": "not_visible_and_exact_retry_reuses_identical_bytes",
@@ -91,6 +119,11 @@
     "full_reconciliation": {
       "existing_asset_full_runner_modified": false,
       "role": "channel_c_periodic_full_oracle"
+    },
+    "remote_staging_scope": {
+      "publication": false,
+      "target_session_rule": "one_exact_next_session_after_trusted_base_frontier",
+      "visibility": "immutable_i2_run_receipt_only_not_a_release_or_checkpoint"
     },
     "output_tables": {
       "asset_observation_daily": {
@@ -133,6 +166,7 @@
       "path_rule": "canonical_provider_request_id_for_assets_session_active_true_and_false",
       "provider": "massive",
       "read_scope": "selected_session_active_and_inactive_pages_only",
+      "upstream_manifest_order_rule": "inventory_serialization_order_is_irrelevant_while_active_inactive_request_roles_remain_exact_and_ordered",
       "executor_revalidation": "rederive_canonical_request_ids_and_manifest_paths_even_for_direct_or_persisted_run_specs",
       "completed_receipt_retry": "authenticate_receipt_outputs_and_controls_without_rereading_bronze_pages"
     },

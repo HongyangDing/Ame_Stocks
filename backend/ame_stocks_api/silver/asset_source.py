@@ -354,7 +354,13 @@ def build_asset_session_source_inventory(
         raise AssetSourceError("asset session inventory contains an unexpected session")
     if tuple(request.source_request_id for request in session.requests) != expected_request_ids:
         raise AssetSourceError("asset session inventory contains noncanonical request IDs")
-    if tuple(item.path for item in inventory.upstream_manifests) != expected_manifest_paths:
+    # ``SourceInventory`` canonicalizes upstream manifests by path.  Provider
+    # request hashes do not preserve the semantic active/inactive ordering (for
+    # example 2026-07-10 sorts inactive before active), so compare the manifest
+    # set here while retaining role validation in ``session.requests`` above.
+    if frozenset(item.path for item in inventory.upstream_manifests) != frozenset(
+        expected_manifest_paths
+    ):
         raise AssetSourceError("asset session inventory contains noncanonical manifest paths")
     return inventory
 

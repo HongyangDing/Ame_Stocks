@@ -7,13 +7,15 @@ Gate A 已批准。批准对象保持原字节不变：
 - Contract ID：`b54781ddfb37f7720315dffea340e017b23fad77853f9725b1ae969a46aa66bb`
 - Candidate SHA-256：`87345e453ec7ea0656ec441b3f3f3559fe11fd02f7f28c080ba18eec9a8a4390`
 
-I2 只实现本地代码与合成 fixture。它不读取生产 Parquet、不运行远程增量、不创建生产 checkpoint、
-不发布 release，也不修改 S7/S8 或 identity registry。现有 S4 Preview/Full 及其已批准固定授权保持原样，
-继续作为 Channel C 全量对账路径。
+Gate A 后，用户又明确授权：在没有报错或明显越界时，继续完成一次真实服务器的 exact-next-session、
+staging-only、no-publish I2 验证。因此 I2 当前允许读取精确绑定的远程控制面、下载唯一目标 session 的
+active/inactive Bronze pair，并生成该日三张 staging partition、QA、run spec 与 final receipt。它仍不创建
+production checkpoint、不发布 release，也不修改 S7/S8 或 identity registry。现有 S4 Preview/Full 及其
+已批准固定授权保持原样，继续作为 Channel C 全量对账路径。
 
 Gate A approval 只新增一份开发审计记录，不恢复旧式
-`plan → request → approval → intent` 链。I2 完成后，真实服务器只申请一次有界、staging-only、
-no-publish 的执行授权。
+`plan → request → approval → intent` 链。远程预检已经将首次范围固定为 S4 base `2026-07-09` 后的
+唯一下一 XNYS session `2026-07-10`；任何 source gap、边界漂移或资源异常仍立即停止。
 
 ## 2. 热路径
 
@@ -50,6 +52,12 @@ I2 使用两个 durable 对象：
 - `S4SessionRunReceipt`：exact run spec、三份 partition receipt、row funnel、session-local QA details 与
   availability；receipt ID 不含 wall clock、RSS、日志路径或 writer Git commit。
 
+首次 append 前，`S4BaseFrontier` v2 必须由 exact production S4 release-set marker 的 ID、SHA 与 bytes
+反推。bootstrap 会验证完整 release-set control plane、三张表的合同/schema、FullRunPlan 语义、三表一致
+且覆盖 pinned XNYS calendar 完整区间的 session paths，以及末日三 partition digest；只允许额外读取两张
+很小的 exact S1/S2 reference 表，禁止打开任何历史 S4 DATA Parquet。之后每次消费 base 都重新执行同一
+反推并要求整个 frontier 对象相等，调用方手写但形状合法的 frontier 不能进入转换。
+
 Source knowledge time 与 control visibility time 分开：`pair_available_session` 只表示 Massive 双 manifest
 何时可用于研究；`receipt_available_session` 必须不早于 source pair 与 parent frontier 两者的 availability，
 且 parent/receipt 两个 availability 日期都必须存在于 exact pinned XNYS calendar。
@@ -67,8 +75,8 @@ Release manifest 留到 I3；I2 不创建或发布 production release。
 I2 candidate contract：
 
 - 文件：`docs/silver/contracts/control/s7_5_s4_session_incremental_bundle-v1.candidate.json`
-- Contract ID：`1d1c814f3cd4cca3aa29e6b18d3ea8f82135900443c37abff5a85d128930dc13`
-- Candidate SHA-256：`8d1007c1dfa11c3bfb30909756181977a0c696e1128cff454f54279ad187018e`
+- Contract ID：`400a788ff4a6cc173b7814ac3b81b5609b75302d3f455bfcfe9b1e4a17b905a0`
+- Candidate SHA-256：`43d1f8e9030cd36daa6d2423c87cb5f98eaa3a025e26541644dbad4e42986a2c`
 
 ## 4. QA 语义
 
@@ -88,7 +96,10 @@ I2 candidate contract：
 - 输出 row count 全部来自 manifest 和实际 transform，version 零行合法；
 - 同一 parent、inputs 和 semantics 重跑的 Parquet pins、receipt ID 与 receipt bytes 完全一致；
 - 已存在 final receipt 时不再读取 Bronze page或调用 transform；
+- active/inactive manifest 在 JSON canonical 排序后即使顺序反转，角色绑定、reload 与幂等重试仍正确；
+- base bootstrap 只读 exact release-set control 与 S1/S2 小表，不读历史 S4 DATA；
 - 放置损坏的旧 session Parquet 不影响新 session，证明热路径不读取旧 session content；
 - 旧 S4 Full 回归测试全部通过。
 
-完成这些本地验收后停在一次新的真实执行检查点；未经批准不访问服务器数据盘。
+完成本地验收并三端同步后，按已授权范围只执行 `2026-07-10` staging/no-publish；不得自动进入 I3、
+checkpoint 或 publish。
