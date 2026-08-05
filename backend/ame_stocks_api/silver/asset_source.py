@@ -24,6 +24,7 @@ from ame_stocks_api.silver.contracts import (
     SourceLayer,
     UpstreamManifestRef,
 )
+from ame_stocks_core import ProviderDataset, ProviderRequest
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -316,6 +317,48 @@ class AssetSourceReader:
                 )
 
 
+def canonical_asset_session_manifest_paths(session: date | str) -> tuple[str, str]:
+    """Return the exact active/inactive manifest paths for one canonical session pair."""
+
+    return tuple(
+        f"{_MANIFEST_PREFIX}/{request.request_id}.json"
+        for request in _canonical_asset_session_requests(session)
+    )
+
+
+def build_asset_session_source_inventory(
+    data_root: Path,
+    session_date: date | str,
+    git_commit: str,
+) -> SourceInventory:
+    """Build an inventory from only the canonical manifest pair for one session.
+
+    Paths are derived directly from deterministic provider requests. No filesystem discovery is
+    performed, so unrelated or stale manifests cannot enter the session-scoped inventory.
+    """
+
+    normalized_session = _session_date(session_date)
+    expected_requests = _canonical_asset_session_requests(normalized_session)
+    expected_request_ids = tuple(request.request_id for request in expected_requests)
+    expected_manifest_paths = canonical_asset_session_manifest_paths(normalized_session)
+    inventory = build_asset_source_inventory(
+        data_root,
+        manifest_paths=expected_manifest_paths,
+        git_commit=git_commit,
+    )
+    reader = read_asset_source_inventory(data_root, inventory)
+    if reader.session_count != 1:
+        raise AssetSourceError("asset session inventory must contain exactly one session")
+    session = reader.sessions[0]
+    if session.session_date != normalized_session:
+        raise AssetSourceError("asset session inventory contains an unexpected session")
+    if tuple(request.source_request_id for request in session.requests) != expected_request_ids:
+        raise AssetSourceError("asset session inventory contains noncanonical request IDs")
+    if tuple(item.path for item in inventory.upstream_manifests) != expected_manifest_paths:
+        raise AssetSourceError("asset session inventory contains noncanonical manifest paths")
+    return inventory
+
+
 def build_asset_source_inventory(
     data_root: Path,
     *,
@@ -392,6 +435,27 @@ def _load_asset_sessions(
             )
         )
     return tuple(sessions)
+
+
+def _canonical_asset_session_requests(
+    session: date | str,
+) -> tuple[ProviderRequest, ProviderRequest]:
+    normalized = _session_date(session)
+    active = ProviderRequest(
+        dataset=ProviderDataset.ASSETS,
+        start=normalized,
+        end=normalized,
+        adjusted=False,
+        parameters=(("active", "true"),),
+    )
+    inactive = ProviderRequest(
+        dataset=ProviderDataset.ASSETS,
+        start=normalized,
+        end=normalized,
+        adjusted=False,
+        parameters=(("active", "false"),),
+    )
+    return active, inactive
 
 
 def _normalize_manifest_paths(manifest_paths: Iterable[str]) -> tuple[str, ...]:
@@ -662,6 +726,8 @@ __all__ = [
     "AssetSourceRecord",
     "AssetSourceRequest",
     "AssetSourceSession",
+    "build_asset_session_source_inventory",
     "build_asset_source_inventory",
+    "canonical_asset_session_manifest_paths",
     "read_asset_source_inventory",
 ]

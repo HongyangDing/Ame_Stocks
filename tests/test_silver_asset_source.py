@@ -4,7 +4,7 @@ import gzip
 import hashlib
 import json
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -13,10 +13,13 @@ import pytest
 from ame_stocks_api.silver.asset_source import (
     AssetSourceError,
     AssetSourceReader,
+    build_asset_session_source_inventory,
     build_asset_source_inventory,
+    canonical_asset_session_manifest_paths,
     read_asset_source_inventory,
 )
 from ame_stocks_api.silver.contracts import SourceLayer
+from ame_stocks_core import ProviderDataset, ProviderRequest
 
 CAPTURE_AT = datetime(2026, 7, 11, 14, 3, 15, tzinfo=UTC)
 
@@ -52,8 +55,9 @@ def _write_request(
     continuation_overrides: dict[int, str | None] | None = None,
     raw_payloads: dict[int, bytes] | None = None,
     stored_payloads: dict[int, bytes] | None = None,
+    request_id: str | None = None,
 ) -> _RequestFixture:
-    request_id = hashlib.sha256(f"{session}:{active}:{salt}".encode()).hexdigest()
+    request_id = request_id or hashlib.sha256(f"{session}:{active}:{salt}".encode()).hexdigest()
     page_rows = pages if pages is not None else [[_row("A", active=active)]]
     artifacts: list[dict[str, object]] = []
     paths: list[Path] = []
@@ -144,6 +148,37 @@ def _pair(
     return active, inactive
 
 
+def _canonical_request(session: str, *, active: bool) -> ProviderRequest:
+    session_date = date.fromisoformat(session)
+    return ProviderRequest(
+        dataset=ProviderDataset.ASSETS,
+        start=session_date,
+        end=session_date,
+        adjusted=False,
+        parameters=(("active", str(active).lower()),),
+    )
+
+
+def _canonical_pair(
+    root: Path,
+    *,
+    session: str = "2026-05-11",
+) -> tuple[_RequestFixture, _RequestFixture]:
+    active = _write_request(
+        root,
+        session=session,
+        active=True,
+        request_id=_canonical_request(session, active=True).request_id,
+    )
+    inactive = _write_request(
+        root,
+        session=session,
+        active=False,
+        request_id=_canonical_request(session, active=False).request_id,
+    )
+    return active, inactive
+
+
 def _inventory(root: Path, fixtures: tuple[_RequestFixture, ...]):
     return build_asset_source_inventory(
         root,
@@ -172,6 +207,87 @@ def _file_snapshot(root: Path) -> dict[str, tuple[int, int, str]]:
         for path in root.rglob("*")
         if path.is_file()
     }
+
+
+def test_canonical_asset_session_manifest_paths_use_exact_provider_request_ids() -> None:
+    session = date(2026, 5, 11)
+    expected_requests = tuple(
+        ProviderRequest(
+            dataset=ProviderDataset.ASSETS,
+            start=session,
+            end=session,
+            adjusted=False,
+            parameters=(("active", active),),
+        )
+        for active in ("true", "false")
+    )
+
+    expected_paths = tuple(
+        f"manifests/massive/assets/{request.request_id}.json" for request in expected_requests
+    )
+    assert canonical_asset_session_manifest_paths(session) == expected_paths
+    assert canonical_asset_session_manifest_paths(session.isoformat()) == expected_paths
+
+
+def test_session_inventory_uses_only_canonical_pair_and_ignores_unrelated_manifest(
+    tmp_path: Path,
+) -> None:
+    session = "2026-05-11"
+    canonical_pair = _canonical_pair(tmp_path, session=session)
+    unrelated = _write_request(
+        tmp_path,
+        session="2026-05-12",
+        active=True,
+        salt="unrelated",
+    )
+
+    inventory = build_asset_session_source_inventory(tmp_path, session, "a" * 40)
+    expected_paths = canonical_asset_session_manifest_paths(session)
+    assert tuple(item.path for item in inventory.upstream_manifests) == expected_paths
+    assert unrelated.manifest_path not in expected_paths
+    reader = read_asset_source_inventory(tmp_path, inventory)
+    assert reader.session_count == 1
+    assert reader.sessions[0].session_date == date.fromisoformat(session)
+    assert tuple(request.source_request_id for request in reader.sessions[0].requests) == tuple(
+        _canonical_request(session, active=active).request_id for active in (True, False)
+    )
+    assert {item.manifest_path for item in canonical_pair} == set(expected_paths)
+
+
+@pytest.mark.parametrize("present_active", [True, False])
+def test_session_inventory_requires_both_canonical_manifests(
+    tmp_path: Path,
+    present_active: bool,
+) -> None:
+    session = "2026-05-11"
+    _write_request(
+        tmp_path,
+        session=session,
+        active=present_active,
+        request_id=_canonical_request(session, active=present_active).request_id,
+    )
+
+    with pytest.raises(AssetSourceError, match="cannot read asset manifest"):
+        build_asset_session_source_inventory(tmp_path, session, "a" * 40)
+
+
+def test_session_inventory_never_discovers_manifests_with_glob(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = "2026-05-11"
+    _canonical_pair(tmp_path, session=session)
+
+    def fail_discovery(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("session inventory must not discover files")
+
+    monkeypatch.setattr(Path, "glob", fail_discovery)
+    monkeypatch.setattr(Path, "rglob", fail_discovery)
+
+    inventory = build_asset_session_source_inventory(tmp_path, session, "a" * 40)
+    assert tuple(item.path for item in inventory.upstream_manifests) == (
+        canonical_asset_session_manifest_paths(session)
+    )
 
 
 def test_reader_streams_complete_pair_with_lineage_and_never_writes(tmp_path: Path) -> None:

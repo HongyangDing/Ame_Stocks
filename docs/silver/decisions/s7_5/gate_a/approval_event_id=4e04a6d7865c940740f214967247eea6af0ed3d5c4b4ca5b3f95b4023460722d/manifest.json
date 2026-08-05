@@ -1,0 +1,41 @@
+{
+  "approval_event_id": "4e04a6d7865c940740f214967247eea6af0ed3d5c4b4ca5b3f95b4023460722d",
+  "approval_event_rule_version": "s7_5_gate_a_schema_development_approval_v1",
+  "approval_literal": "批准Gate A",
+  "approval_available_session": "2026-08-04",
+  "approved_candidate": {
+    "candidate_sha256": "87345e453ec7ea0656ec441b3f3f3559fe11fd02f7f28c080ba18eec9a8a4390",
+    "contract_id": "b54781ddfb37f7720315dffea340e017b23fad77853f9725b1ae969a46aa66bb",
+    "path": "docs/silver/contracts/control/s7_5_incremental_contract_bundle-v1.candidate.json"
+  },
+  "authorized_scope": [
+    "i2_local_s4_single_session_incremental_implementation",
+    "synthetic_and_local_fixture_tests",
+    "manifest_derived_bounds",
+    "source_gap_duplicate_page_active_inactive_mismatch_and_idempotency_tests",
+    "future_execution_package_preparation_without_production_data_read_or_execution",
+    "normal_repository_git_sync"
+  ],
+  "base_oracle": {
+    "base_freeze_id": "da74c44f426310bcc6519c11751bc87352884c1be88caedb73d817bcf3a62f79",
+    "release_set_id": "5ce4ad18b44d86fe70fd25c50d1023fb1aa39f25f50fa2f93a0a1c4452eb811e"
+  },
+  "denied_scope": [
+    "production_or_remote_parquet_content_read",
+    "production_s4_incremental_execution_or_staging_write",
+    "production_checkpoint_creation",
+    "release_publish_or_current_pointer_change",
+    "registry_or_canonical_identity_mutation",
+    "historical_partition_replacement",
+    "new_base_cutover",
+    "s7_or_s8_execution"
+  ],
+  "runtime_capabilities_remain_false": {
+    "incremental_execution_authorized": false,
+    "parquet_content_read_authorized": false,
+    "publish_authorized": false,
+    "registry_mutation_authorized": false,
+    "s8_execution_authorized": false
+  },
+  "source_commit": "9e6ad620894bff12dd72b0cd52a3693e484b1ff6"
+}

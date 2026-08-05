@@ -1,0 +1,145 @@
+{
+  "artifact_type": "s7_5_s4_session_incremental_contract_bundle_candidate",
+  "contract_id": "1d1c814f3cd4cca3aa29e6b18d3ea8f82135900443c37abff5a85d128930dc13",
+  "contract_version": 1,
+  "logical_contract": {
+    "authorization_state": {
+      "local_fixture_execution": true,
+      "production_checkpoint_creation": false,
+      "production_or_remote_artifact_read": false,
+      "production_or_remote_incremental_execution": false,
+      "publish": false,
+      "registry_mutation": false,
+      "s7_execution": false,
+      "s8_execution": false
+    },
+    "calendar_and_frontier": {
+      "accepted_parent_kinds": [
+        "base_release",
+        "session_receipt"
+      ],
+      "clean_append_rule": "target_session_equals_exact_next_session_in_pinned_xnys_calendar",
+      "parent_content_read": "exact_metadata_frontier_and_parent_run_spec_only_no_parent_parquet",
+      "parent_compatibility": [
+        "calendar_artifact",
+        "reference_binding",
+        "transform_semantics_digest",
+        "three_contract_ids",
+        "three_schema_digests",
+        "parquet_writer_policy"
+      ],
+      "source_availability_rule": "pair_available_session_is_source_knowledge_time_and_is_not_compared_to_parent_visibility",
+      "receipt_availability_rule": "receipt_available_session_gte_max_pair_available_session_and_parent_frontier_available_session",
+      "receipt_availability_calendar_rule": "parent_and_receipt_availability_dates_are_sessions_in_the_exact_pinned_xnys_calendar",
+      "session_parent_visibility_field": "receipt_available_session"
+    },
+    "control_objects": {
+      "durable_objects": [
+        "s4_session_run_spec",
+        "s4_session_run_receipt"
+      ],
+      "nested_values": [
+        "s4_base_frontier_bootstrap_adapter",
+        "s4_parent_frontier_pin",
+        "s4_reference_binding",
+        "s4_session_source_binding",
+        "s4_session_partition_receipt"
+      ],
+      "release_manifest_stage": "i3_not_created_by_i2",
+      "run_receipt_fields": [
+        "pair_available_session",
+        "parent_frontier_id",
+        "partition_receipts",
+        "qa_details_artifact",
+        "qa_result_set_digest",
+        "receipt_available_session",
+        "receipt_id",
+        "rule_version",
+        "run_spec_artifact",
+        "run_spec_id",
+        "session_date",
+        "source_binding_id"
+      ],
+      "run_spec_fields": [
+        "calendar_artifact",
+        "calendar_artifact_id",
+        "contract_ids_by_table",
+        "parent_frontier",
+        "parent_frontier_id",
+        "parquet_writer_policy",
+        "reference_binding",
+        "reference_binding_id",
+        "receipt_available_session",
+        "rule_version",
+        "run_spec_id",
+        "schema_digests_by_table",
+        "source_binding",
+        "source_binding_id",
+        "transform_semantics_digest",
+        "writer_runtime_provenance"
+      ],
+      "runtime_provenance_rule": "writer_git_commit_and_runtime_artifact_pins_are_excluded_from_semantic_source_run_receipt_parent_and_descendant_ids_but_retained_in_exact_envelopes"
+    },
+    "failure_semantics": {
+      "blocking_qa_or_quarantine": "no_final_receipt",
+      "existing_session_different_source_binding": "correction_required",
+      "final_visibility_marker": "immutable_run_receipt_written_last",
+      "interrupted_staging": "not_visible_and_exact_retry_reuses_identical_bytes",
+      "reference_or_canonical_source_projection_mismatch": "fail_closed",
+      "source_gap_duplicate_page_or_active_inactive_mismatch": "fail_closed"
+    },
+    "full_reconciliation": {
+      "existing_asset_full_runner_modified": false,
+      "role": "channel_c_periodic_full_oracle"
+    },
+    "output_tables": {
+      "asset_observation_daily": {
+        "contract_id": "dd916b8528b9ce1a341e6b8ad897ae80e40d5df118b8e102e4ea1f1ea6e9c045",
+        "row_count_rule": "manifest_and_transform_derived_nonnegative",
+        "schema_digest": "402d0ea624dc26e43ea63974572ede5a46ae20e0741e97a3d01d07075a71bc1e"
+      },
+      "asset_observation_version": {
+        "contract_id": "14ce114f5911f7e4d1c15e58f0f42a8307066d6517e859d6233fa23c199616fc",
+        "row_count_rule": "manifest_and_transform_derived_zero_allowed",
+        "schema_digest": "4c797ca373d697078b2061b9a76696dc036a1d2db0a5f8e1fe3ce2dac4b6bb4b"
+      },
+      "universe_source_daily": {
+        "contract_id": "9711320ee9227df347224b7cd17a41fe10a352fddf089cd72b758bde7a7f0c58",
+        "row_count_rule": "manifest_and_transform_derived_nonnegative",
+        "schema_digest": "78b799cd5a2621b5a78e4ed8c23c090f6aea686fcd786366e5c258e81ad278a5"
+      }
+    },
+    "parquet_writer_policy": {
+      "compression": "zstd",
+      "version": "2.6",
+      "write_statistics": true
+    },
+    "qa_scope": {
+      "blocking": "existing_s4_critical_and_high_semantics",
+      "cross_session_ticker_identity_churn_groups": "deferred_full_history_not_claimed_passed_by_i2",
+      "details_scope": "session_local",
+      "exact_duplicate_rows": "existing_s4_warning_and_selection_semantics",
+      "receipt_binding": "per_table_qa_result_set_and_row_funnel_digests_plus_exact_details_artifact"
+    },
+    "reference_selection": {
+      "dependencies": "exact_published_s1_exchange_and_s2_ticker_type_release_chains",
+      "executor_revalidation": "reload_exact_release_pins_verify_contracts_and_rederive_vocabularies",
+      "old_s4_partition_read": false
+    },
+    "source_selection": {
+      "bounds": "derived_from_exact_two_manifests_and_declared_pages",
+      "directory_discovery": false,
+      "manifest_count": 2,
+      "path_rule": "canonical_provider_request_id_for_assets_session_active_true_and_false",
+      "provider": "massive",
+      "read_scope": "selected_session_active_and_inactive_pages_only",
+      "executor_revalidation": "rederive_canonical_request_ids_and_manifest_paths_even_for_direct_or_persisted_run_specs",
+      "completed_receipt_retry": "authenticate_receipt_outputs_and_controls_without_rereading_bronze_pages"
+    },
+    "transform_execution": {
+      "entrypoint": "module_owned_transform_asset_session_only",
+      "caller_supplied_transform": false
+    },
+    "transform_semantics_digest": "218d7caa92e46884db41376dca1d76d8703d5d97c33cf662d112757e8b63ac0c"
+  }
+}
