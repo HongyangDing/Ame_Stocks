@@ -1,0 +1,89 @@
+{
+  "added_columns": [
+    {
+      "arrow_type": "string",
+      "description": "Stable alias segment selected for this membership; null when identity is unresolved or ineligible.",
+      "name": "alias_segment_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact alias resolution version selected for this membership; null exactly when alias_segment_id is null.",
+      "name": "alias_resolution_version_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact asset master version visible to this membership row; null when no canonical asset exists.",
+      "name": "asset_master_version_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact issuer master version visible to this membership row; null when observed CIK cannot form a safe issuer.",
+      "name": "issuer_master_version_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Atomic exactly-five-registry identity policy bundle used to resolve the row.",
+      "name": "identity_policy_bundle_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First project session on which this immutable membership resolution may be consumed.",
+      "name": "row_available_session",
+      "nullable": false
+    }
+  ],
+  "artifact_type": "s7_5_i3_v2_table_contract_overlay",
+  "base_contract_id": "bf1ab110844f1d7a572db2d4e14e725b83ca0a99b566c61b1af89aa24d514fbf",
+  "base_resource_sha256": "c83327b1e38defa8f56bc1ea87f011bb360692da327323cae41cc8eeee2d54be",
+  "contract_id": "d9b0728c9d99fadced24473985fd07920964365f434f2ef5b0e9841030cedf87",
+  "description": "Native S7.5 v2 daily research-universe membership with stable alias and exact row-version lineage.",
+  "domain": "reference",
+  "grain": "One exact provider ticker membership resolution per XNYS session_date.",
+  "overlay_schema_version": 1,
+  "partition_by": [
+    "session_year",
+    "session_date"
+  ],
+  "primary_key": [
+    "session_date",
+    "ticker"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "eligible_membership_missing_alias_rows",
+      "description": "Every identity-eligible row must reference one exact stable alias segment and resolution version.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "ineligible_membership_with_alias_rows",
+      "description": "Unresolved, collision or otherwise identity-ineligible membership must be retained without an alias.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    }
+  ],
+  "removed_columns": [
+    "ticker_alias_id"
+  ],
+  "schema_version": 2,
+  "sort_by": [
+    "session_date",
+    "ticker"
+  ],
+  "source_datasets": [
+    "universe_source_daily",
+    "identity_registry"
+  ],
+  "table": "universe_daily"
+}

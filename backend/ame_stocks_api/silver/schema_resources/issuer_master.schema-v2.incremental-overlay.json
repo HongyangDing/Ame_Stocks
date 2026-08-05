@@ -1,0 +1,73 @@
+{
+  "added_columns": [
+    {
+      "arrow_type": "string",
+      "description": "Content-addressed version of this issuer aggregate payload; the stable key remains issuer_id.",
+      "name": "issuer_master_version_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact predecessor version for a mechanical successor; null only for a native-v2 root.",
+      "name": "predecessor_issuer_master_version_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "date32",
+      "description": "First project session on which this immutable issuer version may be consumed.",
+      "name": "version_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Digest of the complete checkpoint issuer state, including exact asset, ticker and reference-name sets.",
+      "name": "aggregate_state_digest",
+      "nullable": false
+    }
+  ],
+  "artifact_type": "s7_5_i3_v2_table_contract_overlay",
+  "base_contract_id": "0e46c0e939989205b4dcd48f11e3443ec5c3e72b366dcd5684c417bb134d6b70",
+  "base_resource_sha256": "17108231fa5ab46fd98095b52a06fda88a1ababf9e9e3b3dae8ce66bdd7f8c50",
+  "contract_id": "28a708f7cd89c3836b28bde17e51d6be07a7a15220f2cab67736dc4558b35238",
+  "description": "Native S7.5 v2 append-only issuer master versions. Composite and Share Class correction remain unable to modify issuer identity or CIK evidence.",
+  "domain": "identity",
+  "grain": "One immutable issuer aggregate version per issuer_id and issuer_master_version_id.",
+  "overlay_schema_version": 1,
+  "partition_by": [],
+  "primary_key": [
+    "issuer_id",
+    "issuer_master_version_id"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "issuer_version_id_mismatch_rows",
+      "description": "Every issuer_master_version_id must reproduce from the exact stable key, predecessor, availability and safe issuer aggregate payload.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "issuer_identity_overreach_rows",
+      "description": "FIGI or Share Class resolution cannot change issuer_id, CIK or independently evidenced issuer reference lineage.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    }
+  ],
+  "removed_columns": [],
+  "schema_version": 2,
+  "sort_by": [
+    "issuer_id",
+    "version_available_session",
+    "issuer_master_version_id"
+  ],
+  "source_datasets": [
+    "universe_source_daily",
+    "identity_registry"
+  ],
+  "table": "issuer_master"
+}

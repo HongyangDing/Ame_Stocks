@@ -1,0 +1,162 @@
+{
+  "added_columns": [
+    {
+      "arrow_type": "string",
+      "description": "Stable provider-observed alias segment identity; canonical corrections and later cutoffs cannot change it.",
+      "name": "alias_segment_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Content-addressed canonical resolution version referenced by universe_daily v2 rows.",
+      "name": "alias_resolution_version_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact predecessor resolution version for a mechanical successor; null for the segment root.",
+      "name": "predecessor_alias_resolution_version_id",
+      "nullable": true
+    },
+    {
+      "arrow_type": "string",
+      "description": "Frozen stable alias-segment ID rule version.",
+      "name": "alias_segment_id_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Frozen alias resolution-version ID rule version.",
+      "name": "alias_resolution_version_id_rule_version",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Lowercase source provider identifier bound into the stable segment.",
+      "name": "provider_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Lowercase provider market bound into the stable segment.",
+      "name": "provider_market",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Lowercase provider locale bound into the stable segment.",
+      "name": "provider_locale",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Exact S4 source record that opened the stable segment.",
+      "name": "segment_origin_source_record_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Ordered source coverage digest for this exact resolution interval.",
+      "name": "source_record_set_digest",
+      "nullable": false
+    },
+    {
+      "arrow_type": "list_string",
+      "description": "Sorted Composite-resolution and transition decision IDs; direct observations carry an empty list.",
+      "name": "decision_lineage_ids",
+      "nullable": false
+    },
+    {
+      "arrow_type": "list_string",
+      "description": "Sorted Share Class decision IDs, isolated from Composite resolution lineage.",
+      "name": "share_class_decision_lineage_ids",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Atomic exactly-five-registry identity policy bundle used by this resolution version.",
+      "name": "identity_policy_bundle_id",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Session at which the resolution version became usable by this project.",
+      "name": "resolution_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Latest evidence session considered by this immutable resolution version.",
+      "name": "evidence_cutoff_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "date32",
+      "description": "Availability assigned to this physical row version and its semantic proof.",
+      "name": "alias_version_available_session",
+      "nullable": false
+    },
+    {
+      "arrow_type": "boolean",
+      "description": "True only for an explicitly approved tombstone; clean I3 deltas always write false.",
+      "name": "alias_is_tombstone",
+      "nullable": false
+    },
+    {
+      "arrow_type": "string",
+      "description": "Approved tombstone reason; null for all clean base and delta rows.",
+      "name": "alias_tombstone_reason_code",
+      "nullable": true
+    }
+  ],
+  "artifact_type": "s7_5_i3_v2_table_contract_overlay",
+  "base_contract_id": "796423964d875daa3aa25fc2d14b06dcebd436bb91d42629866f0995dbc2931e",
+  "base_resource_sha256": "89c1f05a545ab18100dafc7b3b27210aff38ecceeddb0e1d048419a30b8f83de",
+  "contract_id": "808a1df16e9a10a4d433f078c314837083fb778526b2e938479816c257a6a9b4",
+  "description": "Native S7.5 v2 ticker alias rows with stable provider-observed segments and append-only canonical resolution versions.",
+  "domain": "identity",
+  "grain": "One immutable canonical resolution version per alias_segment_id and alias_resolution_version_id.",
+  "overlay_schema_version": 1,
+  "partition_by": [],
+  "primary_key": [
+    "alias_segment_id",
+    "alias_resolution_version_id"
+  ],
+  "qa_rules": [
+    {
+      "check_id": "alias_version_id_mismatch_rows",
+      "description": "Stable segment and resolution version IDs must reproduce from their exact closed payloads.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "critical"
+    },
+    {
+      "check_id": "alias_gap_interpolation_rows",
+      "description": "A mechanical successor must carry exact XNYS source coverage and cannot cross an absent membership session.",
+      "failure_status": "failed",
+      "limit": 0.0,
+      "metric": "numerator",
+      "operator": "eq",
+      "severity": "high"
+    }
+  ],
+  "removed_columns": [
+    "ticker_alias_id",
+    "ticker_alias_id_rule_version"
+  ],
+  "schema_version": 2,
+  "sort_by": [
+    "ticker",
+    "valid_from_session",
+    "alias_segment_id",
+    "alias_version_available_session",
+    "alias_resolution_version_id"
+  ],
+  "source_datasets": [
+    "universe_source_daily",
+    "identity_registry"
+  ],
+  "table": "ticker_alias"
+}

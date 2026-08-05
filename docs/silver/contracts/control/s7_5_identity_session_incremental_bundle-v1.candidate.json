@@ -1,0 +1,252 @@
+{
+  "artifact_type": "s7_5_identity_session_incremental_contract_bundle_candidate",
+  "contract_id": "4ac6fdb83ef5d0c080c997841406a5bf4614818269ec2a7cc81d833cf4ce4605",
+  "contract_version": 1,
+  "logical_contract": {
+    "authorization_state": {
+      "local_fixture_bootstrap_and_execution": true,
+      "production_or_remote_parquet_read": false,
+      "production_or_remote_staging_write": false,
+      "publish": false,
+      "registry_mutation": false,
+      "replacement_or_correction": false,
+      "s8_execution": false,
+      "top_release_or_base_cutover": false
+    },
+    "boundary_dispatcher": {
+      "caller_supplied_callback_or_policy": false,
+      "coverage": "target_session_plus_exact_two_preceding_xnys_sessions",
+      "coverage_authentication": "fixture_rows_are_content_bound_to_exact_calendar_and_three_distinct_declarative_s4_partition_pins_no_directory_discovery_but_the_pins_do_not_prove_parquet_content",
+      "decision_availability_lineage": "typed_registry_kind_decision_id_decision_available_session_for_every_applied_decision",
+      "decision_semantics": "resolution_method_and_identity_disposition_derived_by_closed_registry_kind_rules_not_trusted_from_input_rows",
+      "cross_market_scope": "provider_market_locale_us_ticker_exact_source_row_observed_non_us_composite_canonical_us_composite_and_observed_share_class",
+      "market_consistency_scope": "every_target_row_even_without_a_bounce",
+      "mechanical_successor_rule": "same_immutable_alias_segment_subject_and_exact_next_calendar_session",
+      "missing_or_gapped_coverage": "fail_closed",
+      "module_owned": true,
+      "inverse_bounce_rule": "foreign_us_foreign_middle_cannot_be_classified_as_a_genuine_transition",
+      "policy_hot_path": "complete_snapshot_decision_index_and_id_are_reproduced_once_per_batch_then_each_row_uses_exact_bucket_matching_without_full_registry_scan",
+      "policy_snapshot_input": "sealed_snapshot_derived_only_from_exact_five_fixture_registry_release_bytes_and_structurally_reproduced_once_per_batch_before_private_exact_bucket_dispatch_without_full_registry_scan",
+      "production_registry_trust_boundary": "future_staging_must_reuse_existing_s7_load_registry_release_set_fixture_format_is_not_production_authority",
+      "permitted_row_operations": [
+        "mechanical_successor",
+        "new_root"
+      ],
+      "private_attestation_authority": "local_staging_semantic_proof_only_not_publish_correction_or_cutover"
+    },
+    "checkpoint": {
+      "artifact_role": "rebuildable_cache_not_publication_authority",
+      "canonical_serialization": "strict_utf8_json_sorted_keys_compact_with_final_newline",
+      "content": [
+        "typed_exact_native_v2_parent_manifest_and_v1_oracle_migration_lineage",
+        "last_source_and_availability_cutoffs",
+        "exact_three_table_s4_terminal_partition_pins",
+        "calendar_schema_and_transform_digests",
+        "atomic_identity_policy_bundle",
+        "open_alias_segment_and_terminal_resolution_versions",
+        "complete_asset_and_issuer_distinct_sets_and_fixed_counters",
+        "unresolved_review_subjects",
+        "resolved_universe_partition_receipt_map",
+        "terminal_non_session_row_version_map"
+      ],
+      "exact_loader": "verify_checkpoint_and_parent_manifest_path_bytes_sha256_closed_fields_canonical_bytes_and_all_derived_ids",
+      "fixture_authority_only": "production_native_v2_family_is_reserved_but_rejected_until_a_separate_sealed_migration_and_release_authority_exists",
+      "parent_state_cross_binding": "parent_manifest_resolved_state_digest_must_equal_the_digest_of_every_rebuildable_checkpoint_state_field",
+      "parent_availability_floor": "release_availability_is_not_earlier_than_policy_s4_pins_resolved_partitions_terminal_rows_open_aliases_asset_issuer_aggregates_or_unresolved_subjects",
+      "process_cache": "same_path_must_always_have_same_exact_pin",
+      "rule_version": "s7_5_i3_checkpoint_state_v1",
+      "v1_parent_masquerade": "forbidden"
+    },
+    "failure_semantics": {
+      "blocking_qa": "no_diagnostic_receipt_or_publish_capability",
+      "checkpoint_corruption": "fail_closed_parent_release_remains_readable",
+      "identity_uncertainty": "retain_membership_without_alias_and_without_forced_inactive_delist_or_liquidation",
+      "interrupted_staging": "not_visible_without_diagnostic_receipt",
+      "non_idempotent_retry": "fail_closed",
+      "registry_collision": "report_raw_collision_and_emit_only_ineligible_unresolved_membership",
+      "source_gap_or_omission": "fail_closed_without_interpolation"
+    },
+    "full_reconciliation": {
+      "existing_s7_v1_full_runner_modified": false,
+      "fixture_history_requirement": "explicit_small_history_consumed_in_exact_calendar_order_with_per_session_v1_projection_reconciliation",
+      "legacy_release_set_id": "5ce4ad18b44d86fe70fd25c50d1023fb1aa39f25f50fa2f93a0a1c4452eb811e",
+      "legacy_role": "configured_immutable_release_set_identity_plus_caller_supplied_content_bound_fixture_projection_only_periodic_production_channel_c_requires_the_exact_release_loader",
+      "fixture_root_restriction": "single_session_fixture_bootstrap_accepts_only_direct_observed_unadjudicated_rows_selected_decisions_require_the_three_session_dispatch_path",
+      "native_v2_base_requirement": "future_production_base_requires_one_full_s4_scan_closed_dispatch_for_every_row_and_explicit_v1_method_disposition_compatibility_projection"
+    },
+    "identity_policy_bundle": {
+      "bundle_wrapper_availability": "explicit_and_not_earlier_than_any_member_release_availability",
+      "decision_cutoff": "maximum_member_decision_cutoff",
+      "fixed_registry_order": [
+        "identity_adjudication",
+        "identity_cross_market_adjudication",
+        "provider_composite_override",
+        "share_class_adjudication",
+        "asset_transition"
+      ],
+      "member_binding": "registry_kind_release_id_exact_artifact_decision_cutoff_and_member_release_availability",
+      "member_content_loader": "strict_canonical_fixture_release_bytes_with_reproduced_release_and_decision_ids_and_provider_market_locale_ticker_source_row_date_market_share_class_disposition_and_availability_scope",
+      "member_knowledge_availability": "maximum_member_release_availability_separate_from_wrapper_availability",
+      "operational_policy_cutoff": "maximum_of_member_decision_cutoff_and_bundle_wrapper_availability_so_resolution_never_backdates_wrapper",
+      "provider_transition_binding": "every_provider_composite_override_confirmed_or_unresolved_binds_one_confirmed_genuine_asset_transition_relation",
+      "resolved_unresolved_matrix": "each_registry_kind_has_a_closed_confirmed_or_unresolved_disposition_domain_unresolved_composite_or_share_decisions_retain_lineage_and_emit_no_eligible_canonical_fallback_while_asset_transition_is_lineage_only",
+      "exact_disposition_matrix": {
+        "asset_transition": {
+          "asset_transition_adjudicated_unresolved": {"canonical_composite": "unchanged_by_registry", "canonical_share_class": "unchanged_by_registry", "eligibility": "unchanged_by_registry", "row_disposition": "unchanged_by_registry", "row_method": "unchanged_by_registry", "row_status": "unchanged_by_registry", "transition_edge": "none_lineage_only"},
+          "confirmed_genuine_transition": {"canonical_composite": "unchanged_by_registry", "canonical_share_class": "unchanged_by_registry", "eligibility": "unchanged_by_registry", "row_disposition": "unchanged_by_registry", "row_method": "unchanged_by_registry", "row_status": "unchanged_by_registry", "transition_edge": "symmetric_predecessor_successor"}
+        },
+        "identity_adjudication": {
+          "adjudicated_unresolved": {"canonical_composite": null, "canonical_share_class": null, "eligibility": false, "row_disposition": "adjudicated_unresolved", "row_method": "provider_figi_bounce_adjudicated_unresolved", "row_status": "unresolved", "transition_edge": "none"},
+          "confirmed_genuine_transition": {"canonical_composite": "observed_composite", "canonical_share_class": "observed_or_exact_share_adjudication", "eligibility": true, "row_disposition": "confirmed_genuine_transition", "row_method": "approved_genuine_transition", "row_status": "resolved_approved_override", "transition_edge": "none"},
+          "confirmed_provider_contamination": {"canonical_composite": "distinct_registry_target", "canonical_share_class": "observed_or_exact_share_adjudication", "eligibility": true, "row_disposition": "confirmed_provider_contamination", "row_method": "approved_provider_contamination_override", "row_status": "resolved_approved_override", "transition_edge": "none"}
+        },
+        "identity_cross_market_adjudication": {
+          "confirmed_provider_contamination": {"canonical_composite": "distinct_us_registry_target", "canonical_share_class": "observed_or_exact_share_adjudication", "eligibility": true, "row_disposition": "confirmed_provider_contamination", "row_method": "approved_cross_market_provider_contamination_override", "row_status": "resolved_approved_override", "transition_edge": "none"},
+          "cross_market_adjudicated_unresolved": {"canonical_composite": null, "canonical_share_class": null, "eligibility": false, "row_disposition": "cross_market_adjudicated_unresolved", "row_method": "cross_market_composite_adjudicated_unresolved", "row_status": "unresolved", "transition_edge": "none"}
+        },
+        "provider_composite_override": {
+          "confirmed_provider_composite_stale_after_transition": {"canonical_composite": "same_market_registry_target", "canonical_share_class": "observed_or_exact_share_adjudication", "eligibility": true, "row_disposition": "provider_composite_stale_after_transition", "row_method": "approved_provider_composite_override", "row_status": "resolved_approved_override", "transition_edge": "confirmed_relation_lineage_only"},
+          "provider_composite_override_adjudicated_unresolved": {"canonical_composite": null, "canonical_share_class": null, "eligibility": false, "row_disposition": "adjudicated_unresolved", "row_method": "adjudicated_unresolved", "row_status": "unresolved", "transition_edge": "confirmed_relation_lineage_only"}
+        },
+        "share_class_adjudication": {
+          "confirmed_share_class_correction": {"canonical_composite": "preserve_unique_composite_result", "canonical_share_class": "exact_registry_target", "eligibility": "preserve_unique_composite_result", "row_disposition": "preserve_composite_result", "row_method": "preserve_composite_result", "row_status": "preserve_composite_result", "transition_edge": "none"},
+          "share_class_adjudicated_unresolved": {"canonical_composite": null, "canonical_share_class": null, "eligibility": false, "row_disposition": "adjudicated_unresolved", "row_method": "adjudicated_unresolved", "row_status": "unresolved", "transition_edge": "none"}
+        }
+      },
+      "responsibility_separation": {
+        "asset_transition": "confirmed_or_unresolved_predecessor_successor_lineage_only_no_identity_override_and_no_eligibility_change",
+        "identity_adjudication": "deterministic_bounce_middle_episode_with_closed_genuine_contamination_or_unresolved_dispositions",
+        "identity_cross_market_adjudication": "cross_market_composite_contamination_with_confirmed_or_unresolved_disposition",
+        "provider_composite_override": "same_market_exact_scope_stale_composite_after_a_confirmed_genuine_transition_with_confirmed_or_unresolved_override_disposition",
+        "share_class_adjudication": "share_class_only_after_unique_composite_confirmed_correction_or_unresolved_no_asset_or_issuer_change"
+      }
+    },
+    "native_v2_release_manifest": {
+      "fixture_family": "s7_5_native_v2_fixture",
+      "production_family": "s7_5_native_v2",
+      "family_cross_use": "forbidden",
+      "logical_binding": "terminal_session_release_availability_schema_bundle_transform_policy_migration_v1_oracle_parent_source_checkpoint_resolved_state_and_exact_typed_four_table_output_projections",
+      "output_roles": "exact_asset_master_ticker_alias_issuer_master_universe_daily_each_bound_to_table_contract_schema_session_row_count_and_artifact_pin",
+      "output_verification_boundary": "fixture_exact_loader_authenticates_manifest_and_checkpoint_bytes_and_resolved_state_equality_but_not_output_file_bytes_row_counts_or_terminal_state_reconciliation_future_production_content_reader_must_verify_all_of_them",
+      "production_authority": "not_implemented_and_explicitly_rejected",
+      "release_id": "reproduced_from_closed_logical_projection_without_manifest_pin",
+      "manifest_pin": "authenticates_complete_canonical_bytes_without_self_hash_cycle"
+    },
+    "native_v2_tables": {
+      "asset_master": {
+        "contract_id": "7fda2d1dd54244426b517fe69142bcc5bbd3abc917501509435a9f8e3b44577a",
+        "resource_sha256": "478d8d611ed1f696235550af32844c577056b30e7040b8033e51d4690f9e19ff",
+        "schema_digest": "b29afde8d0429682271c4c0beff357cc87fba066867ca8004e04356b7bf8989f"
+      },
+      "combined_schema_bundle_digest": "22ffa9d2b96b7c9a26f1766d58fcb6d2cb4e8c3f89599a26d3440e95592cf579",
+      "issuer_master": {
+        "contract_id": "28a708f7cd89c3836b28bde17e51d6be07a7a15220f2cab67736dc4558b35238",
+        "resource_sha256": "29ee2af8eca6e4e50214c62597872f07252e96642749bbfcd8752adbdc7b7a4f",
+        "schema_digest": "74ab3eb42089f6a0fbde2ae8ac5ed0aa0bf7aec365f30bf5d0529a5a28bffd12"
+      },
+      "overlay_semantics": "checksummed_exact_overlay_on_immutable_v1_contract_and_resource",
+      "ticker_alias": {
+        "contract_id": "808a1df16e9a10a4d433f078c314837083fb778526b2e938479816c257a6a9b4",
+        "resource_sha256": "96041d73bb2180f0753501a3fc7ad18848b9a0d82d02fca3aff4d68507b972a3",
+        "schema_digest": "90da74a7f7d58b499e04e90a067fae8e989643135ee319350659b950d3ea578b"
+      },
+      "universe_daily": {
+        "contract_id": "d9b0728c9d99fadced24473985fd07920964365f434f2ef5b0e9841030cedf87",
+        "resource_sha256": "786d20eff5cca3cfde120626572cd31e6386eaf88493fb3b801d355998173bcc",
+        "schema_digest": "41da0f1d223b07d7df693a16a22ebaebc52e7752b238c4839cc1dd64b493c7fc"
+      }
+    },
+    "qa_policy": {
+      "catalog_digest": "e26f0d6a20083d1ed21f24f8879903ed75f687d1e380a21ba0b76349df8b4ac6",
+      "catalog": [
+        {"check_id": "availability_mismatch_rows", "owner": "materialization", "semantics_digest": "ee462bc397f02a2bb69753050a1b12d8894f869d6fc1fa9ffd1fdb59c28a8e15", "severity": "critical"},
+        {"check_id": "boundary_coverage_mismatch_rows", "owner": "dispatcher", "semantics_digest": "0dc6062033a901fe359e4e8b6bbf88320fbe5e143fc9df815db8650c4f1d5420", "severity": "critical"},
+        {"check_id": "eligible_membership_missing_alias_rows", "owner": "materialization", "semantics_digest": "dc5c9715dc3cd696ef01135947d81aad74426143a16be20e4389546064f4f056", "severity": "critical"},
+        {"check_id": "identity_quality_changed_active_rows", "owner": "dispatcher", "semantics_digest": "d3033fd5d81dc806ff0975661d23f1cfacfe843676fb091b3ff9b3b5a5dfbae8", "severity": "critical"},
+        {"check_id": "identity_quality_forced_liquidation_rows", "owner": "materialization", "semantics_digest": "527d22b84f0ccb9057fd7224ab73b4661ec12b13ddaa351127ec0d06a5813a28", "severity": "critical"},
+        {"check_id": "inactive_or_delisted_inferred_from_identity_quality_rows", "owner": "materialization", "semantics_digest": "b4716a65f6be18debe6dda64f4fd7ebb68cf59be2b989a3e6125658701274cb9", "severity": "critical"},
+        {"check_id": "ineligible_membership_with_alias_rows", "owner": "materialization", "semantics_digest": "d26c416fde4d389c8a9994a3a185171eaddcd891a8c2c51d6bb3579d377d8c09", "severity": "critical"},
+        {"check_id": "ineligible_membership_with_master_version_rows", "owner": "materialization", "semantics_digest": "9568be0d284add8d89b8bbffa48acd7ef082a845fe912d45158a1b7cd8d2ec61", "severity": "critical"},
+        {"check_id": "inverse_bounce_misclassified_as_genuine_transition_rows", "owner": "dispatcher", "semantics_digest": "2bd6dbad6508c7bfda7563fec5769c28d72218fafba1b0dd64e604bb42f0bbd2", "severity": "critical"},
+        {"check_id": "multi_registry_composite_override_collision_alias_rows", "owner": "dispatcher", "semantics_digest": "45a5d11a424fe3dcd39a7d670e3a49c0116284e95ace773733c42518d8c0ea5e", "severity": "critical"},
+        {"check_id": "multi_registry_composite_override_collision_eligible_rows", "owner": "dispatcher", "semantics_digest": "11e37fac8906622372bf61b1a929372e5c8171ebea28e8a6a335f26cd22c7ff2", "severity": "critical"},
+        {"check_id": "multi_registry_composite_override_collision_resolved_rows", "owner": "dispatcher", "semantics_digest": "f83d196632c7a4b6302f6d72f8f1e3987207c57ea5009e90e12b205d9523c842", "severity": "critical"},
+        {"check_id": "multi_registry_composite_override_collision_rows", "owner": "dispatcher", "semantics_digest": "4af91dbf61c0bb1a9438b9d6138616671114507481200bd8ff2c312918f7a935", "severity": "info"},
+        {"check_id": "row_semantic_proof_mismatch_rows", "owner": "dispatcher", "semantics_digest": "34c4da956d9730d7689c63f7a117060b59fe4c2653285b78608dea1bf5f38965", "severity": "critical"},
+        {"check_id": "row_version_fk_mismatch_rows", "owner": "materialization", "semantics_digest": "93b5fbeaddfa48d50a33b5cef4e3a102279c3604297b20198172af6609d6d598", "severity": "critical"},
+        {"check_id": "share_class_applied_before_unique_composite_rows", "owner": "dispatcher", "semantics_digest": "27c5ecbb3c12c5cca3469729965f35e026815814e7d0fc825701647dff72e55a", "severity": "critical"},
+        {"check_id": "source_membership_omission_or_duplication_rows", "owner": "materialization", "semantics_digest": "f5cb0788ce1349cbb9d6cdaf63396e06105df77a09de4029ab39497f31d9aa5e", "severity": "critical"},
+        {"check_id": "suspected_provider_contamination_eligible_rows", "owner": "dispatcher", "semantics_digest": "342a900155fb31674801580a2963d753f3981d42a4e523290ceab87c4acca1a2", "severity": "critical"},
+        {"check_id": "suspected_provider_figi_bounce_rows", "owner": "dispatcher", "semantics_digest": "a39a66258d245f30661e6e6931ae3f963e769268dc4b03351052e2a0796b5f16", "severity": "high"},
+        {"check_id": "target_market_consistency_unchecked_rows", "owner": "dispatcher", "semantics_digest": "28ae8452e1ce1e700ce4518703f8ba3855f5b6b280fe3e2b45ae8cc2f37e083f", "severity": "critical"},
+        {"check_id": "unapproved_canonical_identity_override_rows", "owner": "dispatcher", "semantics_digest": "035bdc9674cea78a484ee3f257aa6dc29fe437a6c9f2e206928c157bfea87aa2", "severity": "critical"},
+        {"check_id": "unapproved_cross_market_composite_eligible_rows", "owner": "dispatcher", "semantics_digest": "a4a75186511b5b37f396808e564523041a5393319af1ee90ffedd615be849968", "severity": "critical"},
+        {"check_id": "us_locale_non_us_composite_figi_rows", "owner": "dispatcher", "semantics_digest": "d8207df78d1568468942a70a0331c8d6e3861eab6f2b894e7109afb519e8e03c", "severity": "high"}
+      ],
+      "catalog_ownership": "one_exact_catalog_shared_by_dispatcher_runner_candidate_and_diagnostic_receipt_dispatcher_marks_materialization_owned_checks_deferred_not_zero_passed_and_runner_aggregates_then_evaluates_every_member",
+      "critical_zero_metrics": [
+        "availability_mismatch_rows",
+        "boundary_coverage_mismatch_rows",
+        "eligible_membership_missing_alias_rows",
+        "identity_quality_changed_active_rows",
+        "identity_quality_forced_liquidation_rows",
+        "inactive_or_delisted_inferred_from_identity_quality_rows",
+        "ineligible_membership_with_alias_rows",
+        "ineligible_membership_with_master_version_rows",
+        "inverse_bounce_misclassified_as_genuine_transition_rows",
+        "multi_registry_composite_override_collision_alias_rows",
+        "multi_registry_composite_override_collision_eligible_rows",
+        "multi_registry_composite_override_collision_resolved_rows",
+        "row_semantic_proof_mismatch_rows",
+        "row_version_fk_mismatch_rows",
+        "share_class_applied_before_unique_composite_rows",
+        "source_membership_omission_or_duplication_rows",
+        "suspected_provider_contamination_eligible_rows",
+        "target_market_consistency_unchecked_rows",
+        "unapproved_canonical_identity_override_rows",
+        "unapproved_cross_market_composite_eligible_rows"
+      ],
+      "raw_review_metrics": [
+        "multi_registry_composite_override_collision_rows",
+        "suspected_provider_figi_bounce_rows",
+        "us_locale_non_us_composite_figi_rows"
+      ],
+      "raw_review_output": "typed_reason_counts_sum_to_observed_count_and_deterministically_bounded_examples_reproduce_the_exact_example_source_ids",
+      "severity_and_dispatch": "closed_module_owned_catalog_no_caller_injection",
+      "overlay_only_checks": "table_overlay_checks_not_in_the_shared_fixture_catalog_are_constructor_guarded_where_possible_and_explicitly_deferred_to_the_future_production_content_validator",
+      "stage_owners": {
+        "dispatcher": "identity_decision_boundary_and_row_semantic_proof",
+        "materialization": "availability_alias_fk_membership_and_liquidation_checks_before_checkpoint"
+      }
+    },
+    "fixture_input_binding": {
+      "authority": "local_fixture_oracle_non_authoritative",
+      "binding": "one_digest_cross_binds_requested_sessions_target_exact_s4_lineage_pin_set_canonical_resolved_row_window_selected_source_record_set_and_output_affecting_reference_metadata_projection_with_availability",
+      "reference_metadata": "only_reference_name_and_sic_code_for_target_selected_source_records_are_normalized_bound_and_never_backdated_before_the_explicit_metadata_availability_session",
+      "rule_version": "s7_5_i3_fixture_input_binding_v1",
+      "s4_pin_boundary": "fixture_s4_pins_are_declarative_lineage_and_do_not_authenticate_the_supplied_rows_or_pinned_parquet_content",
+      "production_requirement": "production_base_or_delta_requires_authenticated_i2_run_receipts_exact_s4_or_resolved_content_reads_output_byte_verification_and_explicit_source_s4_run_receipt_lineage"
+    },
+    "runner": {
+      "aggregate_state": "complete_sets_and_fixed_counters_never_counts_only_approximation",
+      "allowed_content_reads": "caller_supplied_local_fixture_target_plus_fixed_two_session_boundary_rows_content_bound_with_distinct_declarative_s4_partition_pins_no_filesystem_read",
+      "diagnostic_receipt": "canonical_content_addressed_non_authoritative_receipt_binds_input_window_reference_metadata_s4_lineage_dispatch_attestations_exact_shared_qa_catalog_and_result_native_v2_release_and_checkpoint",
+      "filesystem_discovery": false,
+      "identity_quality_effect_on_membership": "none",
+      "input": "fixture_oracle_resolved_rows_native_v2_fixture_checkpoint_parent_manifest_calendar_structurally_reproduced_sealed_policy_snapshot_and_one_or_three_session_declarative_s4_partition_pin_sets",
+      "legacy_full_runner_wrapping": false,
+      "output": "deterministic_in_memory_v2_rows_qa_receipts_typed_fixture_release_manifest_and_next_checkpoint_candidate_for_local_fixture",
+      "pre_checkpoint_gate": "any_critical_qa_failure_forbids_checkpoint_manifest_and_diagnostic_receipt_construction",
+      "production_v1_compatibility": "future_production_base_must_freeze_a_legacy_to_canonical_method_disposition_projection_before_v1_oracle_reconciliation",
+      "registry_reconciliation": "local_fixture_rows_must_equal_closed_dispatcher_canonical_identity_membership_eligibility_resolution_method_disposition_decision_ids_and_exact_decision_availability_lineage",
+      "transition_aggregate_rule": "confirmed_asset_transition_updates_both_existing_predecessor_and_successor_aggregate_edges_or_fails_closed_unresolved_transition_preserves_lineage_without_edge_or_eligibility_change",
+      "unresolved_output": "composite_or_share_identity_unresolved_and_registry_collision_rows_retain_membership_with_alias_and_canonical_version_fks_null_and_backtest_identity_eligible_false_asset_transition_unresolved_is_lineage_only_and_does_not_change_identity_output",
+      "universe_fk_rule": "same_snapshot_exact_alias_asset_and_issuer_versions"
+    },
+    "tradability_boundary": {
+      "active_on_date": "source_membership_only",
+      "backtest_identity_eligible": "identity_layer_necessary_condition_only",
+      "final_tradability_formula": "identity_eligible_and_security_type_policy_and_price_liquidity_availability_and_entitlement_corporate_action_policy"
+    }
+  }
+}
