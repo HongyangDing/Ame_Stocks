@@ -20,9 +20,6 @@ from ame_stocks_api.silver import identity_materialization_streaming as streamin
 from ame_stocks_api.silver.asset_incremental_contract import S4BaseFrontier
 from ame_stocks_api.silver.asset_release_set import load_exact_asset_release_set_control
 from ame_stocks_api.silver.calendar_artifact import load_xnys_calendar_artifact
-from ame_stocks_api.silver.identity_materialization_publish import (
-    load_published_s7_release_set,
-)
 from ame_stocks_api.silver.identity_registry_workflow import load_registry_release_set
 from ame_stocks_api.silver.incremental_contract import ArtifactPin
 from ame_stocks_api.silver.incremental_i3_checkpoint import (
@@ -53,6 +50,38 @@ from ame_stocks_api.silver.incremental_i3_production_semantics import (
 
 I3_PRODUCTION_BASE_CONFIG_RULE_VERSION = "s7_5_i3_production_base_config_v1"
 _CONTROL_ROOT = "manifests/silver/identity/s7-5-native-v2-staging"
+_FROZEN_S7_PUBLISH_POLICY_VERSION = "s7-four-table-atomic-release-set-v1"
+_FROZEN_S7_RELEASE_SET_VERSION = 1
+_FROZEN_S7_TABLE_ORDER = (
+    "asset_master",
+    "ticker_alias",
+    "issuer_master",
+    "universe_daily",
+)
+_FROZEN_S7_RELEASE_SET_FIELDS = {
+    "approval",
+    "approval_id",
+    "artifact_type",
+    "candidate_id",
+    "candidate_manifest",
+    "candidate_qa",
+    "full_completion",
+    "full_completion_id",
+    "intent",
+    "intent_id",
+    "members",
+    "plan",
+    "plan_id",
+    "policy_version",
+    "published_at_utc",
+    "release_availability",
+    "release_set_id",
+    "release_set_version",
+    "source_binding_id",
+    "state",
+    "table_order",
+    "visibility_rule",
+}
 
 
 class I3ProductionInputError(RuntimeError):
@@ -263,10 +292,11 @@ def _load_exact_base_authorities(
         available_session=I0_ORACLE_AVAILABLE_SESSION,
     )
     s7_content = _read_exact(root, config.s7_release_set_artifact)
-    marker = load_published_s7_release_set(root, release_set_id=LEGACY_S7_V1_RELEASE_SET_ID)
-    if _canonical_json_bytes(marker) != s7_content:
-        raise I3ProductionInputError("published S7 marker differs from its supplied exact pin")
-    source_binding_id = _digest(marker.get("source_binding_id"), "S7 source-binding ID")
+    marker = load_frozen_s7_oracle_marker_exact(
+        config.s7_release_set_artifact,
+        content=s7_content,
+    )
+    source_binding_id = _digest(marker["source_binding_id"], "S7 source-binding ID")
     binding, _binding_pin = streaming._load_source_binding(root, source_binding_id)
     if binding.mode != "production":
         raise I3ProductionInputError("S7 source binding is not production")
@@ -346,6 +376,67 @@ def _load_exact_base_authorities(
     return i0, s4, policy, calendar, frontier
 
 
+def load_frozen_s7_oracle_marker_exact(
+    pin: ArtifactPin,
+    *,
+    content: bytes,
+) -> dict[str, object]:
+    """Authenticate the immutable S7 v1 oracle without replaying its old runtime.
+
+    The supplied exact pin and frozen release-set identity authenticate the
+    complete marker payload.  Publication-time plans/runtime remain historical
+    evidence; they are not a compatibility gate for a later v1-to-v2 migration.
+    """
+
+    if not isinstance(pin, ArtifactPin):
+        raise I3ProductionInputError("S7 release-set marker pin is invalid")
+    if len(content) != pin.bytes or hashlib.sha256(content).hexdigest() != pin.sha256:
+        raise I3ProductionInputError("S7 release-set marker differs from its exact pin")
+    marker = _closed_mapping(
+        _strict_json(content),
+        _FROZEN_S7_RELEASE_SET_FIELDS,
+        "frozen S7 release-set marker",
+    )
+    if _frozen_s7_marker_canonical_bytes(marker) != content:
+        raise I3ProductionInputError("frozen S7 release-set marker is not canonical JSON")
+    claimed_release_id = _digest(marker["release_set_id"], "S7 release-set ID")
+    payload = dict(marker)
+    payload.pop("release_set_id")
+    if (
+        claimed_release_id != LEGACY_S7_V1_RELEASE_SET_ID
+        or stable_digest(payload) != claimed_release_id
+    ):
+        raise I3ProductionInputError("frozen S7 release-set ID does not reproduce")
+    _literal(
+        marker["artifact_type"],
+        "s7_four_table_atomic_release_set",
+        "frozen S7 artifact type",
+    )
+    _literal(
+        marker["policy_version"],
+        _FROZEN_S7_PUBLISH_POLICY_VERSION,
+        "frozen S7 policy version",
+    )
+    _literal(
+        _integer(marker["release_set_version"], "frozen S7 release-set version"),
+        _FROZEN_S7_RELEASE_SET_VERSION,
+        "frozen S7 release-set version",
+    )
+    _literal(marker["state"], "published", "frozen S7 state")
+    _literal(
+        marker["table_order"],
+        list(_FROZEN_S7_TABLE_ORDER),
+        "frozen S7 table order",
+    )
+    _literal(
+        marker["visibility_rule"],
+        "all_four_members_visible_only_through_this_exact_marker_v1",
+        "frozen S7 visibility rule",
+    )
+    _digest(marker["source_binding_id"], "S7 source-binding ID")
+    return marker
+
+
 def _write_immutable(root: Path, relative: str, content: bytes) -> ArtifactPin:
     stored = write_bytes_immutable(
         root,
@@ -397,6 +488,19 @@ def _strict_json(content: bytes) -> object:
         )
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise I3ProductionInputError("input is not strict UTF-8 JSON") from exc
+
+
+def _frozen_s7_marker_canonical_bytes(value: object) -> bytes:
+    return (
+        json.dumps(
+            value,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        + b"\n"
+    )
 
 
 def _canonical_json_bytes(value: object) -> bytes:
@@ -489,6 +593,7 @@ __all__ = [
     "I3ProductionBaseRunConfig",
     "I3ProductionInputError",
     "PreparedI3ProductionBaseRunSpec",
+    "load_frozen_s7_oracle_marker_exact",
     "load_i3_production_base_config_exact",
     "prepare_i3_production_base_run_spec",
     "store_i3_production_base_config",

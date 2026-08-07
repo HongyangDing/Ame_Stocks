@@ -6,6 +6,7 @@ import stat
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -13,8 +14,16 @@ import pytest
 from test_silver_s7_5_i3_migration_io import _base_fixture
 
 from ame_stocks_api.artifacts import stable_digest
+from ame_stocks_api.silver import (
+    asset_release_set,
+    calendar_artifact,
+    identity_materialization_publish,
+    identity_registry_workflow,
+)
+from ame_stocks_api.silver import identity_materialization_streaming as streaming
 from ame_stocks_api.silver import incremental_i3_production as production
 from ame_stocks_api.silver import incremental_i3_production_contract as contract
+from ame_stocks_api.silver import incremental_i3_production_inputs as production_inputs
 from ame_stocks_api.silver.incremental_contract import (
     ArtifactPin,
     IncrementalContractError,
@@ -38,6 +47,9 @@ from ame_stocks_api.silver.incremental_i3_production_contract import (
     I3ProductionParentAuthority,
     I3ProductionRunKind,
     load_i3_production_parent_shallow_exact,
+)
+from ame_stocks_api.silver.incremental_i3_production_semantics import (
+    production_native_v2_migration_id,
 )
 from ame_stocks_api.silver.incremental_i5_lifecycle import (
     GateBApproval,
@@ -84,6 +96,178 @@ def _patch_exact_dependencies(monkeypatch: pytest.MonkeyPatch, terminal) -> None
         contract,
         "_verify_i2_receipts_exact",
         lambda _root, _spec, *, calendar_sessions, parent_staging: None,
+    )
+
+
+def _patch_frozen_external_dependency_loaders(
+    monkeypatch: pytest.MonkeyPatch,
+    run_spec,
+    *,
+    source_binding_mutation: str | None = None,
+) -> None:
+    registry_pins = tuple(
+        identity_registry_workflow.RegistryReleasePin(
+            registry_name=item.registry_kind.value,
+            release_id=item.release_id,
+            manifest_path=item.artifact.path,
+            manifest_sha256=item.artifact.sha256,
+            manifest_bytes=item.artifact.bytes,
+            release_available_session=item.release_available_session,
+        )
+        for item in run_spec.identity_policy_bundle.registry_releases
+    )
+    source_binding_id = stable_digest({"fixture": "frozen-source-binding"})
+    bound_s4 = SimpleNamespace(
+        path=run_spec.s4_v1_source.artifact.path,
+        sha256=run_spec.s4_v1_source.artifact.sha256,
+        bytes=run_spec.s4_v1_source.artifact.bytes,
+    )
+    bound_registries = registry_pins
+    bound_calendar_sha256 = run_spec.calendar.artifact.sha256
+    loaded_calendar_path = run_spec.calendar.artifact.path
+    returned_source_binding_id = source_binding_id
+    if source_binding_mutation == "source_binding":
+        returned_source_binding_id = stable_digest({"tampered": "source-binding"})
+    elif source_binding_mutation == "s4":
+        bound_s4 = SimpleNamespace(
+            path=bound_s4.path,
+            sha256=stable_digest({"tampered": "s4"}),
+            bytes=bound_s4.bytes,
+        )
+    elif source_binding_mutation == "registry":
+        bound_registries = (
+            *registry_pins[:-1],
+            replace(
+                registry_pins[-1],
+                manifest_sha256=stable_digest({"tampered": "registry"}),
+            ),
+        )
+    elif source_binding_mutation == "calendar":
+        bound_calendar_sha256 = stable_digest({"tampered": "calendar"})
+    elif source_binding_mutation == "calendar_path":
+        loaded_calendar_path = "manifests/silver/xnys-calendars/copied-calendar.json"
+
+    marker_content = b"frozen-s7-marker\n"
+
+    def load_frozen_marker(pin: ArtifactPin, *, content: bytes):
+        assert pin == run_spec.i0_oracle.artifact
+        assert content == marker_content
+        return {
+            "release_set_id": run_spec.i0_oracle.object_id,
+            "source_binding_id": source_binding_id,
+        }
+
+    monkeypatch.setattr(
+        production_inputs,
+        "load_frozen_s7_oracle_marker_exact",
+        load_frozen_marker,
+    )
+    original_read_exact = contract._read_exact_root
+
+    def read_exact(root: Path, pin: ArtifactPin) -> bytes:
+        if pin == run_spec.i0_oracle.artifact:
+            return marker_content
+        if pin == run_spec.s4_v1_source.artifact:
+            return b"frozen-s4-release-set\n"
+        if pin == run_spec.identity_policy_bundle_artifact:
+            return run_spec.identity_policy_bundle.canonical_bytes()
+        return original_read_exact(root, pin)
+
+    monkeypatch.setattr(contract, "_read_exact_root", read_exact)
+    monkeypatch.setattr(
+        streaming,
+        "_load_source_binding",
+        lambda _root, identifier: (
+            SimpleNamespace(
+                source_binding_id=returned_source_binding_id,
+                mode="production",
+                s4_release_set_id=run_spec.s4_v1_source.object_id,
+                s4_release_set_manifest=bound_s4,
+                registry_pins=bound_registries,
+                calendar_artifact_id=run_spec.calendar.calendar_artifact_id,
+                calendar_artifact_sha256=bound_calendar_sha256,
+                cutoff_session=run_spec.s4_v1_source.available_session,
+            ),
+            SimpleNamespace(source_binding_id=identifier),
+        ),
+    )
+    monkeypatch.setattr(
+        streaming,
+        "_repository_runtime_binding",
+        lambda: (_ for _ in ()).throw(AssertionError("current runtime must not be probed")),
+    )
+    monkeypatch.setattr(
+        identity_materialization_publish,
+        "load_published_s7_release_set",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("publication-time loader must not be called")
+        ),
+    )
+    monkeypatch.setattr(
+        asset_release_set,
+        "load_exact_asset_release_set_control",
+        lambda *_args, **_kwargs: (
+            SimpleNamespace(release_set_id=run_spec.s4_v1_source.object_id),
+            SimpleNamespace(path=run_spec.s4_v1_source.artifact.path),
+        ),
+    )
+    monkeypatch.setattr(
+        calendar_artifact,
+        "load_xnys_calendar_artifact",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            content=b"x" * run_spec.calendar.artifact.bytes,
+            relative_path=loaded_calendar_path,
+            sha256=run_spec.calendar.artifact.sha256,
+            sessions=(SimpleNamespace(session_date=run_spec.terminal_session),),
+        ),
+    )
+    monkeypatch.setattr(
+        identity_registry_workflow,
+        "load_registry_release_set",
+        lambda _root, pins: SimpleNamespace(
+            releases=tuple(SimpleNamespace(manifest_pin=pin, source_scopes={}) for pin in pins)
+        ),
+    )
+
+
+def _replace_identity_policy(run_spec, policy):
+    policy_artifact = policy.exact_pin(path=run_spec.identity_policy_bundle_artifact.path)
+    migration_id = production_native_v2_migration_id(
+        i0_release_set_artifact=run_spec.i0_oracle.artifact,
+        s4_release_set_artifact=run_spec.s4_v1_source.artifact,
+        identity_policy_bundle=policy,
+        identity_policy_bundle_artifact=policy_artifact,
+        calendar_artifact=run_spec.calendar.artifact,
+        i2_base_frontier_artifact=run_spec.i2_base_frontier.artifact,
+    )
+    return replace(
+        run_spec,
+        identity_policy_bundle=policy,
+        identity_policy_bundle_artifact=policy_artifact,
+        native_v2_migration_id=migration_id,
+    )
+
+
+def _canonical_external_run_spec(run_spec):
+    releases = tuple(
+        replace(
+            item,
+            decision_cutoff_session=item.release_available_session,
+        )
+        for item in run_spec.identity_policy_bundle.registry_releases
+    )
+    policy = replace(
+        run_spec.identity_policy_bundle,
+        registry_releases=releases,
+        bundle_available_session=max(item.release_available_session for item in releases),
+    )
+    normalized = _replace_identity_policy(run_spec, policy)
+    return replace(
+        normalized,
+        source_cutoff_session=max(
+            policy.decision_cutoff_session,
+            normalized.calendar.available_session,
+        ),
     )
 
 
@@ -151,6 +335,130 @@ def _write_row_change_index_variant(
         schema_digest=original.schema_digest,
         availability_session=original.availability_session,
     )
+
+
+def test_stage_base_uses_frozen_exact_oracle_without_current_runtime_replay(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_spec, legacy, s4 = _base_fixture(tmp_path)
+    run_spec = _canonical_external_run_spec(run_spec)
+    _patch_frozen_external_dependency_loaders(monkeypatch, run_spec)
+    monkeypatch.setattr(
+        contract,
+        "_verify_i2_receipts_exact",
+        lambda _root, _spec, *, calendar_sessions, parent_staging: None,
+    )
+    monkeypatch.setattr(
+        production,
+        "_verify_prepared_materialization_authority",
+        lambda _root, _spec, _prepared, *, parent: None,
+    )
+
+    result = stage_i3_production_base(
+        tmp_path,
+        _write_run_spec(tmp_path, run_spec),
+        materializer=CompactBaseMigrationMaterializer(legacy, s4),
+    )
+
+    assert result.loaded.run_spec == run_spec
+    assert result.loaded.completion.state.value == "awaiting_review"
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("source_binding", "s4", "registry", "calendar"),
+)
+def test_external_dependency_gate_rejects_frozen_source_binding_crosslink_tampering(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    run_spec, _legacy, _s4 = _base_fixture(tmp_path)
+    run_spec = _canonical_external_run_spec(run_spec)
+    _patch_frozen_external_dependency_loaders(
+        monkeypatch,
+        run_spec,
+        source_binding_mutation=mutation,
+    )
+
+    with pytest.raises(
+        contract.I3ProductionContractError,
+        match="source binding differs from exact S4, registry, policy, or calendar inputs",
+    ):
+        contract._verify_external_production_dependencies(tmp_path, run_spec)
+
+
+@pytest.mark.parametrize("mutation", ("decision_cutoff", "bundle_availability"))
+def test_external_dependency_gate_rejects_noncanonical_identity_policy_semantics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    run_spec, _legacy, _s4 = _base_fixture(tmp_path)
+    run_spec = _canonical_external_run_spec(run_spec)
+    policy = run_spec.identity_policy_bundle
+    if mutation == "decision_cutoff":
+        first = policy.registry_releases[0]
+        releases = (
+            replace(
+                first,
+                decision_cutoff_session=first.release_available_session - timedelta(days=1),
+            ),
+            *policy.registry_releases[1:],
+        )
+        policy = replace(policy, registry_releases=releases)
+    else:
+        policy = replace(
+            policy,
+            bundle_available_session=policy.bundle_available_session + timedelta(days=1),
+        )
+    forged_run_spec = _replace_identity_policy(run_spec, policy)
+    _patch_frozen_external_dependency_loaders(monkeypatch, forged_run_spec)
+
+    with pytest.raises(
+        contract.I3ProductionContractError,
+        match="source binding differs from exact S4, registry, policy, or calendar inputs",
+    ):
+        contract._verify_external_production_dependencies(tmp_path, forged_run_spec)
+
+
+def test_external_dependency_gate_rejects_earlier_declared_source_cutoff(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_spec, _legacy, _s4 = _base_fixture(tmp_path)
+    run_spec = _canonical_external_run_spec(run_spec)
+    forged_run_spec = replace(
+        run_spec,
+        source_cutoff_session=run_spec.source_cutoff_session - timedelta(days=1),
+    )
+    _patch_frozen_external_dependency_loaders(monkeypatch, forged_run_spec)
+
+    with pytest.raises(
+        contract.I3ProductionContractError,
+        match="source binding differs from exact S4, registry, policy, or calendar inputs",
+    ):
+        contract._verify_external_production_dependencies(tmp_path, forged_run_spec)
+
+
+def test_external_dependency_gate_rejects_calendar_loader_path_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_spec, _legacy, _s4 = _base_fixture(tmp_path)
+    run_spec = _canonical_external_run_spec(run_spec)
+    _patch_frozen_external_dependency_loaders(
+        monkeypatch,
+        run_spec,
+        source_binding_mutation="calendar_path",
+    )
+
+    with pytest.raises(
+        contract.I3ProductionContractError,
+        match="calendar loader returned another exact artifact",
+    ):
+        contract._verify_external_production_dependencies(tmp_path, run_spec)
 
 
 def test_stage_base_writes_compact_row_index_single_fk_summary_and_deep_attestation(

@@ -64,6 +64,8 @@ from ame_stocks_api.silver.incremental_i3_checkpoint import (
     NATIVE_V2_RELEASE_FAMILY,
     I3CheckpointState,
     IdentityPolicyBundle,
+    IdentityRegistryKind,
+    IdentityRegistryReleasePin,
     NativeV2OutputArtifact,
     NativeV2ParentReleasePin,
     NativeV2ReleaseManifest,
@@ -3638,25 +3640,104 @@ def load_i3_production_staging_exact(
     )
 
 
+def _load_frozen_i0_oracle_marker_exact(
+    root: Path,
+    pin: ArtifactPin,
+) -> dict[str, object]:
+    """Exact-load the immutable v1 oracle without replaying its old runtime."""
+
+    from ame_stocks_api.silver.incremental_i3_production_inputs import (
+        I3ProductionInputError,
+        load_frozen_s7_oracle_marker_exact,
+    )
+
+    content = _read_exact_root(root, pin)
+    try:
+        return load_frozen_s7_oracle_marker_exact(pin, content=content)
+    except I3ProductionInputError as exc:
+        raise I3ProductionContractError("frozen I0 oracle marker is invalid") from exc
+
+
 def _verify_external_production_dependencies(
     root: Path, run_spec: I3ProductionRunSpec
 ) -> tuple[date, ...]:
     """Replay existing production loaders; no caller-injected fixture verifier exists."""
 
+    from ame_stocks_api.silver import identity_materialization_streaming as streaming
     from ame_stocks_api.silver.asset_release_set import load_exact_asset_release_set_control
     from ame_stocks_api.silver.calendar_artifact import load_xnys_calendar_artifact
-    from ame_stocks_api.silver.identity_materialization_publish import (
-        load_published_s7_release_set,
-    )
     from ame_stocks_api.silver.identity_registry_workflow import (
         RegistryReleasePin,
         load_registry_release_set,
     )
 
-    _read_exact_root(root, run_spec.i0_oracle.artifact)
-    i0_marker = load_published_s7_release_set(root, release_set_id=run_spec.i0_oracle.object_id)
+    i0_marker = _load_frozen_i0_oracle_marker_exact(root, run_spec.i0_oracle.artifact)
     if i0_marker.get("release_set_id") != run_spec.i0_oracle.object_id:
-        raise I3ProductionContractError("I0 production loader returned another release set")
+        raise I3ProductionContractError("frozen I0 oracle returned another release set")
+
+    registry_pins = tuple(
+        RegistryReleasePin(
+            registry_name=item.registry_kind.value,
+            release_id=item.release_id,
+            manifest_path=item.artifact.path,
+            manifest_sha256=item.artifact.sha256,
+            manifest_bytes=item.artifact.bytes,
+            release_available_session=item.release_available_session,
+        )
+        for item in run_spec.identity_policy_bundle.registry_releases
+    )
+    source_binding_id = i0_marker["source_binding_id"]
+    try:
+        source_binding, _source_binding_pin = streaming._load_source_binding(
+            root,
+            source_binding_id,
+        )
+    except streaming.S7StreamingMaterializationError as exc:
+        raise I3ProductionContractError("frozen I0 source binding is invalid") from exc
+    bound_s4 = ArtifactPin(
+        path=source_binding.s4_release_set_manifest.path,
+        sha256=source_binding.s4_release_set_manifest.sha256,
+        bytes=source_binding.s4_release_set_manifest.bytes,
+    )
+    expected_policy = IdentityPolicyBundle(
+        registry_releases=tuple(
+            IdentityRegistryReleasePin(
+                registry_kind=IdentityRegistryKind(item.registry_name),
+                release_id=item.release_id,
+                artifact=ArtifactPin(
+                    path=item.manifest_path,
+                    sha256=item.manifest_sha256,
+                    bytes=item.manifest_bytes,
+                ),
+                decision_cutoff_session=item.release_available_session,
+                release_available_session=item.release_available_session,
+            )
+            for item in source_binding.registry_pins
+        ),
+        bundle_available_session=max(
+            item.release_available_session for item in source_binding.registry_pins
+        ),
+    )
+    expected_source_cutoff = max(
+        expected_policy.decision_cutoff_session,
+        run_spec.calendar.available_session,
+    )
+    if (
+        source_binding.source_binding_id != source_binding_id
+        or source_binding.mode != "production"
+        or source_binding.s4_release_set_id != run_spec.s4_v1_source.object_id
+        or bound_s4 != run_spec.s4_v1_source.artifact
+        or tuple(source_binding.registry_pins) != registry_pins
+        or source_binding.calendar_artifact_id != run_spec.calendar.calendar_artifact_id
+        or source_binding.calendar_artifact_sha256 != run_spec.calendar.artifact.sha256
+        or source_binding.cutoff_session != run_spec.s4_v1_source.available_session
+        or source_binding.cutoff_session != run_spec.calendar.available_session
+        or expected_policy != run_spec.identity_policy_bundle
+        or run_spec.source_cutoff_session != expected_source_cutoff
+    ):
+        raise I3ProductionContractError(
+            "frozen I0 source binding differs from exact S4, registry, policy, or calendar inputs"
+        )
 
     _read_exact_root(root, run_spec.s4_v1_source.artifact)
     s4, s4_document = load_exact_asset_release_set_control(
@@ -3676,8 +3757,13 @@ def _verify_external_production_dependencies(
         calendar_artifact_id=run_spec.calendar.calendar_artifact_id,
         expected_sha256=run_spec.calendar.artifact.sha256,
     )
-    if len(calendar.content) != run_spec.calendar.artifact.bytes:
-        raise I3ProductionContractError("calendar byte count differs from its exact pin")
+    observed_calendar_pin = ArtifactPin(
+        path=calendar.relative_path,
+        sha256=calendar.sha256,
+        bytes=len(calendar.content),
+    )
+    if observed_calendar_pin != run_spec.calendar.artifact:
+        raise I3ProductionContractError("calendar loader returned another exact artifact")
     required_sessions = {
         run_spec.terminal_session,
         *(item.session_date for item in run_spec.i2_receipts),
@@ -3686,17 +3772,6 @@ def _verify_external_production_dependencies(
     if not required_sessions.issubset(available_sessions):
         raise I3ProductionContractError("production calendar omits a required session")
 
-    registry_pins = tuple(
-        RegistryReleasePin(
-            registry_name=item.registry_kind.value,
-            release_id=item.release_id,
-            manifest_path=item.artifact.path,
-            manifest_sha256=item.artifact.sha256,
-            manifest_bytes=item.artifact.bytes,
-            release_available_session=item.release_available_session,
-        )
-        for item in run_spec.identity_policy_bundle.registry_releases
-    )
     loaded = load_registry_release_set(root, registry_pins)
     if tuple(item.manifest_pin for item in loaded.releases) != registry_pins:
         raise I3ProductionContractError("registry production loader returned different pins")

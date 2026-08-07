@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -7,9 +8,11 @@ import pytest
 from test_silver_s7_5_i3_migration_io import _base_fixture
 
 from ame_stocks_api.artifacts import stable_digest
+from ame_stocks_api.silver import incremental_i3_production_contract as production_contract
 from ame_stocks_api.silver import incremental_i3_production_inputs as inputs
 from ame_stocks_api.silver.asset_incremental_contract import S4BaseFrontier
 from ame_stocks_api.silver.incremental_contract import ArtifactPin
+from ame_stocks_api.silver.incremental_i3_checkpoint import LEGACY_S7_V1_RELEASE_SET_ID
 from ame_stocks_api.silver.incremental_i3_production_contract import (
     I3ProductionResourceCaps,
 )
@@ -27,6 +30,75 @@ def _config(run_spec) -> inputs.I3ProductionBaseRunConfig:
         run_available_session=run_spec.run_available_session,
         resource_caps=I3ProductionResourceCaps(),
     )
+
+
+def _frozen_s7_payload() -> dict[str, object]:
+    return {
+        "approval": {"pin": "approval"},
+        "approval_id": stable_digest({"frozen": "approval"}),
+        "artifact_type": "s7_four_table_atomic_release_set",
+        "candidate_id": stable_digest({"frozen": "candidate"}),
+        "candidate_manifest": {"pin": "candidate"},
+        "candidate_qa": {"pin": "qa"},
+        "full_completion": {"pin": "completion"},
+        "full_completion_id": stable_digest({"frozen": "completion"}),
+        "intent": {"pin": "intent"},
+        "intent_id": stable_digest({"frozen": "intent"}),
+        "members": [],
+        "plan": {"pin": "plan"},
+        "plan_id": stable_digest({"frozen": "plan"}),
+        "policy_version": "s7-four-table-atomic-release-set-v1",
+        "published_at_utc": "2026-08-02T00:58:43.178962+00:00",
+        "release_availability": {"release_available_session": "2026-08-03"},
+        "release_set_version": 1,
+        "source_binding_id": stable_digest({"frozen": "source-binding"}),
+        "state": "published",
+        "table_order": [
+            "asset_master",
+            "ticker_alias",
+            "issuer_master",
+            "universe_daily",
+        ],
+        "visibility_rule": "all_four_members_visible_only_through_this_exact_marker_v1",
+    }
+
+
+def _write_frozen_s7_marker(
+    root: Path,
+    payload: dict[str, object],
+    *,
+    release_set_id: str = LEGACY_S7_V1_RELEASE_SET_ID,
+    canonical: bool = True,
+) -> ArtifactPin:
+    marker = {**payload, "release_set_id": release_set_id}
+    content = (
+        inputs._frozen_s7_marker_canonical_bytes(marker)
+        if canonical
+        else (json.dumps(marker, indent=2, sort_keys=True).encode() + b"\n")
+    )
+    relative = "manifests/frozen-s7/manifest.json"
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    return ArtifactPin(
+        path=relative,
+        sha256=hashlib.sha256(content).hexdigest(),
+        bytes=len(content),
+    )
+
+
+def _patch_frozen_release_digest(
+    monkeypatch: pytest.MonkeyPatch,
+    payload: dict[str, object],
+) -> None:
+    original = inputs.stable_digest
+
+    def digest(value: object) -> str:
+        if value == payload:
+            return LEGACY_S7_V1_RELEASE_SET_ID
+        return original(value)
+
+    monkeypatch.setattr(inputs, "stable_digest", digest)
 
 
 def test_base_config_exposes_only_exact_inputs_availability_and_caps(tmp_path: Path) -> None:
@@ -117,6 +189,110 @@ def test_real_i2_base_frontier_path_is_manifest_json() -> None:
         "manifests/silver/incremental/s4/assets/base-frontiers/"
         f"frontier_id={frontier_id}/manifest.json"
     )
+
+
+def test_frozen_s7_oracle_exact_loader_ignores_current_runtime_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _frozen_s7_payload()
+    pin = _write_frozen_s7_marker(tmp_path, payload)
+    _patch_frozen_release_digest(monkeypatch, payload)
+    monkeypatch.setattr(
+        inputs.streaming,
+        "_repository_runtime_binding",
+        lambda: (_ for _ in ()).throw(AssertionError("current runtime must not be probed")),
+    )
+
+    direct_marker = inputs.load_frozen_s7_oracle_marker_exact(
+        pin,
+        content=(tmp_path / pin.path).read_bytes(),
+    )
+    marker = production_contract._load_frozen_i0_oracle_marker_exact(tmp_path, pin)
+    assert marker == direct_marker
+    assert marker["release_set_id"] == LEGACY_S7_V1_RELEASE_SET_ID
+    assert marker["source_binding_id"] == payload["source_binding_id"]
+
+
+def test_contract_frozen_i0_loader_rejects_semantically_tampered_marker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _frozen_s7_payload()
+    payload["state"] = "staged"
+    pin = _write_frozen_s7_marker(tmp_path, payload)
+    _patch_frozen_release_digest(monkeypatch, payload)
+
+    with pytest.raises(
+        production_contract.I3ProductionContractError,
+        match="frozen I0 oracle marker is invalid",
+    ):
+        production_contract._load_frozen_i0_oracle_marker_exact(tmp_path, pin)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        ("artifact_type", "other", "artifact type"),
+        ("policy_version", "future-policy", "policy version"),
+        ("release_set_version", 2, "release-set version"),
+        ("state", "staged", "state"),
+        ("table_order", ["universe_daily"], "table order"),
+        ("visibility_rule", "public-latest", "visibility rule"),
+        ("source_binding_id", "not-a-digest", "source-binding ID"),
+    ),
+)
+def test_frozen_s7_oracle_rejects_semantic_marker_tampering(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    payload = _frozen_s7_payload()
+    payload[field] = value
+    pin = _write_frozen_s7_marker(tmp_path, payload)
+    _patch_frozen_release_digest(monkeypatch, payload)
+    with pytest.raises(inputs.I3ProductionInputError, match=message):
+        inputs.load_frozen_s7_oracle_marker_exact(
+            pin,
+            content=(tmp_path / pin.path).read_bytes(),
+        )
+
+
+def test_frozen_s7_oracle_rejects_extra_field_wrong_id_and_noncanonical_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _frozen_s7_payload()
+    extra = {**payload, "unexpected": True}
+    extra_pin = _write_frozen_s7_marker(tmp_path, extra)
+    _patch_frozen_release_digest(monkeypatch, extra)
+    with pytest.raises(inputs.I3ProductionInputError, match="fields differ"):
+        inputs.load_frozen_s7_oracle_marker_exact(
+            extra_pin,
+            content=(tmp_path / extra_pin.path).read_bytes(),
+        )
+
+    wrong_id = stable_digest({"wrong": "release-set-id"})
+    wrong_pin = _write_frozen_s7_marker(
+        tmp_path,
+        payload,
+        release_set_id=wrong_id,
+    )
+    _patch_frozen_release_digest(monkeypatch, payload)
+    with pytest.raises(inputs.I3ProductionInputError, match="ID does not reproduce"):
+        inputs.load_frozen_s7_oracle_marker_exact(
+            wrong_pin,
+            content=(tmp_path / wrong_pin.path).read_bytes(),
+        )
+
+    noncanonical_pin = _write_frozen_s7_marker(tmp_path, payload, canonical=False)
+    with pytest.raises(inputs.I3ProductionInputError, match="not canonical JSON"):
+        inputs.load_frozen_s7_oracle_marker_exact(
+            noncanonical_pin,
+            content=(tmp_path / noncanonical_pin.path).read_bytes(),
+        )
 
 
 def test_strict_config_json_rejects_nonfinite_number() -> None:
