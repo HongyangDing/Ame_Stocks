@@ -1181,6 +1181,11 @@ class RegistryRuntimeBinding:
 class _HistoricalRuntimeReplayScope:
     verified_runtime_bindings: dict[str, RegistryRuntimeBinding]
     git_blobs: dict[tuple[str, str, str, str], bytes]
+    candidates: dict[tuple[str, StoredControlDocument], RegistryCandidateManifest]
+    plans: dict[tuple[str, StoredControlDocument], RegistryDecisionPlan]
+    requests: dict[tuple[str, StoredControlDocument], RegistryApprovalRequest]
+    receipts: dict[tuple[str, StoredControlDocument], RegistryReleaseAuthorizationReceipt]
+    releases: dict[tuple[str, RegistryReleasePin], LoadedRegistryRelease]
 
 
 _HISTORICAL_RUNTIME_REPLAY_CACHE: Final[ContextVar[_HistoricalRuntimeReplayScope | None]] = (
@@ -1189,7 +1194,15 @@ _HISTORICAL_RUNTIME_REPLAY_CACHE: Final[ContextVar[_HistoricalRuntimeReplayScope
 
 
 def _new_historical_runtime_replay_scope() -> _HistoricalRuntimeReplayScope:
-    return _HistoricalRuntimeReplayScope(verified_runtime_bindings={}, git_blobs={})
+    return _HistoricalRuntimeReplayScope(
+        verified_runtime_bindings={},
+        git_blobs={},
+        candidates={},
+        plans={},
+        requests={},
+        receipts={},
+        releases={},
+    )
 
 
 def record_production_prerequisite_authorization(
@@ -3502,7 +3515,29 @@ def _load_registry_release_in_scope(
     *,
     revalidate_current_runtime: bool,
 ) -> LoadedRegistryRelease:
+    root = data_root.expanduser().resolve()
+    cache = None if revalidate_current_runtime else _HISTORICAL_RUNTIME_REPLAY_CACHE.get()
+    cache_key = (root.as_posix(), pin)
+    if cache is not None:
+        cached = cache.releases.get(cache_key)
+        if cached is not None:
+            return cached
+    loaded = _load_registry_release_uncached(
+        root,
+        pin,
+        revalidate_current_runtime=revalidate_current_runtime,
+    )
+    if cache is not None:
+        cache.releases[cache_key] = loaded
+    return loaded
 
+
+def _load_registry_release_uncached(
+    data_root: Path,
+    pin: RegistryReleasePin,
+    *,
+    revalidate_current_runtime: bool,
+) -> LoadedRegistryRelease:
     root = data_root.expanduser().resolve()
     manifest_bytes = _read_exact(
         root,
@@ -5316,6 +5351,12 @@ def _load_candidate_document(
     *,
     revalidate_current_runtime: bool = True,
 ) -> RegistryCandidateManifest:
+    cache = None if revalidate_current_runtime else _HISTORICAL_RUNTIME_REPLAY_CACHE.get()
+    cache_key = (root.expanduser().resolve().as_posix(), ref)
+    if cache is not None:
+        cached = cache.candidates.get(cache_key)
+        if cached is not None:
+            return cached
     content = _read_control(root, ref)
     candidate = RegistryCandidateManifest.from_dict(_load_json(content, "candidate"))
     if candidate.candidate_id != ref.object_id or candidate.relative_path != ref.path:
@@ -5325,6 +5366,8 @@ def _load_candidate_document(
         candidate,
         revalidate_current_runtime=revalidate_current_runtime,
     )
+    if cache is not None:
+        cache.candidates[cache_key] = candidate
     return candidate
 
 
@@ -5334,6 +5377,12 @@ def _load_plan_document(
     *,
     revalidate_current_runtime: bool = True,
 ) -> RegistryDecisionPlan:
+    cache = None if revalidate_current_runtime else _HISTORICAL_RUNTIME_REPLAY_CACHE.get()
+    cache_key = (root.expanduser().resolve().as_posix(), ref)
+    if cache is not None:
+        cached = cache.plans.get(cache_key)
+        if cached is not None:
+            return cached
     content = _read_control(root, ref)
     plan = RegistryDecisionPlan.from_dict(_load_json(content, "decision plan"))
     if plan.plan_id != ref.object_id or plan.relative_path != ref.path:
@@ -5344,6 +5393,8 @@ def _load_plan_document(
         revalidate_current_runtime=revalidate_current_runtime,
     )
     _validate_plan_candidate(plan, candidate)
+    if cache is not None:
+        cache.plans[cache_key] = plan
     return plan
 
 
@@ -5353,6 +5404,12 @@ def _load_request_document(
     *,
     revalidate_current_runtime: bool = True,
 ) -> RegistryApprovalRequest:
+    cache = None if revalidate_current_runtime else _HISTORICAL_RUNTIME_REPLAY_CACHE.get()
+    cache_key = (root.expanduser().resolve().as_posix(), ref)
+    if cache is not None:
+        cached = cache.requests.get(cache_key)
+        if cached is not None:
+            return cached
     content = _read_control(root, ref)
     request = RegistryApprovalRequest.from_dict(_load_json(content, "approval request"))
     if request.request_event_id != ref.object_id or request.relative_path != ref.path:
@@ -5368,6 +5425,8 @@ def _load_request_document(
         revalidate_current_runtime=revalidate_current_runtime,
     )
     _validate_request_chain(request, plan, candidate)
+    if cache is not None:
+        cache.requests[cache_key] = request
     return request
 
 
@@ -5377,6 +5436,12 @@ def _load_receipt_document(
     *,
     revalidate_current_runtime: bool = True,
 ) -> RegistryReleaseAuthorizationReceipt:
+    cache = None if revalidate_current_runtime else _HISTORICAL_RUNTIME_REPLAY_CACHE.get()
+    cache_key = (root.expanduser().resolve().as_posix(), ref)
+    if cache is not None:
+        cached = cache.receipts.get(cache_key)
+        if cached is not None:
+            return cached
     content = _read_control(root, ref)
     raw = _mapping(_load_json(content, "approval receipt"), "approval receipt")
     if "standing_approval_receipt_version" in raw:
@@ -5440,6 +5505,8 @@ def _load_receipt_document(
         receipt.runtime_binding,
         revalidate_current_runtime=revalidate_current_runtime,
     )
+    if cache is not None:
+        cache.receipts[cache_key] = receipt
     return receipt
 
 

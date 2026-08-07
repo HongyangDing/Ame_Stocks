@@ -44,6 +44,7 @@ from ame_stocks_api.silver.incremental_i3_production import (
 )
 from ame_stocks_api.silver.incremental_i3_production_contract import (
     I3ProductionI2ReceiptPin,
+    I3ProductionOutputStorage,
     I3ProductionParentAuthority,
     I3ProductionRunKind,
     load_i3_production_parent_shallow_exact,
@@ -290,6 +291,72 @@ def _prepare_official_base(tmp_path: Path, run_spec, legacy, s4):
         parent=None,
         workspace=workspace,
     )
+
+
+def _malformed_compact_base_outputs(table_outputs, mutation: str):
+    output = table_outputs[0]
+    rowset = output.rowset_index
+    assert rowset is not None
+    assert len(rowset.segments) == 1
+    segment = rowset.segments[0]
+    if mutation == "direct_parquet":
+        malformed = replace(
+            output,
+            storage=I3ProductionOutputStorage.PARQUET,
+            manifest_output=replace(
+                output.manifest_output,
+                artifact=segment.artifact,
+                row_count=segment.row_count,
+            ),
+            rowset_index=None,
+        )
+    elif mutation == "wrong_segment_id":
+        bad_rowset = replace(
+            rowset,
+            segments=(
+                replace(
+                    segment,
+                    segment_id=stable_digest({"malicious-segment-id": output.table_name}),
+                ),
+            ),
+        )
+        malformed = replace(
+            output,
+            manifest_output=replace(
+                output.manifest_output,
+                artifact=bad_rowset.exact_pin(path=output.manifest_output.artifact.path),
+            ),
+            rowset_index=bad_rowset,
+        )
+    elif mutation == "two_segments":
+        second_artifact = ArtifactPin(
+            path=segment.artifact.path.removesuffix(".parquet") + "-extra.parquet",
+            sha256=stable_digest({"malicious-extra-segment": output.table_name}),
+            bytes=segment.artifact.bytes,
+        )
+        bad_rowset = replace(
+            rowset,
+            segments=(
+                segment,
+                replace(
+                    segment,
+                    segment_id=stable_digest({"extra-segment-id": output.table_name}),
+                    artifact=second_artifact,
+                    row_count=0,
+                ),
+            ),
+        )
+        malformed = replace(
+            output,
+            manifest_output=replace(
+                output.manifest_output,
+                artifact=bad_rowset.exact_pin(path=output.manifest_output.artifact.path),
+            ),
+            rowset_index=bad_rowset,
+        )
+    else:  # pragma: no cover - test helper guard
+        raise AssertionError(f"unknown compact-base mutation: {mutation}")
+    return (malformed, *table_outputs[1:])
 
 
 def _versioned_tables(result, root: Path) -> dict[ArtifactPin, pa.Table]:
@@ -547,6 +614,92 @@ def test_stage_base_writes_compact_row_index_single_fk_summary_and_deep_attestat
     assert second.reused is True
     assert second.completion_pin == first.completion_pin
     assert second.deep_attestation_pin == first.deep_attestation_pin
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ("direct_parquet", "exactly one rowset segment"),
+        ("wrong_segment_id", "module-owned identity"),
+        ("two_segments", "exactly one rowset segment"),
+    ),
+)
+def test_stage_base_rejects_malformed_initial_rowset_before_success_controls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+    message: str,
+) -> None:
+    run_spec, legacy, s4 = _base_fixture(tmp_path)
+    _patch_exact_upstreams(monkeypatch, run_spec.terminal_session)
+    prepared = _prepare_official_base(tmp_path, run_spec, legacy, s4)
+    malformed = replace(
+        prepared,
+        table_outputs=_malformed_compact_base_outputs(prepared.table_outputs, mutation),
+    )
+
+    class MaliciousMaterializer:
+        def prepare(self, **_kwargs):
+            return malformed
+
+    with pytest.raises(I3ProductionStageError, match=message) as raised:
+        stage_i3_production_base(
+            tmp_path,
+            _write_run_spec(tmp_path, run_spec),
+            materializer=MaliciousMaterializer(),
+        )
+    assert raised.value.failed_receipt_pin is not None
+    assert not (tmp_path / production._completion_relative(run_spec)).exists()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ("direct_parquet", "exactly one rowset segment"),
+        ("wrong_segment_id", "module-owned identity"),
+        ("two_segments", "exactly one rowset segment"),
+    ),
+)
+def test_durable_deep_loader_rejects_malformed_base_initial_rowset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+    message: str,
+) -> None:
+    run_spec, legacy, s4 = _base_fixture(tmp_path)
+    _patch_exact_upstreams(monkeypatch, run_spec.terminal_session)
+    staged = stage_i3_production_base(
+        tmp_path,
+        _write_run_spec(tmp_path, run_spec),
+        materializer=CompactBaseMigrationMaterializer(legacy, s4),
+    )
+    output_set = staged.loaded.receipt.output_set
+    assert output_set is not None
+    bad_output_set = replace(
+        output_set,
+        table_outputs=_malformed_compact_base_outputs(output_set.table_outputs, mutation),
+    )
+    bad_receipt = replace(staged.loaded.receipt, output_set=bad_output_set)
+    control_root = (
+        f"manifests/silver/identity/s7-5-native-v2-staging/malicious-base-rowset-{mutation}"
+    )
+    receipt_path = f"{control_root}/run-receipt.json"
+    receipt_pin = bad_receipt.exact_pin(path=receipt_path)
+    receipt_target = tmp_path / receipt_path
+    receipt_target.parent.mkdir(parents=True, exist_ok=True)
+    receipt_target.write_bytes(bad_receipt.canonical_bytes())
+    bad_completion = replace(
+        staged.loaded.completion,
+        receipt_id=bad_receipt.receipt_id,
+        receipt_artifact=receipt_pin,
+        output_set_id=bad_output_set.output_set_id,
+    )
+    completion_path = f"{control_root}/completion.json"
+    completion_pin = bad_completion.exact_pin(path=completion_path)
+    (tmp_path / completion_path).write_bytes(bad_completion.canonical_bytes())
+
+    with pytest.raises(contract.I3ProductionContractError, match=message):
+        contract.load_i3_production_staging_exact(tmp_path, completion_pin)
 
 
 def test_stage_base_rejects_structural_unsealed_materializer_at_real_authority_seam(

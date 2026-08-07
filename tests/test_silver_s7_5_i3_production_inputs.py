@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,10 @@ from ame_stocks_api.silver.incremental_i3_production_contract import (
     I3ProductionResourceCaps,
 )
 from ame_stocks_api.silver.incremental_i3_production_semantics import (
+    I3_COMPACT_BASE_INITIAL_SEGMENT_RULE_VERSION,
     I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST,
+    I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD,
+    production_compact_base_initial_segment_id,
     production_native_v2_migration_id,
 )
 
@@ -115,6 +119,57 @@ def test_base_config_exposes_only_exact_inputs_availability_and_caps(tmp_path: P
     document["transform_semantics_digest"] = stable_digest({"operator": "claim"})
     with pytest.raises(inputs.I3ProductionInputError, match="fields differ"):
         inputs.I3ProductionBaseRunConfig.from_dict(document)
+
+
+def test_transform_semantics_golden_binds_compact_base_initial_rowset_segment() -> None:
+    assert I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST == (
+        "973732372b1d624cdb4d5a3d680080026d2f24cda829724740a4e6ce1741807a"
+    )
+    assert (
+        I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD["materialization_rules"]["initial_rowset_segment"]
+        == I3_COMPACT_BASE_INITIAL_SEGMENT_RULE_VERSION
+    )
+
+    artifact = ArtifactPin(
+        path="staging/base/asset_master/base.parquet",
+        sha256=stable_digest({"fixture": "segment"}),
+        bytes=123,
+    )
+    migration_id = stable_digest({"fixture": "migration"})
+    fields = {
+        "table_name": "asset_master",
+        "artifact": artifact,
+        "terminal_session": date(2026, 7, 9),
+        "availability_session": date(2026, 8, 3),
+        "native_v2_migration_id": migration_id,
+    }
+    segment_id = production_compact_base_initial_segment_id(**fields)
+    assert segment_id == "47cab70cd942dd8d0b21658be4a454b320d418f570370515752c856c1469e308"
+    assert production_compact_base_initial_segment_id(**fields) == segment_id
+    assert (
+        production_compact_base_initial_segment_id(
+            **{
+                **fields,
+                "artifact": ArtifactPin(
+                    path=artifact.path,
+                    sha256=stable_digest({"fixture": "changed-segment"}),
+                    bytes=artifact.bytes,
+                ),
+            }
+        )
+        != segment_id
+    )
+    assert (
+        production_compact_base_initial_segment_id(
+            **{
+                **fields,
+                "native_v2_migration_id": stable_digest({"fixture": "changed-migration"}),
+            }
+        )
+        != segment_id
+    )
+    with pytest.raises(ValueError, match="table is invalid"):
+        production_compact_base_initial_segment_id(**{**fields, "table_name": "universe_daily"})
 
 
 def test_base_config_rejects_latest_or_pattern_source_paths(tmp_path: Path) -> None:

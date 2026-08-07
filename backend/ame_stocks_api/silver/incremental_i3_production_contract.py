@@ -6,7 +6,7 @@ single ``awaiting_review`` completion marker.  It grants neither publication nor
 cutover authority.
 
 The four top-level native-v2 manifest roles remain fixed.  The three versioned
-master tables are single Parquet artifacts for a base staging run, while
+master tables are single-segment rowset indexes for a base staging run, while
 ``universe_daily`` is a canonical dataset-index JSON whose members are exact
 session-partitioned Parquet pins.  This keeps clean append bounded without
 weakening byte, schema, cardinality, or terminal-state reconciliation.
@@ -79,6 +79,7 @@ from ame_stocks_api.silver.incremental_i3_contract import (
 )
 from ame_stocks_api.silver.incremental_i3_production_semantics import (
     I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST,
+    production_compact_base_initial_segment_id,
     production_compact_base_row_validator_digest,
     production_native_v2_migration_id,
 )
@@ -1657,6 +1658,49 @@ class I3ProductionRunSpec:
         return result
 
 
+def validate_production_compact_base_initial_rowsets(
+    run_spec: I3ProductionRunSpec,
+    table_outputs: tuple[I3ProductionTableOutput, ...],
+) -> None:
+    """Require the sealed compact-base storage shape and segment identity."""
+
+    if not isinstance(run_spec, I3ProductionRunSpec):
+        raise I3ProductionContractError("compact BASE validation requires a production RunSpec")
+    if run_spec.run_kind is not I3ProductionRunKind.BASE:
+        return
+    if (
+        type(table_outputs) is not tuple
+        or tuple(item.table_name for item in table_outputs) != I3_V2_TABLE_ORDER
+    ):
+        raise I3ProductionContractError("compact BASE outputs differ from the four-table order")
+    for output in table_outputs[:-1]:
+        rowset = output.rowset_index
+        if (
+            output.storage is not I3ProductionOutputStorage.ROWSET_INDEX
+            or rowset is None
+            or len(rowset.segments) != 1
+        ):
+            raise I3ProductionContractError(
+                "compact BASE versioned outputs require exactly one rowset segment"
+            )
+        segment = rowset.segments[0]
+        expected_segment_id = production_compact_base_initial_segment_id(
+            table_name=output.table_name,
+            artifact=segment.artifact,
+            terminal_session=run_spec.terminal_session,
+            availability_session=run_spec.run_available_session,
+            native_v2_migration_id=run_spec.native_v2_migration_id,
+        )
+        if (
+            rowset.terminal_session != run_spec.terminal_session
+            or segment.availability_session != run_spec.run_available_session
+            or segment.segment_id != expected_segment_id
+        ):
+            raise I3ProductionContractError(
+                "compact BASE initial rowset segment differs from module-owned identity"
+            )
+
+
 @dataclass(frozen=True, slots=True)
 class I3ProductionResourceObservation:
     peak_rss_bytes: int
@@ -2836,6 +2880,8 @@ def load_i3_production_parent_shallow_exact(
     ):
         raise I3ProductionContractError("parent bounded control chain differs")
 
+    validate_production_compact_base_initial_rowsets(parent_spec, output_set.table_outputs)
+
     deep = load_i3_production_deep_attestation_exact(
         run_spec.parent_deep_attestation_artifact, reader
     )
@@ -3317,6 +3363,8 @@ def load_i3_production_staging_exact(
     ):
         raise I3ProductionContractError("completion output identity or resource caps differ")
 
+    validate_production_compact_base_initial_rowsets(run_spec, output_set.table_outputs)
+
     calendar_sessions = _verify_external_production_dependencies(root, run_spec)
     parent_staging = _verify_production_parent_exact(root, run_spec)
     _verify_i2_receipts_exact(
@@ -3528,6 +3576,10 @@ def load_i3_production_staging_exact(
                             )
                         )
         elif table_output.storage is I3ProductionOutputStorage.PARQUET:
+            if run_spec.run_kind is I3ProductionRunKind.BASE:
+                raise I3ProductionContractError(
+                    "compact BASE versioned outputs require rowset indexes"
+                )
             if parent_staging is not None:
                 raise I3ProductionContractError(
                     "delta versioned tables must use bounded append-only rowset indexes"
@@ -4914,4 +4966,5 @@ __all__ = [
     "production_gate_a_input_pins",
     "production_physical_index_digest",
     "production_v2_contract_pins",
+    "validate_production_compact_base_initial_rowsets",
 ]

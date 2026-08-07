@@ -70,6 +70,7 @@ from ame_stocks_api.silver.incremental_i3_production_contract import (
 )
 from ame_stocks_api.silver.incremental_i3_production_semantics import (
     I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST,
+    production_compact_base_initial_segment_id,
     production_native_v2_migration_id,
 )
 
@@ -285,6 +286,95 @@ def _output_set() -> I3ProductionOutputSet:
         gate_a_manifest_pin=gate_a_manifest,
         control_extension_artifacts=(),
     )
+
+
+def _compact_base_outputs(
+    run_spec: I3ProductionRunSpec,
+) -> tuple[I3ProductionTableOutput, ...]:
+    outputs = list(_output_set().table_outputs)
+    for index, output in enumerate(outputs[:-1]):
+        artifact = output.manifest_output.artifact
+        segment = I3ProductionSegmentPin(
+            table_name=output.table_name,
+            segment_id=production_compact_base_initial_segment_id(
+                table_name=output.table_name,
+                artifact=artifact,
+                terminal_session=run_spec.terminal_session,
+                availability_session=run_spec.run_available_session,
+                native_v2_migration_id=run_spec.native_v2_migration_id,
+            ),
+            artifact=artifact,
+            row_count=output.manifest_output.row_count,
+            contract_id=output.manifest_output.contract_id,
+            schema_digest=output.manifest_output.schema_digest,
+            availability_session=run_spec.run_available_session,
+        )
+        rowset = I3ProductionRowsetIndex(
+            table_name=output.table_name,
+            terminal_session=run_spec.terminal_session,
+            segments=(segment,),
+        )
+        outputs[index] = I3ProductionTableOutput(
+            storage=I3ProductionOutputStorage.ROWSET_INDEX,
+            manifest_output=replace(
+                output.manifest_output,
+                session_date=run_spec.terminal_session,
+                artifact=rowset.exact_pin(
+                    path=(f"silver/identity/s7-5-native-v2-staging/{output.table_name}/index.json")
+                ),
+            ),
+            rowset_index=rowset,
+        )
+    return tuple(outputs)
+
+
+def _malformed_compact_base_outputs(
+    outputs: tuple[I3ProductionTableOutput, ...],
+    mutation: str,
+) -> tuple[I3ProductionTableOutput, ...]:
+    first = outputs[0]
+    rowset = first.rowset_index
+    assert rowset is not None
+    segment = rowset.segments[0]
+    if mutation == "direct_parquet":
+        malformed = replace(
+            first,
+            storage=I3ProductionOutputStorage.PARQUET,
+            manifest_output=replace(first.manifest_output, artifact=segment.artifact),
+            rowset_index=None,
+        )
+    elif mutation == "wrong_segment_id":
+        bad_rowset = replace(
+            rowset,
+            segments=(replace(segment, segment_id=_digest("wrong-base-segment")),),
+        )
+        malformed = replace(
+            first,
+            manifest_output=replace(
+                first.manifest_output,
+                artifact=bad_rowset.exact_pin(path=first.manifest_output.artifact.path),
+            ),
+            rowset_index=bad_rowset,
+        )
+    elif mutation == "two_segments":
+        extra = replace(
+            segment,
+            segment_id=_digest("extra-base-segment"),
+            artifact=_pin("silver/identity/s7-5-native-v2-staging/asset_master/extra.parquet"),
+            row_count=0,
+        )
+        bad_rowset = replace(rowset, segments=(segment, extra))
+        malformed = replace(
+            first,
+            manifest_output=replace(
+                first.manifest_output,
+                artifact=bad_rowset.exact_pin(path=first.manifest_output.artifact.path),
+            ),
+            rowset_index=bad_rowset,
+        )
+    else:  # pragma: no cover - test helper guard
+        raise AssertionError(f"unknown compact-base mutation: {mutation}")
+    return (malformed, *outputs[1:])
 
 
 def _success_controls() -> tuple[
@@ -619,6 +709,106 @@ def test_small_tables_support_append_only_rowset_indexes() -> None:
     assert I3ProductionTableOutput.from_dict(output.to_dict()) == output
     assert output.rowset_index is not None
     assert output.rowset_index.segments == segments
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ("direct_parquet", "exactly one rowset segment"),
+        ("wrong_segment_id", "module-owned identity"),
+        ("two_segments", "exactly one rowset segment"),
+    ),
+)
+def test_compact_base_initial_rowsets_are_module_owned(
+    mutation: str,
+    message: str,
+) -> None:
+    run_spec = _run_spec()
+    outputs = _compact_base_outputs(run_spec)
+    production.validate_production_compact_base_initial_rowsets(run_spec, outputs)
+    with pytest.raises(I3ProductionContractError, match=message):
+        production.validate_production_compact_base_initial_rowsets(
+            run_spec,
+            _malformed_compact_base_outputs(outputs, mutation),
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ("direct_parquet", "exactly one rowset segment"),
+        ("wrong_segment_id", "module-owned identity"),
+        ("two_segments", "exactly one rowset segment"),
+    ),
+)
+def test_shallow_parent_rejects_malformed_base_rowsets_without_parquet_reads(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+    message: str,
+) -> None:
+    parent_spec = _run_spec()
+    assert parent_spec.i2_base_frontier is not None
+    parent_spec = replace(
+        parent_spec,
+        terminal_session=date(2026, 7, 9),
+        i2_base_frontier=replace(
+            parent_spec.i2_base_frontier,
+            terminal_session=date(2026, 7, 9),
+        ),
+    )
+    parent_outputs = _malformed_compact_base_outputs(_compact_base_outputs(parent_spec), mutation)
+    output_set = replace(_output_set(), table_outputs=parent_outputs)
+    parent_spec_path = (
+        f"manifests/silver/identity/s7-5-native-v2-staging/shallow-parent-{mutation}/run-spec.json"
+    )
+    parent_spec_pin = parent_spec.exact_pin(path=parent_spec_path)
+    _, receipt_template, completion_template = _success_controls()
+    receipt = replace(
+        receipt_template,
+        run_spec_id=parent_spec.run_spec_id,
+        run_spec_artifact=parent_spec_pin,
+        output_set=output_set,
+    )
+    receipt_path = (
+        "manifests/silver/identity/s7-5-native-v2-staging/"
+        f"shallow-parent-{mutation}/run-receipt.json"
+    )
+    receipt_pin = receipt.exact_pin(path=receipt_path)
+    completion = replace(
+        completion_template,
+        run_spec_id=parent_spec.run_spec_id,
+        receipt_id=receipt.receipt_id,
+        receipt_artifact=receipt_pin,
+        output_set_id=output_set.output_set_id,
+    )
+    completion_path = (
+        "manifests/silver/identity/s7-5-native-v2-staging/"
+        f"shallow-parent-{mutation}/completion.json"
+    )
+    completion_pin = completion.exact_pin(path=completion_path)
+    child_spec = replace(
+        _delta_run_spec(),
+        parent_shadow_completion_artifact=completion_pin,
+    )
+    controls = {
+        completion_pin.path: completion.canonical_bytes(),
+        receipt_pin.path: receipt.canonical_bytes(),
+        parent_spec_pin.path: parent_spec.canonical_bytes(),
+    }
+    read_paths: list[str] = []
+
+    def artifact_reader(_root: Path, relative: str) -> bytes:
+        read_paths.append(relative)
+        if relative.endswith(".parquet"):
+            raise AssertionError("shallow parent loader read Parquet before shape rejection")
+        return controls[relative]
+
+    monkeypatch.setattr(production, "_read_root_bytes", artifact_reader)
+    with pytest.raises(I3ProductionContractError, match=message):
+        production.load_i3_production_parent_shallow_exact(tmp_path, child_spec)
+    assert read_paths == [completion_pin.path, receipt_pin.path, parent_spec_pin.path]
+    assert not any(path.endswith(".parquet") for path in read_paths)
 
 
 def test_output_set_roundtrip_totals_and_fixture_denial() -> None:

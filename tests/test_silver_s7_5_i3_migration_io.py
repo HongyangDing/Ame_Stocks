@@ -48,8 +48,10 @@ from ame_stocks_api.silver.incremental_i3_production import (
 from ame_stocks_api.silver.incremental_i3_production_contract import (
     I3ProductionI2BaseFrontierPin,
     I3ProductionOutputStorage,
+    I3ProductionRowsetIndex,
 )
 from ame_stocks_api.silver.incremental_i3_production_semantics import (
+    production_compact_base_initial_segment_id,
     production_native_v2_migration_id,
 )
 
@@ -578,6 +580,37 @@ def test_compact_base_streams_exact_parquet_into_prepared_materialization(
     assert prepared.checkpoint.last_session == run_spec.terminal_session
     assert prepared.native_manifest.terminal_session == run_spec.terminal_session
     assert tuple(item.table_name for item in prepared.table_outputs) == I3_V2_TABLE_ORDER
+    row_versions_by_table = {
+        table_name: tuple(item for item in prepared.row_versions if item.table_name == table_name)
+        for table_name in I3_V2_TABLE_ORDER[:-1]
+    }
+    for output in prepared.table_outputs[:-1]:
+        assert output.storage is I3ProductionOutputStorage.ROWSET_INDEX
+        assert output.rowset_index is not None
+        assert len(output.rowset_index.segments) == 1
+        segment = output.rowset_index.segments[0]
+        assert segment.segment_id == production_compact_base_initial_segment_id(
+            table_name=output.table_name,
+            artifact=segment.artifact,
+            terminal_session=run_spec.terminal_session,
+            availability_session=run_spec.run_available_session,
+            native_v2_migration_id=run_spec.native_v2_migration_id,
+        )
+        assert segment.availability_session == run_spec.run_available_session
+        assert output.manifest_output.artifact.path.endswith("/index.json")
+        assert segment.artifact.path.endswith("/base.parquet")
+        assert output.manifest_output.artifact != segment.artifact
+        assert (
+            I3ProductionRowsetIndex.from_dict(
+                json.loads((tmp_path / output.manifest_output.artifact.path).read_bytes())
+            )
+            == output.rowset_index
+        )
+        assert row_versions_by_table[output.table_name]
+        assert all(
+            item.index_artifact == segment.artifact
+            for item in row_versions_by_table[output.table_name]
+        )
     universe_output = prepared.table_outputs[I3_V2_TABLE_ORDER.index("universe_daily")]
     assert universe_output.storage is I3ProductionOutputStorage.DATASET_INDEX
     assert universe_output.dataset_index is not None
@@ -785,6 +818,33 @@ def test_base_attestation_rejects_copied_seal_and_mutated_prepared_bindings(
         migration_io._verify_compact_base_materialization_attestation_with_binding(
             run_spec=run_spec,
             prepared=changed_outputs,
+            binding=binding,
+        )
+
+    original_output = prepared.table_outputs[0]
+    assert original_output.rowset_index is not None
+    original_segment = original_output.rowset_index.segments[0]
+    tampered_segment = replace(
+        original_segment,
+        segment_id=stable_digest({"malicious": "initial-segment-id"}),
+    )
+    tampered_rowset = replace(
+        original_output.rowset_index,
+        segments=(tampered_segment,),
+    )
+    tampered_output = replace(
+        original_output,
+        manifest_output=replace(
+            original_output.manifest_output,
+            artifact=tampered_rowset.exact_pin(path=original_output.manifest_output.artifact.path),
+        ),
+        rowset_index=tampered_rowset,
+    )
+    tampered_outputs = (tampered_output, *prepared.table_outputs[1:])
+    with pytest.raises(I3MigrationIOError, match="differs from exact inputs, outputs"):
+        migration_io._verify_compact_base_materialization_attestation_with_binding(
+            run_spec=run_spec,
+            prepared=replace(prepared, table_outputs=tampered_outputs),
             binding=binding,
         )
 

@@ -1047,6 +1047,10 @@ def _validate_prepared(
         raise I3ProductionStageError("prepared resource observation is invalid")
     if tuple(item.table_name for item in prepared.table_outputs) != I3_V2_TABLE_ORDER:
         raise I3ProductionStageError("prepared output table order differs")
+    try:
+        contract.validate_production_compact_base_initial_rowsets(run_spec, prepared.table_outputs)
+    except contract.I3ProductionContractError as exc:
+        raise I3ProductionStageError(str(exc)) from exc
     authoritative_pins = [
         prepared.native_manifest_artifact,
         prepared.checkpoint_artifact,

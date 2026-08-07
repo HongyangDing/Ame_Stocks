@@ -41,6 +41,7 @@ from ame_stocks_api.silver.identity_registry_workflow import (
     RegistryStandingApprovalReceipt,
     RegistryWorkflowError,
     RuntimeFilePin,
+    StoredControlDocument,
     build_approved_registry_rows,
     build_registry_authorization_document,
     capture_registry_runtime_binding,
@@ -1181,6 +1182,14 @@ def test_standing_authority_binds_runtime_review_and_one_release(
     )
     with pytest.raises(RegistryWorkflowError, match="runtime binding drifted"):
         load_registry_release(tmp_path, pin)
+    control_reads: list[StoredControlDocument] = []
+    original_read_control = registry_workflow._read_control
+
+    def read_control_once(root: Path, ref: StoredControlDocument) -> bytes:
+        control_reads.append(ref)
+        return original_read_control(root, ref)
+
+    monkeypatch.setattr(registry_workflow, "_read_control", read_control_once)
     recorded_runtime_replays: list[RegistryRuntimeBinding] = []
     monkeypatch.setattr(
         registry_workflow,
@@ -1194,6 +1203,8 @@ def test_standing_authority_binds_runtime_review_and_one_release(
     )
     assert historical == loaded
     assert recorded_runtime_replays == [runtime_binding]
+    for ref in (candidate_doc, plan_doc, request_doc, receipt_doc):
+        assert control_reads.count(ref) == 1
     assert (
         load_registry_release(
             tmp_path,
@@ -1203,6 +1214,58 @@ def test_standing_authority_binds_runtime_review_and_one_release(
         == loaded
     )
     assert recorded_runtime_replays == [runtime_binding, runtime_binding]
+    for ref in (candidate_doc, plan_doc, request_doc, receipt_doc):
+        assert control_reads.count(ref) == 2
+
+    original_load_in_scope = registry_workflow._load_registry_release_in_scope
+
+    def load_twice_around_same_scope_tamper(
+        root: Path,
+        exact_pin: RegistryReleasePin,
+        *,
+        revalidate_current_runtime: bool,
+    ) -> object:
+        first = original_load_in_scope(
+            root,
+            exact_pin,
+            revalidate_current_runtime=revalidate_current_runtime,
+        )
+        candidate_path = tmp_path / candidate_doc.path
+        original_candidate = candidate_path.read_bytes()
+        candidate_path.chmod(0o600)
+        candidate_path.write_bytes(original_candidate + b"\n")
+        try:
+            second = original_load_in_scope(
+                root,
+                exact_pin,
+                revalidate_current_runtime=revalidate_current_runtime,
+            )
+        finally:
+            candidate_path.write_bytes(original_candidate)
+            candidate_path.chmod(0o444)
+        assert second is first
+        return first
+
+    monkeypatch.setattr(
+        registry_workflow,
+        "_load_registry_release_in_scope",
+        load_twice_around_same_scope_tamper,
+    )
+    assert (
+        load_registry_release(
+            tmp_path,
+            pin,
+            revalidate_current_runtime=False,
+        )
+        == loaded
+    )
+    monkeypatch.setattr(
+        registry_workflow,
+        "_load_registry_release_in_scope",
+        original_load_in_scope,
+    )
+    for ref in (candidate_doc, plan_doc, request_doc, receipt_doc):
+        assert control_reads.count(ref) == 3
     with pytest.raises(TypeError, match="unexpected keyword"):
         load_registry_release(  # type: ignore[call-arg]
             tmp_path,
@@ -1233,6 +1296,20 @@ def test_standing_authority_binds_runtime_review_and_one_release(
     authorization_path = tmp_path / authorizations[0].path
     authorization_document = json.loads(authorization_path.read_bytes())
     authorization_document["runtime_binding"]["git_commit"] = "d" * 40
+    assert_historical_tamper_rejected(
+        tmp_path / pin.manifest_path,
+        (tmp_path / pin.manifest_path).read_bytes() + b"\n",
+    )
+    for control in (plan_doc, request_doc, receipt_doc):
+        assert_historical_tamper_rejected(
+            tmp_path / control.path,
+            (tmp_path / control.path).read_bytes() + b"\n",
+        )
+    rows_path = tmp_path / loaded.manifest.release_directory / loaded.manifest.rows_path
+    assert_historical_tamper_rejected(
+        rows_path,
+        rows_path.read_bytes() + b"\n",
+    )
     assert_historical_tamper_rejected(
         authorization_path,
         registry_workflow._canonical_bytes(authorization_document),
@@ -1557,6 +1634,207 @@ def test_historical_release_set_replays_each_recorded_runtime_once_per_load(
         revalidate_current_runtime=False,
     )
     assert recorded_replays == [runtime, runtime]
+
+
+def test_historical_release_cache_reuses_recursive_transition_but_not_current_or_other_keys(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transition_pin = RegistryReleasePin(
+        registry_name=RegistryName.ASSET_TRANSITION.value,
+        release_id="1" * 64,
+        manifest_path="transition.json",
+        manifest_sha256="2" * 64,
+        manifest_bytes=1,
+        release_available_session=date(2026, 7, 20),
+    )
+    alternate_transition_pin = replace(
+        transition_pin,
+        manifest_path="alternate-transition.json",
+        manifest_sha256="3" * 64,
+    )
+    provider_pin = RegistryReleasePin(
+        registry_name=RegistryName.PROVIDER_COMPOSITE_OVERRIDE.value,
+        release_id="4" * 64,
+        manifest_path="provider.json",
+        manifest_sha256="5" * 64,
+        manifest_bytes=1,
+        release_available_session=date(2026, 7, 20),
+    )
+    other_root = tmp_path / "other-root"
+    uncached_calls: list[tuple[Path, RegistryReleasePin, bool]] = []
+    transition_result = object()
+    alternate_result = object()
+    other_root_result = object()
+    provider_result = object()
+
+    def load_uncached(
+        root: Path,
+        pin: RegistryReleasePin,
+        *,
+        revalidate_current_runtime: bool,
+    ) -> object:
+        uncached_calls.append((root, pin, revalidate_current_runtime))
+        if revalidate_current_runtime:
+            raise RegistryWorkflowError("current runtime gate reached")
+        if pin == provider_pin:
+            first = load_registry_release(
+                root,
+                transition_pin,
+                revalidate_current_runtime=False,
+            )
+            second = load_registry_release(
+                root,
+                transition_pin,
+                revalidate_current_runtime=False,
+            )
+            assert first is second is transition_result
+            assert (
+                load_registry_release(
+                    other_root,
+                    transition_pin,
+                    revalidate_current_runtime=False,
+                )
+                is other_root_result
+            )
+            assert (
+                load_registry_release(
+                    root,
+                    alternate_transition_pin,
+                    revalidate_current_runtime=False,
+                )
+                is alternate_result
+            )
+            with pytest.raises(RegistryWorkflowError, match="current runtime gate reached"):
+                load_registry_release(
+                    root,
+                    transition_pin,
+                    revalidate_current_runtime=True,
+                )
+            return provider_result
+        if root == other_root.resolve():
+            return other_root_result
+        if pin == alternate_transition_pin:
+            return alternate_result
+        return transition_result
+
+    monkeypatch.setattr(
+        registry_workflow,
+        "_load_registry_release_uncached",
+        load_uncached,
+    )
+    assert (
+        load_registry_release(
+            tmp_path,
+            provider_pin,
+            revalidate_current_runtime=False,
+        )
+        is provider_result
+    )
+    assert (
+        sum(
+            root == tmp_path.resolve() and pin == transition_pin and not mode
+            for root, pin, mode in uncached_calls
+        )
+        == 1
+    )
+    assert [pin for _, pin, mode in uncached_calls if not mode].count(transition_pin) == 2
+    assert [pin for _, pin, mode in uncached_calls if not mode].count(alternate_transition_pin) == 1
+    assert sum(mode for _, _, mode in uncached_calls) == 1
+
+    first_top_level_call_count = len(uncached_calls)
+    assert (
+        load_registry_release(
+            tmp_path,
+            provider_pin,
+            revalidate_current_runtime=False,
+        )
+        is provider_result
+    )
+    assert len(uncached_calls) == first_top_level_call_count * 2
+
+
+def test_failed_historical_release_is_not_cached_across_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pin = RegistryReleasePin(
+        registry_name=RegistryName.ASSET_TRANSITION.value,
+        release_id="6" * 64,
+        manifest_path="failed-release.json",
+        manifest_sha256="7" * 64,
+        manifest_bytes=1,
+        release_available_session=date(2026, 7, 20),
+    )
+    loaded = object()
+    attempts = 0
+
+    def load_uncached(
+        _root: Path,
+        _pin: RegistryReleasePin,
+        *,
+        revalidate_current_runtime: bool,
+    ) -> object:
+        nonlocal attempts
+        assert revalidate_current_runtime is False
+        attempts += 1
+        if attempts == 1:
+            raise RegistryWorkflowError("first exact validation failed")
+        return loaded
+
+    monkeypatch.setattr(
+        registry_workflow,
+        "_load_registry_release_uncached",
+        load_uncached,
+    )
+    with pytest.raises(RegistryWorkflowError, match="first exact validation failed"):
+        load_registry_release(
+            tmp_path,
+            pin,
+            revalidate_current_runtime=False,
+        )
+    assert registry_workflow._HISTORICAL_RUNTIME_REPLAY_CACHE.get() is None
+    assert (
+        load_registry_release(
+            tmp_path,
+            pin,
+            revalidate_current_runtime=False,
+        )
+        is loaded
+    )
+    assert attempts == 2
+
+
+def test_failed_historical_control_validation_never_populates_typed_caches(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ref = StoredControlDocument(
+        object_id="8" * 64,
+        path="malformed-control.json",
+        sha256=hashlib.sha256(b"{}").hexdigest(),
+        bytes=2,
+    )
+    monkeypatch.setattr(registry_workflow, "_read_control", lambda _root, _ref: b"{}")
+    scope = registry_workflow._new_historical_runtime_replay_scope()
+    token = registry_workflow._HISTORICAL_RUNTIME_REPLAY_CACHE.set(scope)
+    try:
+        loaders_and_caches = (
+            (registry_workflow._load_candidate_document, scope.candidates),
+            (registry_workflow._load_plan_document, scope.plans),
+            (registry_workflow._load_request_document, scope.requests),
+            (registry_workflow._load_receipt_document, scope.receipts),
+        )
+        for loader, cache in loaders_and_caches:
+            with pytest.raises(RegistryWorkflowError):
+                loader(
+                    tmp_path,
+                    ref,
+                    revalidate_current_runtime=False,
+                )
+            assert cache == {}
+    finally:
+        registry_workflow._HISTORICAL_RUNTIME_REPLAY_CACHE.reset(token)
 
 
 def test_production_prerequisite_authorization_is_root_runtime_and_target_bound(

@@ -9,12 +9,16 @@ that were actually authenticated.
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Final
 
 from ame_stocks_api.artifacts import stable_digest
 from ame_stocks_api.silver.incremental_contract import ArtifactPin
 from ame_stocks_api.silver.incremental_i3_checkpoint import IdentityPolicyBundle
-from ame_stocks_api.silver.incremental_i3_contract import I3_V2_SCHEMA_BUNDLE_DIGEST
+from ame_stocks_api.silver.incremental_i3_contract import (
+    I3_V2_SCHEMA_BUNDLE_DIGEST,
+    I3_V2_TABLE_ORDER,
+)
 from ame_stocks_api.silver.incremental_i3_dispatch import (
     I3_CALENDAR_RULE_VERSION,
     I3_COVERAGE_RULE_VERSION,
@@ -28,7 +32,7 @@ from ame_stocks_api.silver.incremental_i3_migration_core import (
     MIGRATION_SOURCE_SEED_RULE_VERSION,
 )
 
-I3_PRODUCTION_TRANSFORM_SEMANTICS_RULE_VERSION: Final = "s7_5_i3_production_transform_semantics_v1"
+I3_PRODUCTION_TRANSFORM_SEMANTICS_RULE_VERSION: Final = "s7_5_i3_production_transform_semantics_v2"
 I3_PRODUCTION_MIGRATION_ID_RULE_VERSION: Final = "s7_5_i3_production_native_v2_migration_id_v1"
 
 # These strings are deliberately defined outside migration_io so the RunSpec
@@ -43,6 +47,9 @@ I3_COMPACT_BASE_S4_TERMINAL_RECEIPT_RULE_VERSION: Final = (
 )
 I3_COMPACT_BASE_UNRESOLVED_SEED_RULE_VERSION: Final = "s7_5_i3_compact_base_unresolved_seed_v1"
 I3_COMPACT_BASE_ROW_VALIDATOR_RULE_VERSION: Final = "s7_5_i3_compact_base_new_root_validator_v1"
+I3_COMPACT_BASE_INITIAL_SEGMENT_RULE_VERSION: Final = (
+    "s7_5_i3_compact_base_initial_rowset_segment_v1"
+)
 I3_PRODUCTION_INDEXED_ROW_VALIDATOR_RULE_VERSION: Final = (
     "s7_5_i3_production_indexed_row_validator_v1"
 )
@@ -59,6 +66,7 @@ I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD: Final = {
     },
     "materialization_rules": {
         "exact_input_binding": I3_COMPACT_BASE_INPUT_BINDING_RULE_VERSION,
+        "initial_rowset_segment": I3_COMPACT_BASE_INITIAL_SEGMENT_RULE_VERSION,
         "partition_receipt": I3_COMPACT_BASE_PARTITION_RECEIPT_RULE_VERSION,
         "row_validator": I3_COMPACT_BASE_ROW_VALIDATOR_RULE_VERSION,
         "s4_terminal_receipt": I3_COMPACT_BASE_S4_TERMINAL_RECEIPT_RULE_VERSION,
@@ -77,6 +85,46 @@ I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD: Final = {
 I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST: Final = stable_digest(
     I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD
 )
+
+
+def production_compact_base_initial_segment_id(
+    *,
+    table_name: str,
+    artifact: ArtifactPin,
+    terminal_session: date,
+    availability_session: date,
+    native_v2_migration_id: str,
+) -> str:
+    """Derive the sole initial BASE segment identity for a versioned table."""
+
+    if table_name not in I3_V2_TABLE_ORDER[:-1]:
+        raise ValueError("compact-base initial segment table is invalid")
+    if not isinstance(artifact, ArtifactPin):
+        raise TypeError("compact-base initial segment artifact must be an exact ArtifactPin")
+    if not artifact.path.endswith(".parquet"):
+        raise ValueError("compact-base initial segment artifact must be Parquet")
+    if type(terminal_session) is not date:
+        raise TypeError("compact-base initial segment terminal must be a native date")
+    if type(availability_session) is not date:
+        raise TypeError("compact-base initial segment availability must be a native date")
+    if availability_session < terminal_session:
+        raise ValueError("compact-base initial segment availability precedes its terminal")
+    if (
+        not isinstance(native_v2_migration_id, str)
+        or len(native_v2_migration_id) != 64
+        or any(character not in "0123456789abcdef" for character in native_v2_migration_id)
+    ):
+        raise ValueError("native-v2 migration ID must be lowercase SHA-256")
+    return stable_digest(
+        {
+            "artifact": artifact.to_dict(),
+            "availability_session": availability_session.isoformat(),
+            "native_v2_migration_id": native_v2_migration_id,
+            "rule_version": I3_COMPACT_BASE_INITIAL_SEGMENT_RULE_VERSION,
+            "table_name": table_name,
+            "terminal_session": terminal_session.isoformat(),
+        }
+    )
 
 
 def production_native_v2_migration_id(
@@ -150,6 +198,7 @@ def production_compact_base_row_validator_digest(
 
 
 __all__ = [
+    "I3_COMPACT_BASE_INITIAL_SEGMENT_RULE_VERSION",
     "I3_COMPACT_BASE_INPUT_BINDING_RULE_VERSION",
     "I3_COMPACT_BASE_PARTITION_RECEIPT_RULE_VERSION",
     "I3_COMPACT_BASE_ROW_VALIDATOR_RULE_VERSION",
@@ -161,6 +210,7 @@ __all__ = [
     "I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST",
     "I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD",
     "I3_PRODUCTION_TRANSFORM_SEMANTICS_RULE_VERSION",
+    "production_compact_base_initial_segment_id",
     "production_compact_base_row_validator_digest",
     "production_native_v2_migration_id",
 ]

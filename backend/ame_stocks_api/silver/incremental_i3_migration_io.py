@@ -98,10 +98,16 @@ from ame_stocks_api.silver.incremental_i3_production_contract import (
     I3ProductionOutputStorage,
     I3ProductionPartitionPin,
     I3ProductionResourceObservation,
+    I3ProductionRowsetIndex,
     I3ProductionRunKind,
     I3ProductionRunSpec,
+    I3ProductionSegmentPin,
     I3ProductionTableOutput,
     LoadedI3ProductionStaging,
+)
+from ame_stocks_api.silver.incremental_i3_production_semantics import (
+    I3_COMPACT_BASE_INITIAL_SEGMENT_RULE_VERSION,
+    production_compact_base_initial_segment_id,
 )
 
 COMPACT_BASE_SOURCE_RULE_VERSION: Final = "s7_5_i3_compact_base_source_v1"
@@ -120,7 +126,6 @@ COMPACT_BASE_CANONICAL_PROJECTION_ATTESTATION_RULE_VERSION: Final = (
 COMPACT_BASE_ROW_CHANGE_INDEX_ATTESTATION_RULE_VERSION: Final = (
     "s7_5_i3_compact_base_row_change_index_attestation_v1"
 )
-
 _MINIMUM_PRODUCTION_DISK_FLOOR: Final = 40 * 1024**3
 _ESTIMATED_BASELINE_RSS: Final = 2 * 1024**3
 _ESTIMATED_OUTPUT_MULTIPLIER_NUMERATOR: Final = 3
@@ -863,16 +868,46 @@ def prepare_compact_base(
             aliases_by_legacy_id=aliases_by_legacy_id,
         )
         contract = I3_V2_CONTRACTS[table_name]
+        segment = I3ProductionSegmentPin(
+            table_name=table_name,
+            segment_id=production_compact_base_initial_segment_id(
+                table_name=table_name,
+                artifact=artifact,
+                terminal_session=run_spec.terminal_session,
+                availability_session=run_spec.run_available_session,
+                native_v2_migration_id=run_spec.native_v2_migration_id,
+            ),
+            artifact=artifact,
+            row_count=readback.num_rows,
+            contract_id=contract.contract_id,
+            schema_digest=contract.schema_digest,
+            availability_session=run_spec.run_available_session,
+        )
+        rowset_index = I3ProductionRowsetIndex(
+            table_name=table_name,
+            terminal_session=run_spec.terminal_session,
+            segments=(segment,),
+        )
+        index_relative = _workspace_relative(root, work / table_name / "index.json")
+        index_artifact = _write_bytes_no_clobber(
+            root,
+            index_relative,
+            rowset_index.canonical_bytes(),
+            run_spec=run_spec,
+        )
+        if index_artifact != rowset_index.exact_pin(path=index_relative):
+            raise I3MigrationIOError(f"{table_name} rowset-index bytes changed during write")
         small_outputs[table_name] = I3ProductionTableOutput(
-            storage=I3ProductionOutputStorage.PARQUET,
+            storage=I3ProductionOutputStorage.ROWSET_INDEX,
             manifest_output=NativeV2OutputArtifact(
                 table_name=table_name,
                 session_date=run_spec.terminal_session,
-                row_count=readback.num_rows,
+                row_count=rowset_index.row_count,
                 contract_id=contract.contract_id,
                 schema_digest=contract.schema_digest,
-                artifact=artifact,
+                artifact=index_artifact,
             ),
+            rowset_index=rowset_index,
         )
         minimum_disk = min(minimum_disk, _check_live_resources(root, run_spec))
 
@@ -1799,7 +1834,10 @@ def _terminal_and_prepared_row_versions(
     prepared: list[I3ProductionPreparedRowVersion] = []
     for table_name in _SMALL_TABLES:
         stable_field, version_field, predecessor_field = _VERSION_SHAPE[table_name]
-        artifact = outputs[table_name].manifest_output.artifact
+        output = outputs[table_name]
+        if output.rowset_index is None or len(output.rowset_index.segments) != 1:
+            raise I3MigrationIOError("compact-base row lineage requires one initial segment")
+        artifact = output.rowset_index.segments[0].artifact
         validator_digest = stable_digest(
             {
                 "migration_rule_version": MIGRATION_RULE_VERSION,
@@ -2305,6 +2343,7 @@ def _compact_base_migration_semantics_digest(run_spec: I3ProductionRunSpec) -> s
                     COMPACT_BASE_CANONICAL_PROJECTION_ATTESTATION_RULE_VERSION
                 ),
                 "input_binding": COMPACT_BASE_INPUT_BINDING_RULE_VERSION,
+                "initial_rowset_segment": I3_COMPACT_BASE_INITIAL_SEGMENT_RULE_VERSION,
                 "partition_receipt": COMPACT_BASE_PARTITION_RECEIPT_RULE_VERSION,
                 "row_change_index": (COMPACT_BASE_ROW_CHANGE_INDEX_ATTESTATION_RULE_VERSION),
                 "row_validator": COMPACT_BASE_ROW_VALIDATOR_RULE_VERSION,
