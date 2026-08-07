@@ -44,6 +44,7 @@ _CONTROL_VALIDATION_SEAL = object()
 _CONTENT_ATTESTATION_RULE_VERSION = "s7_5_content_attestation_v1"
 _CONTENT_ATTESTATION_SEAL = object()
 CHECKPOINT_RECEIPT_RULE_VERSION = "s7_5_checkpoint_receipt_v1"
+ROW_VERSION_CHANGE_INDEX_RULE_VERSION = "s7_5_row_version_change_index_v1"
 _REQUIRED_QA_CHECKS = {
     "partition_session_calendar_contiguous": QaSeverity.HIGH,
     "row_semantic_proof_complete": QaSeverity.CRITICAL,
@@ -723,6 +724,64 @@ class RunReceipt:
 
 
 @dataclass(frozen=True, slots=True)
+class RowVersionChangeIndexPin:
+    """Compact exact index for a large row-version change set.
+
+    Gate A historically embedded every :class:`RowVersionReceipt` in its
+    manifest.  That representation remains byte-for-byte compatible for old
+    releases.  Production I3 may instead bind one closed-schema index whose
+    rows are replayed by the module-owned deep verifier.  Generic Gate A never
+    treats this pin alone as row-semantic authority.
+    """
+
+    artifact: ArtifactPin
+    row_count: int
+    logical_receipts_digest: str
+    superseded_row_version_count: int
+    superseded_row_version_ids_digest: str
+    schema_digest: str
+    availability_session: date
+    rule_version: str = ROW_VERSION_CHANGE_INDEX_RULE_VERSION
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.artifact, ArtifactPin):
+            raise IncrementalContractError("row-version change index artifact is invalid")
+        _positive_int(self.row_count, "row-version change index row count")
+        _digest(self.logical_receipts_digest, "indexed logical receipts digest")
+        _nonnegative_int(
+            self.superseded_row_version_count,
+            "indexed superseded row-version count",
+        )
+        _digest(
+            self.superseded_row_version_ids_digest,
+            "indexed superseded row-version IDs digest",
+        )
+        _digest(self.schema_digest, "row-version change index schema digest")
+        _session(self.availability_session, "row-version change index availability")
+        if self.rule_version != ROW_VERSION_CHANGE_INDEX_RULE_VERSION:
+            raise IncrementalContractError("row-version change index rule changed")
+
+    @property
+    def index_id(self) -> str:
+        return stable_digest(self.logical_payload())
+
+    def logical_payload(self) -> dict[str, object]:
+        return {
+            "artifact": self.artifact.to_dict(),
+            "availability_session": self.availability_session.isoformat(),
+            "logical_receipts_digest": self.logical_receipts_digest,
+            "row_count": self.row_count,
+            "rule_version": self.rule_version,
+            "schema_digest": self.schema_digest,
+            "superseded_row_version_count": self.superseded_row_version_count,
+            "superseded_row_version_ids_digest": self.superseded_row_version_ids_digest,
+        }
+
+    def to_dict(self) -> dict[str, object]:
+        return {"index_id": self.index_id, **self.logical_payload()}
+
+
+@dataclass(frozen=True, slots=True)
 class IncrementalReleaseManifest:
     """Release manifest body; its exact byte pin is external."""
 
@@ -747,6 +806,7 @@ class IncrementalReleaseManifest:
     correction_authorization_id: str | None
     run_spec_pin: ControlObjectPin
     run_receipt_pin: ControlObjectPin
+    row_version_change_index: RowVersionChangeIndexPin | None = None
 
     def __post_init__(self) -> None:
         _release_parent_shape(self.release_type, self.parent_release_pin)
@@ -801,6 +861,17 @@ class IncrementalReleaseManifest:
             "added row-version receipts",
         )
         _digest_tuple(self.superseded_row_version_ids, "superseded row-version IDs")
+        if self.row_version_change_index is not None:
+            if not isinstance(self.row_version_change_index, RowVersionChangeIndexPin):
+                raise IncrementalContractError("row-version change index pin is invalid")
+            if self.added_row_version_receipts or self.superseded_row_version_ids:
+                raise IncrementalContractError(
+                    "indexed and inline row-version changes are mutually exclusive"
+                )
+            if self.row_version_change_index.availability_session > release_available:
+                raise IncrementalContractError(
+                    "row-version change index availability exceeds release availability"
+                )
         if not isinstance(self.run_spec_pin, ControlObjectPin) or (
             self.run_spec_pin.object_kind is not ControlObjectKind.RUN_SPEC
         ):
@@ -824,7 +895,7 @@ class IncrementalReleaseManifest:
     def release_identity_payload(self) -> dict[str, object]:
         """Return logical release facts, excluding control/runtime envelopes."""
 
-        return {
+        payload = {
             "added_partition_receipts": [item.to_dict() for item in self.added_partition_receipts],
             "added_row_version_receipts": [
                 item.to_dict() for item in self.added_row_version_receipts
@@ -848,6 +919,11 @@ class IncrementalReleaseManifest:
             "superseded_row_version_ids": list(self.superseded_row_version_ids),
             "transform_semantics_digest": self.transform_semantics_digest,
         }
+        # Omit the field for legacy inline releases so their canonical bytes,
+        # release IDs, change digests, and checkpoint bases remain unchanged.
+        if self.row_version_change_index is not None:
+            payload["row_version_change_index"] = self.row_version_change_index.to_dict()
+        return payload
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -896,6 +972,13 @@ class IncrementalReleaseManifest:
                 raise IncrementalContractError(
                     "row-version receipt availability exceeds release availability"
                 )
+        if (
+            self.row_version_change_index is not None
+            and self.row_version_change_index.availability_session > release_available
+        ):
+            raise IncrementalContractError(
+                "row-version change index availability exceeds release availability"
+            )
         content = self.canonical_bytes()
         return ManifestPin(
             release_id=self.release_id,
@@ -934,6 +1017,7 @@ class IncrementalReleaseManifest:
             self.added_partition_receipts
             or self.partition_replacements
             or self.added_row_version_receipts
+            or self.row_version_change_index is not None
         ):
             raise IncrementalContractError("release must contain at least one logical change")
 
@@ -953,6 +1037,14 @@ class IncrementalReleaseManifest:
                 raise IncrementalContractError(
                     "row-version receipt availability exceeds manifest availability cutoff"
                 )
+        if (
+            self.row_version_change_index is not None
+            and self.row_version_change_index.availability_session
+            > self.availability_cutoff_session
+        ):
+            raise IncrementalContractError(
+                "row-version change index availability exceeds manifest availability cutoff"
+            )
 
         operations = {item.operation for item in self.added_row_version_receipts}
         if self.release_type is ReleaseType.BASE:
@@ -998,6 +1090,8 @@ class ControlValidatedCandidate:
     run_receipt: RunReceipt
     manifest: IncrementalReleaseManifest
     parent_release: ContentAttestedRelease | None
+    row_semantic_attestation_digest: str | None
+    parent_frontier_attestation_digest: str | None
     control_projection_digest: str
     _seal: object = field(init=False, repr=False, compare=False)
 
@@ -1009,6 +1103,8 @@ class ControlValidatedCandidate:
         run_receipt: RunReceipt,
         manifest: IncrementalReleaseManifest,
         parent_release: ContentAttestedRelease | None,
+        row_semantic_attestation_digest: str | None = None,
+        parent_frontier_attestation_digest: str | None = None,
         control_projection_digest: str,
         _seal: object,
     ) -> None:
@@ -1021,6 +1117,22 @@ class ControlValidatedCandidate:
         object.__setattr__(self, "run_receipt", run_receipt)
         object.__setattr__(self, "manifest", manifest)
         object.__setattr__(self, "parent_release", parent_release)
+        object.__setattr__(
+            self,
+            "row_semantic_attestation_digest",
+            _optional_digest(
+                row_semantic_attestation_digest,
+                "row-semantic attestation digest",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "parent_frontier_attestation_digest",
+            _optional_digest(
+                parent_frontier_attestation_digest,
+                "parent-frontier attestation digest",
+            ),
+        )
         object.__setattr__(
             self,
             "control_projection_digest",
@@ -1104,24 +1216,33 @@ def _mint_control_validated_release(
     run_receipt: RunReceipt,
     manifest: IncrementalReleaseManifest,
     parent_release: ContentAttestedRelease | None,
+    row_semantic_attestation_digest: str | None = None,
+    parent_frontier_attestation_digest: str | None = None,
 ) -> ControlValidatedCandidate:
-    projection_digest = stable_digest(
-        {
-            "correction_authorization_id": manifest.correction_authorization_id,
-            "manifest_pin": manifest_pin.to_dict(),
-            "qa_policy_id": manifest.qa_policy_id,
-            "qa_receipt_id": manifest.qa_receipt_id,
-            "rule_version": _CONTROL_VALIDATION_RULE_VERSION,
-            "run_receipt_pin": manifest.run_receipt_pin.to_dict(),
-            "run_spec_pin": manifest.run_spec_pin.to_dict(),
-        }
-    )
+    projection_payload = {
+        "correction_authorization_id": manifest.correction_authorization_id,
+        "manifest_pin": manifest_pin.to_dict(),
+        "qa_policy_id": manifest.qa_policy_id,
+        "qa_receipt_id": manifest.qa_receipt_id,
+        "rule_version": _CONTROL_VALIDATION_RULE_VERSION,
+        "run_receipt_pin": manifest.run_receipt_pin.to_dict(),
+        "run_spec_pin": manifest.run_spec_pin.to_dict(),
+    }
+    if row_semantic_attestation_digest is not None:
+        projection_payload["row_semantic_attestation_digest"] = row_semantic_attestation_digest
+    if parent_frontier_attestation_digest is not None:
+        projection_payload["parent_frontier_attestation_digest"] = (
+            parent_frontier_attestation_digest
+        )
+    projection_digest = stable_digest(projection_payload)
     return ControlValidatedCandidate(
         manifest_pin=manifest_pin,
         run_spec=run_spec,
         run_receipt=run_receipt,
         manifest=manifest,
         parent_release=parent_release,
+        row_semantic_attestation_digest=row_semantic_attestation_digest,
+        parent_frontier_attestation_digest=parent_frontier_attestation_digest,
         control_projection_digest=projection_digest,
         _seal=_CONTROL_VALIDATION_SEAL,
     )
@@ -1159,26 +1280,51 @@ def verify_control_validated_candidate(value: object) -> ControlValidatedCandida
 
     verified_parent: ContentAttestedRelease | None = None
     for attested in reversed(parent_chain):
-        reproduced_parent = _validate_release_projection_once(
-            attested.run_spec,
-            attested.run_receipt,
-            attested.manifest,
-            manifest_pin=attested.manifest_pin,
+        reproduced_parent = _replay_validated_candidate(
+            attested.candidate,
             parent_release=verified_parent,
         )
         _verify_control_projection_fingerprint(attested.candidate, reproduced_parent)
         _verify_content_attestation_fingerprint(attested, reproduced_parent)
         verified_parent = attested
 
-    reproduced = _validate_release_projection_once(
-        candidate.run_spec,
-        candidate.run_receipt,
-        candidate.manifest,
-        manifest_pin=candidate.manifest_pin,
+    reproduced = _replay_validated_candidate(
+        candidate,
         parent_release=verified_parent,
     )
     _verify_control_projection_fingerprint(candidate, reproduced)
     return candidate
+
+
+def _replay_validated_candidate(
+    candidate: ControlValidatedCandidate,
+    *,
+    parent_release: ContentAttestedRelease | None,
+) -> ControlValidatedCandidate:
+    if (
+        candidate.row_semantic_attestation_digest is None
+        and candidate.parent_frontier_attestation_digest is None
+    ):
+        return _validate_release_projection_once(
+            candidate.run_spec,
+            candidate.run_receipt,
+            candidate.manifest,
+            manifest_pin=candidate.manifest_pin,
+            parent_release=parent_release,
+        )
+    kwargs: dict[str, str] = {}
+    if candidate.row_semantic_attestation_digest is not None:
+        kwargs["row_semantic_attestation_digest"] = candidate.row_semantic_attestation_digest
+    if candidate.parent_frontier_attestation_digest is not None:
+        kwargs["parent_frontier_attestation_digest"] = candidate.parent_frontier_attestation_digest
+    return _validate_release_projection_once(
+        candidate.run_spec,
+        candidate.run_receipt,
+        candidate.manifest,
+        manifest_pin=candidate.manifest_pin,
+        parent_release=parent_release,
+        **kwargs,
+    )
 
 
 def _require_control_candidate_shape(value: object) -> ControlValidatedCandidate:
@@ -1199,6 +1345,14 @@ def _require_control_candidate_shape(value: object) -> ControlValidatedCandidate
         ContentAttestedRelease,
     ):
         raise IncrementalContractError("control-validated candidate parent is invalid")
+    _optional_digest(
+        value.row_semantic_attestation_digest,
+        "control candidate row-semantic attestation digest",
+    )
+    _optional_digest(
+        value.parent_frontier_attestation_digest,
+        "control candidate parent-frontier attestation digest",
+    )
     return value
 
 
@@ -1318,6 +1472,7 @@ def release_change_set_digest(manifest: IncrementalReleaseManifest) -> str:
         partition_replacements=manifest.partition_replacements,
         added_row_version_receipts=manifest.added_row_version_receipts,
         superseded_row_version_ids=manifest.superseded_row_version_ids,
+        row_version_change_index=manifest.row_version_change_index,
     )
 
 
@@ -1327,6 +1482,7 @@ def logical_change_set_digest(
     partition_replacements: tuple[PartitionReplacement, ...],
     added_row_version_receipts: tuple[RowVersionReceipt, ...],
     superseded_row_version_ids: tuple[str, ...],
+    row_version_change_index: RowVersionChangeIndexPin | None = None,
 ) -> str:
     """Digest a change set before its run receipt/control envelope exists."""
 
@@ -1346,14 +1502,24 @@ def logical_change_set_digest(
         "added row-version receipts",
     )
     _digest_tuple(superseded_row_version_ids, "superseded row-version IDs")
-    return stable_digest(
-        {
-            "added_partition_receipts": [item.to_dict() for item in added_partition_receipts],
-            "added_row_version_receipts": [item.to_dict() for item in added_row_version_receipts],
-            "partition_replacements": [item.to_dict() for item in partition_replacements],
-            "superseded_row_version_ids": list(superseded_row_version_ids),
-        }
-    )
+    if row_version_change_index is not None:
+        if not isinstance(row_version_change_index, RowVersionChangeIndexPin):
+            raise IncrementalContractError("row-version change index pin is invalid")
+        if added_row_version_receipts or superseded_row_version_ids:
+            raise IncrementalContractError(
+                "indexed and inline row-version changes are mutually exclusive"
+            )
+    payload = {
+        "added_partition_receipts": [item.to_dict() for item in added_partition_receipts],
+        "added_row_version_receipts": [item.to_dict() for item in added_row_version_receipts],
+        "partition_replacements": [item.to_dict() for item in partition_replacements],
+        "superseded_row_version_ids": list(superseded_row_version_ids),
+    }
+    # Preserve the exact legacy digest payload when the inline representation is
+    # used.  Indexed releases explicitly commit the compact logical change set.
+    if row_version_change_index is not None:
+        payload["row_version_change_index"] = row_version_change_index.to_dict()
+    return stable_digest(payload)
 
 
 def correction_scope_digest(
@@ -1475,6 +1641,42 @@ def validate_release_projection(
     )
 
 
+def _validate_i3_release_projection_after_row_attestation(
+    spec: RunSpec,
+    receipt: RunReceipt,
+    manifest: IncrementalReleaseManifest,
+    *,
+    manifest_pin: ManifestPin,
+    parent_release: ContentAttestedRelease | None,
+    row_semantic_attestation_digest: str,
+    parent_frontier_attestation_digest: str | None = None,
+) -> ControlValidatedCandidate:
+    """Private I3 bridge after module-owned physical row-proof verification.
+
+    Ordinary callers must use :func:`validate_release_projection`, which keeps
+    row-bearing candidates fail closed.  I3 production owns the byte/schema/FK
+    replay that produces the attestation digest supplied here.
+    """
+
+    _digest(row_semantic_attestation_digest, "I3 row-semantic attestation digest")
+    _optional_digest(
+        parent_frontier_attestation_digest,
+        "I3 parent-frontier attestation digest",
+    )
+    verified_parent = (
+        None if parent_release is None else verify_content_attested_release(parent_release)
+    )
+    return _validate_release_projection_once(
+        spec,
+        receipt,
+        manifest,
+        manifest_pin=manifest_pin,
+        parent_release=verified_parent,
+        row_semantic_attestation_digest=row_semantic_attestation_digest,
+        parent_frontier_attestation_digest=parent_frontier_attestation_digest,
+    )
+
+
 def _validate_release_projection_once(
     spec: RunSpec,
     receipt: RunReceipt,
@@ -1482,6 +1684,8 @@ def _validate_release_projection_once(
     *,
     manifest_pin: ManifestPin,
     parent_release: ContentAttestedRelease | None,
+    row_semantic_attestation_digest: str | None = None,
+    parent_frontier_attestation_digest: str | None = None,
 ) -> ControlValidatedCandidate:
     """Validate one node after its parent chain has already been attested."""
 
@@ -1496,45 +1700,51 @@ def _validate_release_projection_once(
     if not isinstance(manifest_pin, ManifestPin):
         raise IncrementalContractError("release projection requires an exact manifest pin")
     if spec.release_type is ReleaseType.BASE:
-        if parent_release is not None:
+        if parent_release is not None or parent_frontier_attestation_digest is not None:
             raise IncrementalContractError("base projection cannot carry a validated parent")
     else:
-        if not isinstance(parent_release, ContentAttestedRelease):
+        if parent_release is None and parent_frontier_attestation_digest is None:
             raise IncrementalContractError(
                 "non-base projection requires its exact content-attested parent"
             )
-        if parent_release.manifest_pin != spec.parent_release_pin:
+        if parent_release is None:
+            _digest(
+                parent_frontier_attestation_digest,
+                "authenticated parent-frontier attestation digest",
+            )
+        elif parent_release.manifest_pin != spec.parent_release_pin:
             raise IncrementalContractError(
                 "validated parent differs from the run-spec exact parent pin"
             )
-        parent_manifest = parent_release.manifest
-        if spec.parent_identity_policy_bundle_id != (parent_manifest.identity_policy_bundle_id):
-            raise IncrementalContractError(
-                "run-spec prior identity policy differs from validated parent"
+        if parent_release is not None:
+            parent_manifest = parent_release.manifest
+            if spec.parent_identity_policy_bundle_id != (parent_manifest.identity_policy_bundle_id):
+                raise IncrementalContractError(
+                    "run-spec prior identity policy differs from validated parent"
+                )
+            immutable_pairs = (
+                (spec.resolved_view, parent_manifest.resolved_view, "resolved view"),
+                (spec.schema_digest, parent_manifest.schema_digest, "schema digest"),
+                (
+                    spec.transform_semantics_digest,
+                    parent_manifest.transform_semantics_digest,
+                    "transform semantics digest",
+                ),
+                (spec.calendar_digest, parent_manifest.calendar_digest, "calendar digest"),
+                (spec.qa_policy.qa_policy_id, parent_manifest.qa_policy_id, "QA policy"),
             )
-        immutable_pairs = (
-            (spec.resolved_view, parent_manifest.resolved_view, "resolved view"),
-            (spec.schema_digest, parent_manifest.schema_digest, "schema digest"),
-            (
-                spec.transform_semantics_digest,
-                parent_manifest.transform_semantics_digest,
-                "transform semantics digest",
-            ),
-            (spec.calendar_digest, parent_manifest.calendar_digest, "calendar digest"),
-            (spec.qa_policy.qa_policy_id, parent_manifest.qa_policy_id, "QA policy"),
-        )
-        for actual, expected, label in immutable_pairs:
-            if actual != expected:
-                raise IncrementalContractError(f"non-base release changed its parent {label}")
-        if spec.source_cutoff_session < parent_manifest.source_cutoff_session:
-            raise IncrementalContractError("child source cutoff precedes parent cutoff")
-        if spec.availability_cutoff_session < parent_manifest.availability_cutoff_session:
-            raise IncrementalContractError("child availability cutoff precedes parent cutoff")
-        if (
-            spec.release_type is ReleaseType.DELTA
-            and spec.identity_policy_bundle_id != parent_manifest.identity_policy_bundle_id
-        ):
-            raise IncrementalContractError("clean delta changed its parent's identity policy")
+            for actual, expected, label in immutable_pairs:
+                if actual != expected:
+                    raise IncrementalContractError(f"non-base release changed its parent {label}")
+            if spec.source_cutoff_session < parent_manifest.source_cutoff_session:
+                raise IncrementalContractError("child source cutoff precedes parent cutoff")
+            if spec.availability_cutoff_session < parent_manifest.availability_cutoff_session:
+                raise IncrementalContractError("child availability cutoff precedes parent cutoff")
+            if (
+                spec.release_type is ReleaseType.DELTA
+                and spec.identity_policy_bundle_id != parent_manifest.identity_policy_bundle_id
+            ):
+                raise IncrementalContractError("clean delta changed its parent's identity policy")
     if receipt.run_spec_id != spec.run_spec_id:
         raise IncrementalContractError("run receipt belongs to another run spec")
     if receipt.peak_rss_bytes is None:
@@ -1614,7 +1824,11 @@ def _validate_release_projection_once(
     expected_observations = {
         "partition_session_calendar_contiguous": len(manifest.added_partition_receipts)
         + len(manifest.partition_replacements),
-        "row_semantic_proof_complete": len(manifest.added_row_version_receipts),
+        "row_semantic_proof_complete": (
+            manifest.row_version_change_index.row_count
+            if manifest.row_version_change_index is not None
+            else len(manifest.added_row_version_receipts)
+        ),
     }
     for check_id, expected_count in expected_observations.items():
         if qa_results[check_id].observed_count != expected_count:
@@ -1662,10 +1876,17 @@ def _validate_release_projection_once(
     if checkpoint.rebuild_basis_digest != checkpoint_rebuild_basis_digest(spec, manifest):
         raise IncrementalContractError("checkpoint rebuild basis does not reproduce")
 
-    if manifest.added_row_version_receipts:
+    has_row_changes = bool(manifest.added_row_version_receipts) or (
+        manifest.row_version_change_index is not None
+    )
+    if has_row_changes and row_semantic_attestation_digest is None:
         raise IncrementalContractError(
             "Gate A row semantic dispatcher is disabled; row-bearing releases are not "
             "publication-capable"
+        )
+    if not has_row_changes and row_semantic_attestation_digest is not None:
+        raise IncrementalContractError(
+            "row-semantic attestation cannot be attached to a row-empty release"
         )
 
     expected_authorization_id = (
@@ -1718,6 +1939,8 @@ def _validate_release_projection_once(
         run_receipt=receipt,
         manifest=manifest,
         parent_release=parent_release,
+        row_semantic_attestation_digest=row_semantic_attestation_digest,
+        parent_frontier_attestation_digest=parent_frontier_attestation_digest,
     )
 
 

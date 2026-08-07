@@ -34,11 +34,15 @@ from ame_stocks_api.silver.incremental_i3_runner import (
     FIXED_BOUNDARY_LOOKBACK_SESSIONS,
     I3FixtureRunnerError,
     I3FixtureS4WindowBinding,
+    _resolution_root,
     bootstrap_native_v2_fixture,
     bootstrap_native_v2_fixture_history,
+    legacy_oracle_universe_projection,
     run_i3_fixture_session,
 )
 from ame_stocks_api.silver.incremental_identity import (
+    AliasResolutionDisposition,
+    AliasSegmentIdentity,
     canonical_asset_id,
     canonical_issuer_id,
     canonical_share_class_id,
@@ -480,6 +484,51 @@ def test_native_v2_bootstrap_projects_exactly_to_v1_oracle() -> None:
     assert fixture_binding["authority"] == "local_fixture_oracle_non_authoritative"
     assert fixture_binding["s4_pins_authenticate_resolved_rows"] is False
     assert result.receipt["fixture_input_binding_digest"] == fixture_binding["binding_digest"]
+
+
+def test_share_only_correction_uses_transient_alias_shape_but_preserves_v1_projection() -> None:
+    session = CALENDAR[3]
+    share_decision_id = _digest("xzo-share-class-adjudication")
+    observed_share = "BBG01XL8FJS7"
+    canonical_share = "BBG01227MF17"
+    policy = _policy()
+    legacy = _legacy_row(
+        session,
+        ticker="XZO",
+        observed_share=observed_share,
+        canonical_share=canonical_share,
+        share_class_adjudication_id=share_decision_id,
+        policy_bundle=policy,
+    )
+    segment = AliasSegmentIdentity(
+        provider_id="massive",
+        provider_market="stocks",
+        provider_locale="us",
+        ticker="XZO",
+        observed_composite_figi=COMPOSITE,
+        observed_share_class_figi=observed_share,
+        observed_cik_normalized=CIK,
+        valid_from_session=session,
+        segment_origin_source_record_id=str(legacy["selected_source_record_id"]),
+    )
+
+    resolution = _resolution_root(segment, row=legacy, policy=policy)
+    assert resolution.disposition is AliasResolutionDisposition.TRANSIENT_DUPLICATE_SHARE_CLASS
+    assert legacy["identity_resolution_method"] == "source_composite_figi_exact"
+    assert legacy["identity_disposition"] == "observed_consistent"
+
+    native = {key: value for key, value in legacy.items() if key != "ticker_alias_id"}
+    native.update(
+        {
+            "alias_resolution_version_id": resolution.alias_resolution_version_id,
+            "alias_segment_id": segment.alias_segment_id,
+            "asset_master_version_id": _digest("xzo-asset-master-version"),
+            "identity_policy_bundle_id": policy.identity_policy_bundle_id,
+            "issuer_master_version_id": _digest("xzo-issuer-master-version"),
+            "row_available_session": RUN_AVAILABLE,
+        }
+    )
+    assert legacy_oracle_universe_projection(native, legacy) == legacy
 
 
 def test_fixture_reference_metadata_is_content_and_availability_bound() -> None:

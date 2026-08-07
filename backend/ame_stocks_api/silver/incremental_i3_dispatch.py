@@ -19,7 +19,7 @@ import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from datetime import date
+from datetime import date, datetime
 from types import MappingProxyType
 from typing import Final
 
@@ -48,6 +48,8 @@ I3_FIXTURE_REGISTRY_DECISION_NAMESPACE: Final = (
 I3_POLICY_SNAPSHOT_VERIFICATION_RULE_VERSION: Final = (
     "s7_5_i3_policy_snapshot_structural_reproduction_v2"
 )
+I3_FIXTURE_POLICY_SOURCE: Final = "fixture_registry_release_bytes"
+I3_PRODUCTION_POLICY_SOURCE: Final = "production_loaded_registry_release_set"
 I3_REGISTRY_DISPOSITION_MATRIX_RULE_VERSION: Final = "s7_5_i3_frozen_registry_disposition_matrix_v2"
 I3_INVERSE_BOUNCE_RULE_VERSION: Final = "s7_5_i3_inverse_bounce_middle_decision_check_v2"
 I3_RAW_REVIEW_RESULT_RULE_VERSION: Final = "s7_5_i3_typed_raw_review_results_v2"
@@ -58,6 +60,7 @@ _FIGI = re.compile(r"^BBG[0-9A-Z]{9}$")
 _TOKEN = re.compile(r"^[a-z][a-z0-9_]*$")
 _TICKER = re.compile(r"^[A-Z0-9][A-Z0-9.\-/]{0,31}$")
 _COUNTRY = re.compile(r"^[A-Z]{2}$")
+_MIC = re.compile(r"^[A-Z0-9]{4}$")
 _CALENDAR_SEAL = object()
 _COVERAGE_SEAL = object()
 _ROW_PROOF_SEAL = object()
@@ -455,6 +458,70 @@ class IdentityObservation:
         }
 
 
+@dataclass(frozen=True, slots=True, order=True)
+class RegistrySourceScopeRow:
+    """One exact S4 source row retained by a production registry decision.
+
+    Fixture releases deliberately carry only one source-record digest.  The
+    production registry workflow, by contrast, authenticates the complete
+    :class:`ExactSourceScope`.  Keeping the full row here lets snapshot
+    reverification reproduce membership-based lookup without trusting a
+    caller-authored expansion of one real registry decision into many fake
+    decisions.
+    """
+
+    session_date: date
+    source_record_id: str
+    source_dataset: str
+    source_s4_release_set_id: str
+    provider_id: str
+    provider_market: str
+    provider_locale: str
+    ticker: str
+    observed_composite_figi: str
+    observed_share_class_figi: str | None
+    primary_exchange_mic: str | None
+
+    def __post_init__(self) -> None:
+        _date(self.session_date, "registry source-scope session")
+        _digest(self.source_record_id, "registry source-scope record ID")
+        if not isinstance(self.source_dataset, str) or not self.source_dataset:
+            raise I3DispatchError("registry source-scope dataset is invalid")
+        _digest(self.source_s4_release_set_id, "registry source-scope S4 release-set ID")
+        _token(self.provider_id, "registry source-scope provider ID")
+        _token(self.provider_market, "registry source-scope provider market")
+        _token(self.provider_locale, "registry source-scope provider locale")
+        if self.provider_locale != "us":
+            raise I3DispatchError("registry source scope is outside locale=us")
+        if not isinstance(self.ticker, str) or _TICKER.fullmatch(self.ticker) is None:
+            raise I3DispatchError("registry source-scope ticker is invalid")
+        _optional_figi(self.observed_composite_figi, "registry source-scope Composite FIGI")
+        _optional_figi(
+            self.observed_share_class_figi,
+            "registry source-scope Share Class FIGI",
+        )
+        if (
+            self.primary_exchange_mic is not None
+            and _MIC.fullmatch(self.primary_exchange_mic) is None
+        ):
+            raise I3DispatchError("registry source-scope primary exchange MIC is invalid")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "observed_composite_figi": self.observed_composite_figi,
+            "observed_share_class_figi": self.observed_share_class_figi,
+            "primary_exchange_mic": self.primary_exchange_mic,
+            "provider_id": self.provider_id,
+            "provider_locale": self.provider_locale,
+            "provider_market": self.provider_market,
+            "session_date": self.session_date.isoformat(),
+            "source_dataset": self.source_dataset,
+            "source_record_id": self.source_record_id,
+            "source_s4_release_set_id": self.source_s4_release_set_id,
+            "ticker": self.ticker,
+        }
+
+
 @dataclass(frozen=True, slots=True)
 class SourceCoverageSlot:
     """Exact statement of all selected source records for one covered session."""
@@ -639,6 +706,12 @@ class RegistryDecision:
     transition_relation_id: str | None = None
     predecessor_asset_id: str | None = None
     successor_asset_id: str | None = None
+    source_scope: tuple[RegistrySourceScopeRow, ...] = ()
+    production_registry_row: Mapping[str, object] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         if not isinstance(self.registry_kind, IdentityRegistryKind):
@@ -680,7 +753,60 @@ class RegistryDecision:
             (self.successor_asset_id, "transition successor asset ID"),
         ):
             _optional_digest(value, label)
+        self._validate_source_scope()
         self._validate_responsibility()
+
+    def _validate_source_scope(self) -> None:
+        if type(self.source_scope) is not tuple or any(
+            type(item) is not RegistrySourceScopeRow for item in self.source_scope
+        ):
+            raise I3DispatchError("registry decision source scope is invalid")
+        if not self.source_scope:
+            if self.production_registry_row is not None:
+                raise I3DispatchError(
+                    "fixture registry decision cannot carry a production registry row"
+                )
+            return
+        if tuple(sorted(self.source_scope)) != self.source_scope:
+            raise I3DispatchError("production registry source scope must be sorted")
+        source_ids = tuple(item.source_record_id for item in self.source_scope)
+        if len(source_ids) != len(set(source_ids)):
+            raise I3DispatchError("production registry source scope repeats a source record")
+        if self.source_record_id != min(source_ids):
+            raise I3DispatchError(
+                "production registry representative source record is not canonical"
+            )
+        if self.production_registry_row is None:
+            raise I3DispatchError("production registry decision lacks its complete registry row")
+        normalized = _snapshot_json_value(self.production_registry_row)
+        if not isinstance(normalized, dict):  # pragma: no cover - Mapping input proves
+            raise I3DispatchError("production registry row is invalid")
+        object.__setattr__(self, "production_registry_row", MappingProxyType(normalized))
+        for item in self.source_scope:
+            if (
+                item.provider_id != self.provider_id
+                or item.provider_market != self.provider_market
+                or item.provider_locale != self.provider_locale
+                or item.ticker != self.ticker
+                or item.session_date < self.effective_from_session
+                or (
+                    self.effective_to_session is not None
+                    and item.session_date > self.effective_to_session
+                )
+            ):
+                raise I3DispatchError("production registry decision crossed its exact source scope")
+
+    @property
+    def source_record_ids(self) -> tuple[str, ...]:
+        """All exact member source IDs; fixtures remain one-record scopes."""
+
+        if not self.source_scope:
+            return (self.source_record_id,)
+        return tuple(sorted(item.source_record_id for item in self.source_scope))
+
+    @property
+    def is_production_registry_decision(self) -> bool:
+        return bool(self.source_scope)
 
     def _validate_responsibility(self) -> None:
         if self.registry_kind is IdentityRegistryKind.IDENTITY_CROSS_MARKET_ADJUDICATION:
@@ -868,7 +994,7 @@ class RegistryDecision:
             or observation.provider_market != self.provider_market
             or observation.provider_locale != self.provider_locale
             or observation.ticker != self.ticker
-            or observation.source_record_id != self.source_record_id
+            or observation.source_record_id not in self.source_record_ids
             or observation.session_date < self.effective_from_session
             or (
                 self.effective_to_session is not None
@@ -897,7 +1023,7 @@ class RegistryDecision:
         return self.registry_kind is IdentityRegistryKind.ASSET_TRANSITION
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "canonical_composite_figi": self.canonical_composite_figi,
             "canonical_composite_market_code": self.canonical_composite_market_code,
             "canonical_share_class_figi": self.canonical_share_class_figi,
@@ -925,25 +1051,36 @@ class RegistryDecision:
             "ticker": self.ticker,
             "transition_relation_id": self.transition_relation_id,
         }
+        if self.is_production_registry_decision:
+            result.update(
+                {
+                    "production_registry_row": dict(self.production_registry_row or {}),
+                    "source_record_ids": list(self.source_record_ids),
+                    "source_scope": [item.to_dict() for item in self.source_scope],
+                }
+            )
+        return result
 
 
 @dataclass(frozen=True, slots=True, init=False)
 class IdentityPolicySnapshot:
-    """Sealed fixture policy parsed from the exact five pinned registry bytes.
+    """Sealed policy parsed from one authenticated five-registry trust boundary.
 
-    The subject/source index and snapshot ID are both constructed once by the
-    strict loader.  A row dispatch therefore considers only decisions scoped
-    to that exact provider row instead of scanning or reserializing the full
-    policy on every observation.
+    Fixture and production loaders have distinct sources and ID rules.  Both
+    construct the subject/source index and snapshot ID exactly once, so a row
+    dispatch considers only decisions whose source scope contains that exact
+    provider membership.
     """
 
     policy_bundle: IdentityPolicyBundle
     decisions: tuple[RegistryDecision, ...]
+    policy_source: str
     _decision_index: Mapping[tuple[str, str, str, str, str], tuple[RegistryDecision, ...]] = field(
         repr=False, compare=False
     )
     _decision_by_id: Mapping[str, RegistryDecision] = field(repr=False, compare=False)
     _policy_snapshot_id: str = field(repr=False, compare=False)
+    _production_release_set_binding_digest: str | None = field(repr=False, compare=False)
     _seal: object = field(repr=False, compare=False)
 
     def __init__(
@@ -954,22 +1091,36 @@ class IdentityPolicySnapshot:
         decision_index: Mapping[tuple[str, str, str, str, str], tuple[RegistryDecision, ...]],
         decision_by_id: Mapping[str, RegistryDecision],
         policy_snapshot_id: str,
+        policy_source: str,
+        production_release_set_binding_digest: str | None,
         _seal: object,
     ) -> None:
         if _seal is not _POLICY_SNAPSHOT_SEAL:
             raise I3DispatchError(
-                "identity policy snapshots require exact fixture registry-release bytes"
+                "identity policy snapshots require an authenticated registry trust boundary"
             )
         object.__setattr__(self, "policy_bundle", policy_bundle)
         object.__setattr__(self, "decisions", decisions)
+        object.__setattr__(self, "policy_source", policy_source)
         object.__setattr__(self, "_decision_index", MappingProxyType(dict(decision_index)))
         object.__setattr__(self, "_decision_by_id", MappingProxyType(dict(decision_by_id)))
         object.__setattr__(self, "_policy_snapshot_id", policy_snapshot_id)
+        object.__setattr__(
+            self,
+            "_production_release_set_binding_digest",
+            production_release_set_binding_digest,
+        )
         object.__setattr__(self, "_seal", _seal)
 
     @property
     def policy_snapshot_id(self) -> str:
         return self._policy_snapshot_id
+
+    @property
+    def production_release_set_binding_digest(self) -> str | None:
+        """Exact loaded-release binding for production snapshots; null for fixtures."""
+
+        return self._production_release_set_binding_digest
 
     def matching_decisions(self, observation: IdentityObservation) -> tuple[RegistryDecision, ...]:
         """Return exact-row candidates from the immutable subject/source index."""
@@ -999,11 +1150,21 @@ class IdentityPolicySnapshot:
             ) from exc
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "decisions": [item.to_dict() for item in self.decisions],
             "identity_policy_bundle_id": self.policy_bundle.identity_policy_bundle_id,
             "policy_snapshot_id": self.policy_snapshot_id,
         }
+        if self.policy_source == I3_PRODUCTION_POLICY_SOURCE:
+            result.update(
+                {
+                    "policy_source": self.policy_source,
+                    "production_release_set_binding_digest": (
+                        self.production_release_set_binding_digest
+                    ),
+                }
+            )
+        return result
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -1018,6 +1179,7 @@ class _VerifiedIdentityPolicyBatch:
     _decision_by_id_object_id: int = field(repr=False, compare=False)
     _policy_bundle_content_sha256: str = field(repr=False, compare=False)
     _decision_payload_digests: Mapping[str, str] = field(repr=False, compare=False)
+    _snapshot_source_binding_digest: str = field(repr=False, compare=False)
     _seal: object = field(repr=False, compare=False)
 
     def __init__(
@@ -1047,6 +1209,18 @@ class _VerifiedIdentityPolicyBatch:
                 {
                     item.decision_id: stable_digest(item.to_dict())
                     for item in policy_snapshot.decisions
+                }
+            ),
+        )
+        object.__setattr__(
+            self,
+            "_snapshot_source_binding_digest",
+            stable_digest(
+                {
+                    "policy_source": policy_snapshot.policy_source,
+                    "production_release_set_binding_digest": (
+                        policy_snapshot._production_release_set_binding_digest
+                    ),
                 }
             ),
         )
@@ -1294,18 +1468,62 @@ def _mint_identity_policy_snapshot(
     policy_bundle: IdentityPolicyBundle,
     decisions: tuple[RegistryDecision, ...],
 ) -> IdentityPolicySnapshot:
+    """Mint the fixture-only policy form without changing its ID semantics."""
+
+    return _mint_policy_snapshot(
+        policy_bundle,
+        decisions,
+        policy_source=I3_FIXTURE_POLICY_SOURCE,
+        production_release_set_binding_digest=None,
+    )
+
+
+def _mint_production_identity_policy_snapshot(
+    policy_bundle: IdentityPolicyBundle,
+    decisions: tuple[RegistryDecision, ...],
+    *,
+    production_release_set_binding_digest: str,
+) -> IdentityPolicySnapshot:
+    """Internal mint used only after the production adapter replays releases."""
+
+    _digest(
+        production_release_set_binding_digest,
+        "production registry release-set binding digest",
+    )
+    return _mint_policy_snapshot(
+        policy_bundle,
+        decisions,
+        policy_source=I3_PRODUCTION_POLICY_SOURCE,
+        production_release_set_binding_digest=production_release_set_binding_digest,
+    )
+
+
+def _mint_policy_snapshot(
+    policy_bundle: IdentityPolicyBundle,
+    decisions: tuple[RegistryDecision, ...],
+    *,
+    policy_source: str,
+    production_release_set_binding_digest: str | None,
+) -> IdentityPolicySnapshot:
     (
         canonical_decisions,
         decision_index,
         decision_by_id,
         policy_snapshot_id,
-    ) = _canonical_policy_snapshot_components(policy_bundle, decisions)
+    ) = _canonical_policy_snapshot_components(
+        policy_bundle,
+        decisions,
+        policy_source=policy_source,
+        production_release_set_binding_digest=production_release_set_binding_digest,
+    )
     return IdentityPolicySnapshot(
         policy_bundle=policy_bundle,
         decisions=canonical_decisions,
         decision_index=decision_index,
         decision_by_id=decision_by_id,
         policy_snapshot_id=policy_snapshot_id,
+        policy_source=policy_source,
+        production_release_set_binding_digest=production_release_set_binding_digest,
         _seal=_POLICY_SNAPSHOT_SEAL,
     )
 
@@ -1313,6 +1531,9 @@ def _mint_identity_policy_snapshot(
 def _canonical_policy_snapshot_components(
     policy_bundle: IdentityPolicyBundle,
     decisions: tuple[RegistryDecision, ...],
+    *,
+    policy_source: str,
+    production_release_set_binding_digest: str | None,
 ) -> tuple[
     tuple[RegistryDecision, ...],
     dict[tuple[str, str, str, str, str], tuple[RegistryDecision, ...]],
@@ -1323,6 +1544,16 @@ def _canonical_policy_snapshot_components(
 
     if type(policy_bundle) is not IdentityPolicyBundle:
         raise I3DispatchError("policy snapshot requires a typed five-registry bundle")
+    if policy_source not in {I3_FIXTURE_POLICY_SOURCE, I3_PRODUCTION_POLICY_SOURCE}:
+        raise I3DispatchError("policy snapshot source is invalid")
+    if policy_source == I3_FIXTURE_POLICY_SOURCE:
+        if production_release_set_binding_digest is not None:
+            raise I3DispatchError("fixture policy cannot carry a production release-set binding")
+    else:
+        _digest(
+            production_release_set_binding_digest,
+            "production registry release-set binding digest",
+        )
     try:
         reproduced_bundle = IdentityPolicyBundle.from_dict(policy_bundle.to_dict())
     except (AttributeError, I3CheckpointError, TypeError, ValueError) as exc:
@@ -1340,8 +1571,13 @@ def _canonical_policy_snapshot_components(
         raise I3DispatchError("policy snapshot decisions must be sorted and unique")
     release_pins = {item.registry_kind: item for item in reproduced_bundle.registry_releases}
     for item in canonical_decisions:
-        if item.decision_id != stable_digest(_registry_decision_identity_payload(item)):
-            raise I3DispatchError("registry decision ID does not reproduce")
+        if policy_source == I3_FIXTURE_POLICY_SOURCE:
+            if item.is_production_registry_decision:
+                raise I3DispatchError("fixture policy contains a production registry decision")
+            if item.decision_id != stable_digest(_registry_decision_identity_payload(item)):
+                raise I3DispatchError("registry decision ID does not reproduce")
+        elif not item.is_production_registry_decision:
+            raise I3DispatchError("production policy contains a fixture registry decision")
         pin = release_pins[item.registry_kind]
         if item.registry_release_id != pin.release_id:
             raise I3DispatchError("registry decision differs from the pinned policy release")
@@ -1360,39 +1596,53 @@ def _canonical_policy_snapshot_components(
         relation = transitions.get(item.transition_relation_id)
         if relation is None:
             raise I3DispatchError("provider Composite override lacks its pinned transition")
-        common_scope_differs = (
+        common_relation_differs = (
             relation.provider_id != item.provider_id
             or relation.provider_market != item.provider_market
             or relation.provider_locale != item.provider_locale
             or relation.ticker != item.ticker
             or relation.identity_disposition != "confirmed_genuine_transition"
             or relation.decision_available_session > item.decision_available_session
-            or relation.effective_from_session > item.effective_from_session
-            or (
-                relation.effective_to_session is not None
-                and (
-                    item.effective_to_session is None
-                    or relation.effective_to_session < item.effective_to_session
-                )
-            )
             or relation.predecessor_asset_id != canonical_asset_id(item.observed_composite_figi)
         )
+        if policy_source == I3_FIXTURE_POLICY_SOURCE:
+            interval_relation_differs = (
+                relation.effective_from_session > item.effective_from_session
+                or (
+                    relation.effective_to_session is not None
+                    and (
+                        item.effective_to_session is None
+                        or relation.effective_to_session < item.effective_to_session
+                    )
+                )
+            )
+        else:
+            # A production asset_transition is a bounded predecessor/successor
+            # event.  It establishes the stale-provider correction; it is not
+            # an override interval and therefore need not cover the later
+            # provider_composite_override scope.
+            interval_relation_differs = (
+                relation.effective_from_session > item.effective_from_session
+                or relation.effective_to_session is None
+                or relation.effective_to_session > item.effective_from_session
+            )
         confirmed_override_differs = (
             item.identity_disposition == "confirmed_provider_composite_stale_after_transition"
             and (relation.successor_asset_id != canonical_asset_id(item.canonical_composite_figi))
         )
-        if common_scope_differs or confirmed_override_differs:
+        if common_relation_differs or interval_relation_differs or confirmed_override_differs:
             raise I3DispatchError("provider Composite override crossed its exact asset transition")
     mutable_index: dict[tuple[str, str, str, str, str], list[RegistryDecision]] = {}
     for item in canonical_decisions:
-        key = (
-            item.provider_id,
-            item.provider_market,
-            item.provider_locale,
-            item.ticker,
-            item.source_record_id,
-        )
-        mutable_index.setdefault(key, []).append(item)
+        for source_record_id in item.source_record_ids:
+            key = (
+                item.provider_id,
+                item.provider_market,
+                item.provider_locale,
+                item.ticker,
+                source_record_id,
+            )
+            mutable_index.setdefault(key, []).append(item)
     decision_index = {
         key: tuple(sorted(items, key=lambda item: item.decision_id))
         for key, items in mutable_index.items()
@@ -1401,6 +1651,13 @@ def _canonical_policy_snapshot_components(
         "decisions": [item.to_dict() for item in canonical_decisions],
         "identity_policy_bundle_id": reproduced_bundle.identity_policy_bundle_id,
     }
+    if policy_source == I3_PRODUCTION_POLICY_SOURCE:
+        payload.update(
+            {
+                "policy_source": policy_source,
+                "production_release_set_binding_digest": (production_release_set_binding_digest),
+            }
+        )
     return (
         canonical_decisions,
         decision_index,
@@ -2497,7 +2754,12 @@ def _verify_policy_snapshot(value: object) -> IdentityPolicySnapshot:
     if type(value) is not IdentityPolicySnapshot or value._seal is not _POLICY_SNAPSHOT_SEAL:
         raise I3DispatchError("identity policy snapshot is invalid")
     canonical_decisions, decision_index, decision_by_id, snapshot_id = (
-        _canonical_policy_snapshot_components(value.policy_bundle, value.decisions)
+        _canonical_policy_snapshot_components(
+            value.policy_bundle,
+            value.decisions,
+            policy_source=value.policy_source,
+            production_release_set_binding_digest=(value._production_release_set_binding_digest),
+        )
     )
     if value.decisions != canonical_decisions:
         raise I3DispatchError("identity policy snapshot decisions do not reproduce")
@@ -2513,6 +2775,8 @@ def _verify_policy_snapshot(value: object) -> IdentityPolicySnapshot:
         decision_index=decision_index,
         decision_by_id=decision_by_id,
         policy_snapshot_id=snapshot_id,
+        policy_source=value.policy_source,
+        production_release_set_binding_digest=(value._production_release_set_binding_digest),
         _seal=_POLICY_SNAPSHOT_SEAL,
     )
 
@@ -2540,6 +2804,16 @@ def _require_verified_policy_batch(value: object) -> _VerifiedIdentityPolicyBatc
         raise I3DispatchError("verified policy batch bundle no longer reproduces") from exc
     if bundle_content_sha256 != value._policy_bundle_content_sha256:
         raise I3DispatchError("verified policy batch bundle content changed after mint")
+    source_binding_digest = stable_digest(
+        {
+            "policy_source": value._policy_snapshot.policy_source,
+            "production_release_set_binding_digest": (
+                value._policy_snapshot._production_release_set_binding_digest
+            ),
+        }
+    )
+    if source_binding_digest != value._snapshot_source_binding_digest:
+        raise I3DispatchError("verified policy batch source binding changed after mint")
     return value
 
 
@@ -2664,6 +2938,29 @@ def _canonical_json_bytes(value: object) -> bytes:
         ensure_ascii=False,
         allow_nan=False,
     ).encode("utf-8")
+
+
+def _snapshot_json_value(value: object) -> object:
+    """Freeze registry-row values into the canonical snapshot JSON domain."""
+
+    if value is None or type(value) in {bool, int, str}:
+        return value
+    if type(value) is date:
+        return value.isoformat()
+    if type(value) is datetime:
+        if value.tzinfo is None:
+            raise I3DispatchError("production registry timestamp must be timezone-aware")
+        return value.isoformat()
+    if isinstance(value, Mapping):
+        if any(not isinstance(key, str) for key in value):
+            raise I3DispatchError("production registry row keys must be text")
+        return {
+            key: _snapshot_json_value(item)
+            for key, item in sorted(value.items(), key=lambda pair: pair[0])
+        }
+    if type(value) in {list, tuple}:
+        return [_snapshot_json_value(item) for item in value]
+    raise I3DispatchError("production registry row contains a non-canonical value")
 
 
 def _date(value: object, label: str) -> date:

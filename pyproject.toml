@@ -69,6 +69,7 @@ ame-silver-identity-market-inventory-run = "ame_stocks_api.cli.silver_identity_m
 ame-silver-identity-market-consistency = "ame_stocks_api.cli.silver_identity_market_consistency:main"
 ame-silver-identity-market-sequence = "ame_stocks_api.cli.silver_identity_market_sequence:main"
 ame-silver-identity-registry-production = "ame_stocks_api.cli.silver_identity_registry_production:main"
+ame-silver-identity-incremental = "ame_stocks_api.cli.silver_identity_incremental:main"
 ame-silver-identity-streaming = "ame_stocks_api.cli.silver_identity_materialization_streaming:main"
 ame-silver-identity-publish = "ame_stocks_api.cli.silver_identity_materialization_publish:main"
 ame-view-parquet = "ame_stocks_api.cli.parquet_view:main"

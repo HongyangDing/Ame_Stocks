@@ -1221,9 +1221,14 @@ def _resolution_shape(
         )
     )
     if method == "source_composite_figi_exact":
+        disposition = (
+            AliasResolutionDisposition.TRANSIENT_DUPLICATE_SHARE_CLASS
+            if row.get("share_class_adjudication_id") is not None
+            else AliasResolutionDisposition.OBSERVED_CONSISTENT
+        )
         return (
             AliasResolutionMethod.DIRECT_OBSERVED,
-            AliasResolutionDisposition.OBSERVED_CONSISTENT,
+            disposition,
             (),
         )
     if method == "approved_genuine_transition":
@@ -2611,19 +2616,28 @@ def _validate_selected_decision_availability(
             transition.decision_available_session,
             release_by_kind[IdentityRegistryKind.ASSET_TRANSITION].release_available_session,
         )
+        is_related_transition = transition.decision_id in related_transition_ids
+        is_production_related_transition = (
+            is_related_transition and transition.is_production_registry_decision
+        )
         if (
             transition.provider_id != "massive"
             or transition.provider_market != "stocks"
             or transition.provider_locale != "us"
             or transition.ticker != row.get("ticker")
             or (
-                transition.decision_id not in related_transition_ids
-                and transition.source_record_id != row.get("selected_source_record_id")
-            )
-            or row_session < transition.effective_from_session
-            or (
-                transition.effective_to_session is not None
-                and row_session > transition.effective_to_session
+                not is_production_related_transition
+                and (
+                    (
+                        not is_related_transition
+                        and row.get("selected_source_record_id") not in transition.source_record_ids
+                    )
+                    or row_session < transition.effective_from_session
+                    or (
+                        transition.effective_to_session is not None
+                        and row_session > transition.effective_to_session
+                    )
+                )
             )
         ):
             raise I3FixtureRunnerError("asset transition crossed its exact source-row scope")

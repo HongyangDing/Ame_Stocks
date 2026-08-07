@@ -725,6 +725,31 @@ def test_runtime_observations_do_not_change_run_receipt_identity() -> None:
         replace_runtime_observation(receipt, succeeded=False)
 
 
+def test_legacy_control_projection_fingerprint_omits_absent_i3_attestations() -> None:
+    spec, receipt, manifest, pin = _projection()
+    candidate = validate_release_projection(
+        spec,
+        receipt,
+        manifest,
+        manifest_pin=pin,
+        parent_release=None,
+    )
+    expected = stable_digest(
+        {
+            "correction_authorization_id": manifest.correction_authorization_id,
+            "manifest_pin": pin.to_dict(),
+            "qa_policy_id": manifest.qa_policy_id,
+            "qa_receipt_id": manifest.qa_receipt_id,
+            "rule_version": "s7_5_control_projection_v1",
+            "run_receipt_pin": manifest.run_receipt_pin.to_dict(),
+            "run_spec_pin": manifest.run_spec_pin.to_dict(),
+        }
+    )
+    assert candidate.row_semantic_attestation_digest is None
+    assert candidate.parent_frontier_attestation_digest is None
+    assert candidate.control_projection_digest == expected
+
+
 def test_input_binding_requires_unique_sorted_paths_and_exact_digest() -> None:
     spec = _spec()
     duplicate_path = replace(spec.input_pins[1], path=spec.input_pins[0].path)
