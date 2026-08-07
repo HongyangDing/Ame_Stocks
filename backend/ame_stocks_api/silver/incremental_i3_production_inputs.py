@@ -326,7 +326,11 @@ def _load_exact_base_authorities(
         artifact=config.s4_release_set_artifact,
         available_session=binding.cutoff_session,
     )
-    loaded_registries = load_registry_release_set(root, tuple(binding.registry_pins))
+    loaded_registries = load_registry_release_set(
+        root,
+        tuple(binding.registry_pins),
+        revalidate_current_runtime=False,
+    )
     policy = IdentityPolicyBundle(
         registry_releases=tuple(
             IdentityRegistryReleasePin(

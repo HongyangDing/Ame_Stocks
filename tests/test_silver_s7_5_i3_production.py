@@ -221,12 +221,22 @@ def _patch_frozen_external_dependency_loaders(
             sessions=(SimpleNamespace(session_date=run_spec.terminal_session),),
         ),
     )
+
+    def load_historical_registries(
+        _root: Path,
+        pins,
+        *,
+        revalidate_current_runtime: bool,
+    ) -> SimpleNamespace:
+        assert revalidate_current_runtime is False
+        return SimpleNamespace(
+            releases=tuple(SimpleNamespace(manifest_pin=pin, source_scopes={}) for pin in pins)
+        )
+
     monkeypatch.setattr(
         identity_registry_workflow,
         "load_registry_release_set",
-        lambda _root, pins: SimpleNamespace(
-            releases=tuple(SimpleNamespace(manifest_pin=pin, source_scopes={}) for pin in pins)
-        ),
+        load_historical_registries,
     )
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -38,6 +39,62 @@ from ame_stocks_api.silver.identity_registry_workflow import (
 from ame_stocks_api.silver.identity_source import S7_S4_RELEASE_SET_ID
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_historical_evidence_git_read_ignores_replace_refs(tmp_path: Path) -> None:
+    repo = tmp_path / "evidence-repo"
+    relative = "docs/silver/evidence/s7-exact-groups/fixture.json"
+    evidence = repo / relative
+    evidence.parent.mkdir(parents=True)
+    original_content = b'{"source":"original"}\n'
+    replacement_content = b'{"source":"replacement"}\n'
+    evidence.write_bytes(original_content)
+
+    def git(*args: str) -> str:
+        completed = subprocess.run(
+            ("git", "-C", str(repo), *args),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return completed.stdout.strip()
+
+    git("init", "-q")
+    git("add", "--", relative)
+    git(
+        "-c",
+        "user.name=fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-q",
+        "-m",
+        "original evidence",
+    )
+    original_commit = git("rev-parse", "HEAD")
+    original_blob = git("rev-parse", f"{original_commit}:{relative}")
+    evidence.write_bytes(replacement_content)
+    git("add", "--", relative)
+    git(
+        "-c",
+        "user.name=fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-q",
+        "-m",
+        "replacement evidence",
+    )
+    replacement_commit = git("rev-parse", "HEAD")
+    replacement_blob = git("rev-parse", f"{replacement_commit}:{relative}")
+    runtime = replace(_runtime_binding(), git_commit=original_commit)
+
+    git("replace", original_commit, replacement_commit)
+    assert production._read_git_blob(repo, runtime, relative) == original_content
+    git("replace", "-d", original_commit)
+    git("replace", original_blob, replacement_blob)
+    assert production._read_git_blob(repo, runtime, relative) == original_content
+    git("replace", "-d", original_blob)
 
 
 def _source(
@@ -181,10 +238,15 @@ def test_fixed_production_builders_construct_all_five_registry_candidate_sets(
         **transition[0].frozen_row_claims,
         "transition_available_session": date(2026, 7, 20),
     }
-    monkeypatch.setattr(
-        production,
-        "load_registry_release",
-        lambda *_args, **_kwargs: SimpleNamespace(
+    transition_replay_modes: list[bool] = []
+
+    def load_transition(
+        *_args,
+        revalidate_current_runtime: bool,
+        **_kwargs,
+    ) -> SimpleNamespace:
+        transition_replay_modes.append(revalidate_current_runtime)
+        return SimpleNamespace(
             registry_name=RegistryName.ASSET_TRANSITION.value,
             decision_rows={transition[0].decision_id: transition_row},
             candidate=SimpleNamespace(
@@ -192,13 +254,20 @@ def test_fixed_production_builders_construct_all_five_registry_candidate_sets(
                 source_artifacts=(source, source_completion),
                 evidence_artifacts=(evidence,),
             ),
-        ),
+        )
+
+    monkeypatch.setattr(
+        production,
+        "load_registry_release",
+        load_transition,
     )
     provider = production._build_relation_decisions(
         registry_name=RegistryName.PROVIDER_COMPOSITE_OVERRIDE.value,
         asset_transition_release=SimpleNamespace(),
+        revalidate_current_runtime=False,
         **common,
     )
+    assert transition_replay_modes == [False]
     assert [item.case_key for item in transition] == ["asset_transition:SOR"]
     assert [item.case_key for item in provider] == ["provider_composite_override:SOR"]
     assert {item.case_key for item in share} == {
@@ -461,6 +530,7 @@ def test_fixed_evidence_import_is_git_pinned_immutable_and_replayable(
     monkeypatch.setattr(production, "CALENDAR_ARTIFACT_SHA256", calendar.sha256)
     monkeypatch.setattr(production, "capture_registry_runtime_binding", lambda: runtime)
     monkeypatch.setattr(workflow, "capture_registry_runtime_binding", lambda: runtime)
+    monkeypatch.setattr(workflow, "_verify_recorded_runtime_binding", lambda _binding: None)
     monkeypatch.setattr(
         production,
         "_utc_now",
@@ -505,11 +575,16 @@ def test_fixed_evidence_import_is_git_pinned_immutable_and_replayable(
     ).encode()
     blobs = {manifest_path: manifest_content, raw_path: b"wrong"}
 
-    def read_blob(_root: Path, commit: str, relative: str) -> bytes:
+    git_blob_reads: list[str] = []
+
+    def read_git_bytes(_root: Path, *args: str) -> bytes:
+        assert args[0] == "show"
+        commit, relative = args[1].split(":", 1)
         assert commit == runtime.git_commit
+        git_blob_reads.append(relative)
         return blobs[relative]
 
-    monkeypatch.setattr(production, "_read_git_blob", read_blob)
+    monkeypatch.setattr(workflow, "_run_git_bytes", read_git_bytes)
     with pytest.raises(
         production.IdentityRegistryProductionError,
         match="differs from its manifest receipt",
@@ -536,6 +611,92 @@ def test_fixed_evidence_import_is_git_pinned_immutable_and_replayable(
     assert first.import_receipt.available_session == date(2026, 7, 20)
     assert (tmp_path / raw_path).read_bytes() == raw_content
     assert (tmp_path / manifest_path).read_bytes() == manifest_content
+
+    def replay_evidence() -> None:
+        production._replay_bound_evidence_import(
+            tmp_path,
+            first.import_receipt,
+            expected_type=evidence_type,
+            expected_manifest=first.manifest,
+            expected_runtime=runtime,
+            revalidate_current_runtime=False,
+        )
+
+    def replay_twice_in_scope(
+        _root: Path,
+        _pin: object,
+        *,
+        revalidate_current_runtime: bool,
+    ) -> object:
+        assert revalidate_current_runtime is False
+        replay_evidence()
+        replay_evidence()
+        return object()
+
+    monkeypatch.setattr(workflow, "_load_registry_release_in_scope", replay_twice_in_scope)
+    git_blob_reads.clear()
+    workflow.load_registry_release(  # type: ignore[arg-type]
+        tmp_path,
+        object(),
+        revalidate_current_runtime=False,
+    )
+    assert git_blob_reads.count(manifest_path) == 1
+    assert git_blob_reads.count(raw_path) == 1
+
+    def replay_once_in_scope(
+        _root: Path,
+        _pin: object,
+        *,
+        revalidate_current_runtime: bool,
+    ) -> object:
+        assert revalidate_current_runtime is False
+        replay_evidence()
+        return object()
+
+    monkeypatch.setattr(workflow, "_load_registry_release_in_scope", replay_once_in_scope)
+    workflow.load_registry_release(  # type: ignore[arg-type]
+        tmp_path,
+        object(),
+        revalidate_current_runtime=False,
+    )
+    assert git_blob_reads.count(manifest_path) == 2
+    assert git_blob_reads.count(raw_path) == 2
+
+    def replay_then_tamper_in_scope(
+        _root: Path,
+        _pin: object,
+        *,
+        revalidate_current_runtime: bool,
+    ) -> object:
+        assert revalidate_current_runtime is False
+        replay_evidence()
+        stored_raw = tmp_path / raw_path
+        stored_raw.chmod(0o600)
+        stored_raw.write_bytes(b"tampered inside cached historical replay")
+        try:
+            with pytest.raises(
+                production.IdentityRegistryProductionError,
+                match="external evidence raw artifact 0 bytes/type differs",
+            ):
+                replay_evidence()
+        finally:
+            stored_raw.write_bytes(raw_content)
+            stored_raw.chmod(0o444)
+        return object()
+
+    monkeypatch.setattr(
+        workflow,
+        "_load_registry_release_in_scope",
+        replay_then_tamper_in_scope,
+    )
+    git_blob_reads.clear()
+    workflow.load_registry_release(  # type: ignore[arg-type]
+        tmp_path,
+        object(),
+        revalidate_current_runtime=False,
+    )
+    assert git_blob_reads.count(manifest_path) == 1
+    assert git_blob_reads.count(raw_path) == 1
 
     raw_refs = (
         {
@@ -612,6 +773,7 @@ def test_fixed_evidence_import_is_git_pinned_immutable_and_replayable(
             expected_type=evidence_type,
             expected_manifest=first.manifest,
             expected_runtime=runtime,
+            revalidate_current_runtime=False,
         )
     blobs[manifest_path] = manifest_content
 
@@ -626,6 +788,7 @@ def test_fixed_evidence_import_is_git_pinned_immutable_and_replayable(
             expected_type=evidence_type,
             expected_manifest=first.manifest,
             expected_runtime=runtime,
+            revalidate_current_runtime=False,
         )
     blobs[raw_path] = raw_content
 
@@ -773,3 +936,68 @@ def test_production_ingress_attestation_is_first_writer_and_runtime_bound(
     assert first_binding.available_session == date(2026, 7, 20)
     assert first_document["runtime_binding"] == runtime.to_dict()
     assert first_document["authorization_effect"] == "none_provenance_only"
+
+    replay_modes: list[bool] = []
+
+    def replay_historical_evidence(*_args, revalidate_current_runtime: bool, **_kwargs) -> None:
+        replay_modes.append(revalidate_current_runtime)
+
+    monkeypatch.setattr(
+        production,
+        "_replay_bound_evidence_import",
+        replay_historical_evidence,
+    )
+    monkeypatch.setattr(
+        production,
+        "require_current_registry_runtime_binding",
+        lambda _runtime: (_ for _ in ()).throw(
+            AssertionError("historical replay must not compare the current checkout")
+        ),
+    )
+    verified_runtime_modes: list[bool] = []
+    monkeypatch.setattr(
+        production,
+        "verify_registry_runtime_binding",
+        lambda _runtime, *, revalidate_current_runtime: verified_runtime_modes.append(
+            revalidate_current_runtime
+        ),
+    )
+    content = (tmp_path / first_binding.path).read_bytes()
+    production._validate_production_ingress_attestation(
+        tmp_path,
+        first_document,
+        content=content,
+        artifact=first_binding,
+        expected_registry_name=RegistryName.ASSET_TRANSITION.value,
+        expected_contract_pin=contract.to_dict(),
+        expected_sources=sources,
+        expected_evidence=evidence,
+        expected_authorizations=authorizations,
+        expected_evidence_import=evidence_import,
+        expected_transition_release=None,
+        expected_runtime_binding=runtime,
+        calendar=calendar,
+        revalidate_runtime=False,
+    )
+    assert replay_modes == [False]
+    assert verified_runtime_modes == [False]
+
+    tampered_runtime = json.loads(json.dumps(first_document))
+    tampered_runtime["runtime_binding"]["git_commit"] = "f" * 40
+    with pytest.raises(workflow.RegistryWorkflowError, match="runtime binding ID"):
+        production._validate_production_ingress_attestation(
+            tmp_path,
+            tampered_runtime,
+            content=production._canonical_control_bytes(tampered_runtime),
+            artifact=first_binding,
+            expected_registry_name=RegistryName.ASSET_TRANSITION.value,
+            expected_contract_pin=contract.to_dict(),
+            expected_sources=sources,
+            expected_evidence=evidence,
+            expected_authorizations=authorizations,
+            expected_evidence_import=evidence_import,
+            expected_transition_release=None,
+            expected_runtime_binding=runtime,
+            calendar=calendar,
+            revalidate_runtime=False,
+        )

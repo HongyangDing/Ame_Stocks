@@ -13,7 +13,6 @@ import hashlib
 import json
 import os
 import stat
-import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -61,7 +60,9 @@ from ame_stocks_api.silver.identity_registry_workflow import (
     RegistryName,
     RegistryReleasePin,
     RegistryRuntimeBinding,
+    RegistryWorkflowError,
     StoredControlDocument,
+    _read_recorded_registry_git_blob,
     capture_registry_runtime_binding,
     create_approval_request,
     create_decision_plan,
@@ -73,6 +74,7 @@ from ame_stocks_api.silver.identity_registry_workflow import (
     store_approval_request,
     store_candidate,
     store_decision_plan,
+    verify_registry_runtime_binding,
 )
 from ame_stocks_api.silver.identity_relation_registries import (
     AssetTransitionDecision,
@@ -181,7 +183,7 @@ def import_fixed_external_evidence_package(
     repo_root = Path(__file__).resolve().parents[3]
     manifest_content = _read_git_blob(
         repo_root,
-        runtime_binding.git_commit,
+        runtime_binding,
         manifest_relative,
     )
     document = _decode_json_no_duplicates(manifest_content, "fixed evidence manifest")
@@ -218,7 +220,7 @@ def import_fixed_external_evidence_package(
             raise IdentityRegistryProductionError(
                 "fixed evidence artifact escaped the approved package prefixes"
             )
-        content = _read_git_blob(repo_root, runtime_binding.git_commit, relative)
+        content = _read_git_blob(repo_root, runtime_binding, relative)
         if (
             artifact.get("bytes") != len(content)
             or artifact.get("sha256") != hashlib.sha256(content).hexdigest()
@@ -961,17 +963,24 @@ def _validate_production_ingress_attestation(
         expected_type=evidence_type,
         expected_manifest=_stored(expected_evidence[0]),
         expected_runtime=runtime_binding,
+        revalidate_current_runtime=revalidate_runtime,
     )
-    if revalidate_runtime:
-        require_current_registry_runtime_binding(runtime_binding)
+    verify_registry_runtime_binding(
+        runtime_binding,
+        revalidate_current_runtime=revalidate_runtime,
+    )
 
 
 def validate_production_candidate_rebuild(
     data_root: Path,
     candidate: RegistryCandidateManifest,
+    *,
+    revalidate_current_runtime: bool = True,
 ) -> None:
     """Rebuild one production candidate solely from its exact ingress attestation."""
 
+    if type(revalidate_current_runtime) is not bool:
+        raise IdentityRegistryProductionError("runtime revalidation mode must be a native boolean")
     root = data_root.expanduser().resolve()
     artifact = candidate.production_ingress_artifact
     if not is_canonical_production_data_root(root) or artifact is None:
@@ -1005,7 +1014,7 @@ def validate_production_candidate_rebuild(
         expected_transition_release=transition,
         expected_runtime_binding=None,
         calendar=calendar,
-        revalidate_runtime=True,
+        revalidate_runtime=revalidate_current_runtime,
     )
     created_at = _parse_utc(str(document["created_at_utc"]))
     if (
@@ -1038,6 +1047,7 @@ def validate_production_candidate_rebuild(
             evidence_document=evidence_document,
             candidate_available=candidate.candidate_available_session,
             asset_transition_release=transition,
+            revalidate_current_runtime=revalidate_current_runtime,
         )
     else:
         gate_c = _load_gate_c_source(
@@ -1075,6 +1085,7 @@ def _build_relation_decisions(
     evidence_document: Mapping[str, object],
     candidate_available: date,
     asset_transition_release: RegistryReleasePin | None,
+    revalidate_current_runtime: bool = True,
 ) -> tuple[object, ...]:
     common = _pending_relation_controls(
         source_candidate=source_candidate,
@@ -1116,7 +1127,11 @@ def _build_relation_decisions(
             raise IdentityRegistryProductionError(
                 "provider override requires the published asset-transition release"
             )
-        released = load_registry_release(root, asset_transition_release)
+        released = load_registry_release(
+            root,
+            asset_transition_release,
+            revalidate_current_runtime=revalidate_current_runtime,
+        )
         if (
             released.registry_name != RegistryName.ASSET_TRANSITION.value
             or len(released.decision_rows) != 1
@@ -1722,6 +1737,12 @@ def _load_fixed_evidence_import_receipt(
         raise IdentityRegistryProductionError(
             "evidence import manifest path differs from the fixed repository package"
         )
+    if runtime != expected_runtime:
+        raise IdentityRegistryProductionError("evidence import receipt runtime binding changed")
+    verify_registry_runtime_binding(
+        runtime,
+        revalidate_current_runtime=revalidate_runtime,
+    )
     repo_root = Path(__file__).resolve().parents[3]
     imported_manifest_bytes = _read_exact_receipt_bytes(
         root,
@@ -1730,7 +1751,7 @@ def _load_fixed_evidence_import_receipt(
     )
     if imported_manifest_bytes != _read_git_blob(
         repo_root,
-        runtime.git_commit,
+        runtime,
         fixed_manifest_path,
     ):
         raise IdentityRegistryProductionError(
@@ -1776,7 +1797,7 @@ def _load_fixed_evidence_import_receipt(
         )
         if imported_raw_bytes != _read_git_blob(
             repo_root,
-            runtime.git_commit,
+            runtime,
             raw_path,
         ):
             raise IdentityRegistryProductionError(
@@ -1804,7 +1825,6 @@ def _load_fixed_evidence_import_receipt(
         or manifest != expected_manifest
         or raw_refs != manifest_raw_refs
         or raw_refs != expected_raw_refs
-        or runtime != expected_runtime
         or available != recomputed_available
         or (expected_available_session is not None and available != expected_available_session)
         or relative_path
@@ -1825,8 +1845,6 @@ def _load_fixed_evidence_import_receipt(
         available_session=available,
         embedded_id_field="import_id",
     )
-    if revalidate_runtime:
-        require_current_registry_runtime_binding(runtime)
     return binding
 
 
@@ -1837,6 +1855,7 @@ def _replay_bound_evidence_import(
     expected_type: str,
     expected_manifest: StoredControlDocument,
     expected_runtime: RegistryRuntimeBinding,
+    revalidate_current_runtime: bool = True,
 ) -> None:
     if (
         binding.role != "external_evidence_import_receipt"
@@ -1854,29 +1873,33 @@ def _replay_bound_evidence_import(
         expected_raw_refs=raw_refs,
         expected_runtime=expected_runtime,
         expected_available_session=binding.available_session,
-        revalidate_runtime=True,
+        revalidate_runtime=revalidate_current_runtime,
     )
     if replayed != binding:
         raise IdentityRegistryProductionError("evidence import binding failed exact replay")
 
 
-def _read_git_blob(repo_root: Path, commit: str, relative_path: str) -> bytes:
+def _read_git_blob(
+    repo_root: Path,
+    runtime_binding: RegistryRuntimeBinding,
+    relative_path: str,
+) -> bytes:
     if not relative_path.startswith(_EVIDENCE_ALLOWED_PREFIXES):
         raise IdentityRegistryProductionError("fixed Git evidence path is outside package")
     try:
         safe_relative_path(repo_root, relative_path)
     except ArtifactError as exc:
         raise IdentityRegistryProductionError("fixed Git evidence path is unsafe") from exc
-    result = subprocess.run(
-        ("git", "-C", str(repo_root), "show", f"{commit}:{relative_path}"),
-        check=False,
-        capture_output=True,
-    )
-    if result.returncode != 0:
+    try:
+        return _read_recorded_registry_git_blob(
+            repo_root,
+            runtime_binding,
+            relative_path,
+        )
+    except RegistryWorkflowError as exc:
         raise IdentityRegistryProductionError(
             f"fixed evidence blob is absent from runtime Git tree: {relative_path}"
-        )
-    return result.stdout
+        ) from exc
 
 
 def _read_regular_file_snapshot(path: Path, label: str) -> bytes:

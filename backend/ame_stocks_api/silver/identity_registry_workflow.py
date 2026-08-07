@@ -28,6 +28,7 @@ import re
 import subprocess
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from enum import StrEnum
@@ -1174,6 +1175,21 @@ class RegistryRuntimeBinding:
         if item["runtime_binding_id"] != binding.runtime_binding_id:
             raise RegistryWorkflowError("runtime binding ID recomputation failed")
         return binding
+
+
+@dataclass(slots=True)
+class _HistoricalRuntimeReplayScope:
+    verified_runtime_bindings: dict[str, RegistryRuntimeBinding]
+    git_blobs: dict[tuple[str, str, str, str], bytes]
+
+
+_HISTORICAL_RUNTIME_REPLAY_CACHE: Final[ContextVar[_HistoricalRuntimeReplayScope | None]] = (
+    ContextVar("s7_registry_historical_runtime_replay_cache", default=None)
+)
+
+
+def _new_historical_runtime_replay_scope() -> _HistoricalRuntimeReplayScope:
+    return _HistoricalRuntimeReplayScope(verified_runtime_bindings={}, git_blobs={})
 
 
 def record_production_prerequisite_authorization(
@@ -3453,8 +3469,39 @@ def _publish_release(
 def load_registry_release(
     data_root: Path,
     pin: RegistryReleasePin,
+    *,
+    revalidate_current_runtime: bool = True,
 ) -> LoadedRegistryRelease:
-    """Load one exact manifest and replay its complete control and decision row set."""
+    """Load one exact release, optionally requiring the recorded runtime to be current.
+
+    ``False`` is reserved for consumers of an immutable historical release.  It
+    skips only the current-checkout equality gate; exact bytes, canonical IDs,
+    recorded runtime bindings, Git evidence, scopes, rows, and lineage still
+    replay in full.
+    """
+
+    if type(revalidate_current_runtime) is not bool:
+        raise RegistryWorkflowError("runtime revalidation mode must be a native boolean")
+    token = None
+    if not revalidate_current_runtime and _HISTORICAL_RUNTIME_REPLAY_CACHE.get() is None:
+        token = _HISTORICAL_RUNTIME_REPLAY_CACHE.set(_new_historical_runtime_replay_scope())
+    try:
+        return _load_registry_release_in_scope(
+            data_root,
+            pin,
+            revalidate_current_runtime=revalidate_current_runtime,
+        )
+    finally:
+        if token is not None:
+            _HISTORICAL_RUNTIME_REPLAY_CACHE.reset(token)
+
+
+def _load_registry_release_in_scope(
+    data_root: Path,
+    pin: RegistryReleasePin,
+    *,
+    revalidate_current_runtime: bool,
+) -> LoadedRegistryRelease:
 
     root = data_root.expanduser().resolve()
     manifest_bytes = _read_exact(
@@ -3473,10 +3520,26 @@ def load_registry_release(
         or manifest.release_available_session != pin.release_available_session
     ):
         raise RegistryWorkflowError("release pin differs from exact manifest")
-    candidate = _load_candidate_document(root, manifest.candidate)
-    plan = _load_plan_document(root, manifest.plan)
-    request = _load_request_document(root, manifest.request)
-    receipt = _load_receipt_document(root, manifest.approval_receipt)
+    candidate = _load_candidate_document(
+        root,
+        manifest.candidate,
+        revalidate_current_runtime=revalidate_current_runtime,
+    )
+    plan = _load_plan_document(
+        root,
+        manifest.plan,
+        revalidate_current_runtime=revalidate_current_runtime,
+    )
+    request = _load_request_document(
+        root,
+        manifest.request,
+        revalidate_current_runtime=revalidate_current_runtime,
+    )
+    receipt = _load_receipt_document(
+        root,
+        manifest.approval_receipt,
+        revalidate_current_runtime=revalidate_current_runtime,
+    )
     publish_intent = _load_publish_intent_document(root, manifest.publish_intent)
     _validate_release_control_chain(
         candidate,
@@ -3633,10 +3696,29 @@ def load_registry_release_set(
     pins: Sequence[RegistryReleasePin],
     *,
     require_exclusive_composite_scopes: bool = True,
+    revalidate_current_runtime: bool = True,
 ) -> LoadedRegistryReleaseSet:
+    if type(revalidate_current_runtime) is not bool:
+        raise RegistryWorkflowError("runtime revalidation mode must be a native boolean")
     if tuple(item.registry_name for item in pins) != REGISTRY_ORDER:
         raise RegistryWorkflowError("release pins must use the frozen five-registry order")
-    loaded = LoadedRegistryReleaseSet(tuple(load_registry_release(data_root, pin) for pin in pins))
+    token = None
+    if not revalidate_current_runtime and _HISTORICAL_RUNTIME_REPLAY_CACHE.get() is None:
+        token = _HISTORICAL_RUNTIME_REPLAY_CACHE.set(_new_historical_runtime_replay_scope())
+    try:
+        loaded = LoadedRegistryReleaseSet(
+            tuple(
+                load_registry_release(
+                    data_root,
+                    pin,
+                    revalidate_current_runtime=revalidate_current_runtime,
+                )
+                for pin in pins
+            )
+        )
+    finally:
+        if token is not None:
+            _HISTORICAL_RUNTIME_REPLAY_CACHE.reset(token)
     if require_exclusive_composite_scopes:
         loaded.validate_all_composite_scopes_are_exclusive()
     return loaded
@@ -4548,7 +4630,12 @@ def _validate_decision_row_calendar(
             )
 
 
-def _verify_candidate_inputs(root: Path, candidate: RegistryCandidateManifest) -> None:
+def _verify_candidate_inputs(
+    root: Path,
+    candidate: RegistryCandidateManifest,
+    *,
+    revalidate_current_runtime: bool = True,
+) -> None:
     production = is_canonical_production_data_root(root)
     if production != (candidate.production_ingress_artifact is not None):
         raise RegistryWorkflowError("candidate production provenance/root binding changed")
@@ -4609,6 +4696,7 @@ def _verify_candidate_inputs(root: Path, candidate: RegistryCandidateManifest) -
         candidate,
         calendar,
         authorization_documents,
+        revalidate_current_runtime=revalidate_current_runtime,
     )
     _validate_exact_group_relation_scopes(root, candidate)
     _validate_gate_c_registry_scopes(root, candidate)
@@ -4619,7 +4707,11 @@ def _verify_candidate_inputs(root: Path, candidate: RegistryCandidateManifest) -
         )
 
         try:
-            validate_production_candidate_rebuild(root, candidate)
+            validate_production_candidate_rebuild(
+                root,
+                candidate,
+                revalidate_current_runtime=revalidate_current_runtime,
+            )
         except IdentityRegistryProductionError as exc:
             raise RegistryWorkflowError("production candidate ingress replay failed") from exc
 
@@ -4751,6 +4843,8 @@ def _validate_candidate_authorizations(
     candidate: RegistryCandidateManifest,
     calendar: object,
     documents: Mapping[str, Mapping[str, object]],
+    *,
+    revalidate_current_runtime: bool = True,
 ) -> None:
     if set(documents) != {item.role for item in candidate.authorization_artifacts}:
         raise RegistryWorkflowError("candidate authorization artifacts were not replayed")
@@ -4775,7 +4869,7 @@ def _validate_candidate_authorizations(
                 expected_targets=expected_targets[artifact.role],
                 calendar=calendar,
                 root=root,
-                revalidate_runtime=True,
+                revalidate_runtime=revalidate_current_runtime,
             )
             continue
         if document.get("authorization_mode") == STANDING_AUTHORIZATION_VERSION:
@@ -4785,7 +4879,7 @@ def _validate_candidate_authorizations(
                 registry_name=candidate.registry_name,
                 expected_targets=expected_targets[artifact.role],
                 calendar=calendar,
-                revalidate_runtime=True,
+                revalidate_runtime=revalidate_current_runtime,
             )
             continue
         expected_keys = {
@@ -5219,21 +5313,36 @@ def _load_existing_candidate_slot(
 def _load_candidate_document(
     root: Path,
     ref: StoredControlDocument,
+    *,
+    revalidate_current_runtime: bool = True,
 ) -> RegistryCandidateManifest:
     content = _read_control(root, ref)
     candidate = RegistryCandidateManifest.from_dict(_load_json(content, "candidate"))
     if candidate.candidate_id != ref.object_id or candidate.relative_path != ref.path:
         raise RegistryWorkflowError("candidate ref differs from candidate bytes")
-    _verify_candidate_inputs(root, candidate)
+    _verify_candidate_inputs(
+        root,
+        candidate,
+        revalidate_current_runtime=revalidate_current_runtime,
+    )
     return candidate
 
 
-def _load_plan_document(root: Path, ref: StoredControlDocument) -> RegistryDecisionPlan:
+def _load_plan_document(
+    root: Path,
+    ref: StoredControlDocument,
+    *,
+    revalidate_current_runtime: bool = True,
+) -> RegistryDecisionPlan:
     content = _read_control(root, ref)
     plan = RegistryDecisionPlan.from_dict(_load_json(content, "decision plan"))
     if plan.plan_id != ref.object_id or plan.relative_path != ref.path:
         raise RegistryWorkflowError("plan ref differs from plan bytes")
-    candidate = _load_candidate_document(root, plan.candidate)
+    candidate = _load_candidate_document(
+        root,
+        plan.candidate,
+        revalidate_current_runtime=revalidate_current_runtime,
+    )
     _validate_plan_candidate(plan, candidate)
     return plan
 
@@ -5241,13 +5350,23 @@ def _load_plan_document(root: Path, ref: StoredControlDocument) -> RegistryDecis
 def _load_request_document(
     root: Path,
     ref: StoredControlDocument,
+    *,
+    revalidate_current_runtime: bool = True,
 ) -> RegistryApprovalRequest:
     content = _read_control(root, ref)
     request = RegistryApprovalRequest.from_dict(_load_json(content, "approval request"))
     if request.request_event_id != ref.object_id or request.relative_path != ref.path:
         raise RegistryWorkflowError("request ref differs from request bytes")
-    plan = _load_plan_document(root, request.plan)
-    candidate = _load_candidate_document(root, request.candidate)
+    plan = _load_plan_document(
+        root,
+        request.plan,
+        revalidate_current_runtime=revalidate_current_runtime,
+    )
+    candidate = _load_candidate_document(
+        root,
+        request.candidate,
+        revalidate_current_runtime=revalidate_current_runtime,
+    )
     _validate_request_chain(request, plan, candidate)
     return request
 
@@ -5255,6 +5374,8 @@ def _load_request_document(
 def _load_receipt_document(
     root: Path,
     ref: StoredControlDocument,
+    *,
+    revalidate_current_runtime: bool = True,
 ) -> RegistryReleaseAuthorizationReceipt:
     content = _read_control(root, ref)
     raw = _mapping(_load_json(content, "approval receipt"), "approval receipt")
@@ -5266,9 +5387,21 @@ def _load_receipt_document(
         receipt = RegistryApprovalReceipt.from_dict(raw)
     if receipt.receipt_id != ref.object_id or receipt.relative_path != ref.path:
         raise RegistryWorkflowError("receipt ref differs from receipt bytes")
-    request = _load_request_document(root, receipt.request)
-    plan = _load_plan_document(root, request.plan)
-    candidate = _load_candidate_document(root, request.candidate)
+    request = _load_request_document(
+        root,
+        receipt.request,
+        revalidate_current_runtime=revalidate_current_runtime,
+    )
+    plan = _load_plan_document(
+        root,
+        request.plan,
+        revalidate_current_runtime=revalidate_current_runtime,
+    )
+    candidate = _load_candidate_document(
+        root,
+        request.candidate,
+        revalidate_current_runtime=revalidate_current_runtime,
+    )
     if (
         receipt.request_event_id != request.request_event_id
         or receipt.plan_id != request.plan.object_id
@@ -5303,6 +5436,10 @@ def _load_receipt_document(
         or dict(receipt.qa_review) != _build_standing_qa_review(candidate, plan, request)
     ):
         raise RegistryWorkflowError("standing receipt differs from exact reviewed request")
+    verify_registry_runtime_binding(
+        receipt.runtime_binding,
+        revalidate_current_runtime=revalidate_current_runtime,
+    )
     return receipt
 
 
@@ -5669,6 +5806,111 @@ def _require_current_runtime_binding(expected: RegistryRuntimeBinding) -> None:
         raise RegistryWorkflowError("registry runtime binding drifted before release write")
 
 
+def _verify_recorded_runtime_binding(
+    expected: RegistryRuntimeBinding,
+    *,
+    repo_root: Path | None = None,
+) -> None:
+    """Replay one historical runtime solely from immutable Git objects."""
+
+    root = (repo_root if repo_root is not None else _runtime_repo_root()).expanduser().resolve()
+    try:
+        object_type = _run_git(root, "cat-file", "-t", expected.git_commit)
+        tree = _run_git(root, "rev-parse", f"{expected.git_commit}^{{tree}}")
+    except RegistryWorkflowError as exc:
+        raise RegistryWorkflowError("recorded registry runtime commit is unavailable") from exc
+    if object_type != "commit" or tree != expected.git_tree:
+        raise RegistryWorkflowError("recorded registry runtime commit/tree binding changed")
+    for pin in expected.files:
+        try:
+            entry = _run_git(root, "ls-tree", expected.git_commit, "--", pin.path)
+            resolved_blob = _run_git(root, "rev-parse", f"{expected.git_commit}:{pin.path}")
+            content = _run_git_bytes(root, "show", f"{expected.git_commit}:{pin.path}")
+        except RegistryWorkflowError as exc:
+            raise RegistryWorkflowError(
+                f"recorded registry runtime file is unavailable: {pin.path}"
+            ) from exc
+        lines = entry.splitlines()
+        if len(lines) != 1 or "\t" not in lines[0]:
+            raise RegistryWorkflowError(f"recorded registry runtime Git entry changed: {pin.path}")
+        metadata, tracked_path = lines[0].split("\t", 1)
+        parts = metadata.split()
+        if (
+            len(parts) != 3
+            or parts[1] != "blob"
+            or tracked_path != pin.path
+            or parts[0] != pin.git_mode
+            or parts[2] != pin.git_blob_id
+            or resolved_blob != pin.git_blob_id
+        ):
+            raise RegistryWorkflowError(
+                f"recorded registry runtime mode/blob binding changed: {pin.path}"
+            )
+        if len(content) != pin.bytes or hashlib.sha256(content).hexdigest() != pin.sha256:
+            raise RegistryWorkflowError(
+                f"recorded registry runtime bytes/SHA-256 changed: {pin.path}"
+            )
+
+
+def verify_registry_runtime_binding(
+    expected: RegistryRuntimeBinding,
+    *,
+    revalidate_current_runtime: bool = True,
+) -> None:
+    """Verify either the current checkout or the exact recorded historical Git runtime."""
+
+    if type(revalidate_current_runtime) is not bool:
+        raise RegistryWorkflowError("runtime revalidation mode must be a native boolean")
+    if revalidate_current_runtime:
+        _require_current_runtime_binding(expected)
+        return
+    historical_runtime_cache = _HISTORICAL_RUNTIME_REPLAY_CACHE.get()
+    if historical_runtime_cache is not None:
+        cached = historical_runtime_cache.verified_runtime_bindings.get(expected.runtime_binding_id)
+        if cached is not None:
+            if cached != expected:
+                raise RegistryWorkflowError(
+                    "historical runtime cache binding differs for the recorded ID"
+                )
+            return
+    _verify_recorded_runtime_binding(expected)
+    if historical_runtime_cache is not None:
+        # The module owns this cache for one top-level exact load only.  Failed
+        # Git replays never reach this write and therefore are never cached.
+        historical_runtime_cache.verified_runtime_bindings[expected.runtime_binding_id] = expected
+
+
+def _read_recorded_registry_git_blob(
+    repo_root: Path,
+    runtime_binding: RegistryRuntimeBinding,
+    relative_path: str,
+) -> bytes:
+    """Read one original Git blob, cached only inside an authenticated load scope."""
+
+    root = repo_root.expanduser().resolve()
+    relative = _relative(relative_path, "recorded registry Git blob path")
+    cache = _HISTORICAL_RUNTIME_REPLAY_CACHE.get()
+    key = (
+        runtime_binding.runtime_binding_id,
+        root.as_posix(),
+        runtime_binding.git_commit,
+        relative,
+    )
+    if cache is not None:
+        verified = cache.verified_runtime_bindings.get(runtime_binding.runtime_binding_id)
+        if verified != runtime_binding:
+            raise RegistryWorkflowError(
+                "recorded Git blob runtime was not authenticated in this load scope"
+            )
+        cached = cache.git_blobs.get(key)
+        if cached is not None:
+            return cached
+    content = _run_git_bytes(root, "show", f"{runtime_binding.git_commit}:{relative}")
+    if cache is not None:
+        cache.git_blobs[key] = content
+    return content
+
+
 def require_current_registry_runtime_binding(expected: RegistryRuntimeBinding) -> None:
     """Replay a captured runtime binding for production-only ingress controls."""
 
@@ -5735,8 +5977,7 @@ def _production_prerequisite_authorization_slot_id(
         "production_data_root": CANONICAL_PRODUCTION_DATA_ROOT.resolve().as_posix(),
         "registry_name": _registry(registry_name),
         "target_refs": [
-            {"artifact_id": artifact_id, "sha256": sha256}
-            for artifact_id, sha256 in target_refs
+            {"artifact_id": artifact_id, "sha256": sha256} for artifact_id, sha256 in target_refs
         ],
     }
     if artifact_version == PRODUCTION_PREREQUISITE_AUTHORIZATION_VERSION:
@@ -5899,10 +6140,7 @@ def _validate_production_prerequisite_authorization_document(
         or available != artifact.available_session
         or artifact.path
         != _production_prerequisite_authorization_path(registry_name, artifact.role, slot_id)
-        or (
-            expected_runtime_binding is not None
-            and runtime_binding != expected_runtime_binding
-        )
+        or (expected_runtime_binding is not None and runtime_binding != expected_runtime_binding)
     ):
         raise RegistryWorkflowError("production prerequisite authorization binding changed")
     try:
@@ -5913,8 +6151,10 @@ def _validate_production_prerequisite_authorization_document(
         )
     except XNYSCalendarArtifactError as exc:
         raise RegistryWorkflowError(str(exc)) from exc
-    if revalidate_runtime:
-        _require_current_runtime_binding(runtime_binding)
+    verify_registry_runtime_binding(
+        runtime_binding,
+        revalidate_current_runtime=revalidate_runtime,
+    )
 
 
 def _standing_candidate_authorization_path(
@@ -6059,8 +6299,10 @@ def _validate_standing_candidate_authorization_document(
         )
     except XNYSCalendarArtifactError as exc:
         raise RegistryWorkflowError(str(exc)) from exc
-    if revalidate_runtime:
-        _require_current_runtime_binding(runtime_binding)
+    verify_registry_runtime_binding(
+        runtime_binding,
+        revalidate_current_runtime=revalidate_runtime,
+    )
 
 
 def _standing_approval_slot_path(
@@ -6104,7 +6346,7 @@ def _load_existing_standing_receipt(
 def _run_git(root: Path, *args: str) -> str:
     try:
         completed = subprocess.run(
-            ("git", "-C", str(root), *args),
+            ("git", "--no-replace-objects", "-C", str(root), *args),
             check=True,
             capture_output=True,
             text=True,
@@ -6112,6 +6354,18 @@ def _run_git(root: Path, *args: str) -> str:
     except (OSError, subprocess.CalledProcessError) as exc:
         raise RegistryWorkflowError("cannot capture exact registry Git runtime") from exc
     return completed.stdout.rstrip("\n")
+
+
+def _run_git_bytes(root: Path, *args: str) -> bytes:
+    try:
+        completed = subprocess.run(
+            ("git", "--no-replace-objects", "-C", str(root), *args),
+            check=True,
+            capture_output=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RegistryWorkflowError("cannot replay exact registry Git runtime") from exc
+    return completed.stdout
 
 
 def _utf8_sha256(value: str) -> str:
@@ -6197,4 +6451,5 @@ __all__ = [
     "store_candidate",
     "store_decision_plan",
     "validate_fixed_decision_candidate",
+    "verify_registry_runtime_binding",
 ]

@@ -3772,7 +3772,11 @@ def _verify_external_production_dependencies(
     if not required_sessions.issubset(available_sessions):
         raise I3ProductionContractError("production calendar omits a required session")
 
-    loaded = load_registry_release_set(root, registry_pins)
+    loaded = load_registry_release_set(
+        root,
+        registry_pins,
+        revalidate_current_runtime=False,
+    )
     if tuple(item.manifest_pin for item in loaded.releases) != registry_pins:
         raise I3ProductionContractError("registry production loader returned different pins")
     if any(

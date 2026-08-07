@@ -1176,6 +1176,80 @@ def test_standing_authority_binds_runtime_review_and_one_release(
 
     monkeypatch.setattr(
         registry_workflow,
+        "capture_registry_runtime_binding",
+        lambda: drifted_runtime,
+    )
+    with pytest.raises(RegistryWorkflowError, match="runtime binding drifted"):
+        load_registry_release(tmp_path, pin)
+    recorded_runtime_replays: list[RegistryRuntimeBinding] = []
+    monkeypatch.setattr(
+        registry_workflow,
+        "_verify_recorded_runtime_binding",
+        lambda binding: recorded_runtime_replays.append(binding),
+    )
+    historical = load_registry_release(
+        tmp_path,
+        pin,
+        revalidate_current_runtime=False,
+    )
+    assert historical == loaded
+    assert recorded_runtime_replays == [runtime_binding]
+    assert (
+        load_registry_release(
+            tmp_path,
+            pin,
+            revalidate_current_runtime=False,
+        )
+        == loaded
+    )
+    assert recorded_runtime_replays == [runtime_binding, runtime_binding]
+    with pytest.raises(TypeError, match="unexpected keyword"):
+        load_registry_release(  # type: ignore[call-arg]
+            tmp_path,
+            pin,
+            revalidate_current_runtime=False,
+            _historical_runtime_cache={runtime_binding.runtime_binding_id: runtime_binding},
+        )
+    with pytest.raises(RegistryWorkflowError, match="native boolean"):
+        load_registry_release(  # type: ignore[arg-type]
+            tmp_path,
+            pin,
+            revalidate_current_runtime=0,
+        )
+
+    def assert_historical_tamper_rejected(path: Path, content: bytes) -> None:
+        original = path.read_bytes()
+        path.chmod(0o600)
+        path.write_bytes(content)
+        with pytest.raises(RegistryWorkflowError, match="exact artifact"):
+            load_registry_release(
+                tmp_path,
+                pin,
+                revalidate_current_runtime=False,
+            )
+        path.write_bytes(original)
+        path.chmod(0o444)
+
+    authorization_path = tmp_path / authorizations[0].path
+    authorization_document = json.loads(authorization_path.read_bytes())
+    authorization_document["runtime_binding"]["git_commit"] = "d" * 40
+    assert_historical_tamper_rejected(
+        authorization_path,
+        registry_workflow._canonical_bytes(authorization_document),
+    )
+    assert_historical_tamper_rejected(tmp_path / evidence.path, b"tampered evidence\n")
+    assert_historical_tamper_rejected(
+        tmp_path / candidate_doc.path,
+        (tmp_path / candidate_doc.path).read_bytes() + b"\n",
+    )
+    monkeypatch.setattr(
+        registry_workflow,
+        "capture_registry_runtime_binding",
+        lambda: runtime_binding,
+    )
+
+    monkeypatch.setattr(
+        registry_workflow,
         "_runtime_utc_now",
         lambda: datetime(2026, 7, 20, 16, tzinfo=UTC),
     )
@@ -1276,13 +1350,14 @@ def test_runtime_binding_rejects_dirty_checkout_and_detects_committed_source_dri
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"runtime fixture {index}\n", encoding="utf-8")
 
-    def git(*args: str) -> None:
-        subprocess.run(
+    def git(*args: str) -> str:
+        completed = subprocess.run(
             ("git", "-C", str(repo), *args),
             check=True,
             capture_output=True,
             text=True,
         )
+        return completed.stdout.strip()
 
     git("init", "-q")
     git("add", "--", *RUNTIME_BINDING_PATHS)
@@ -1317,6 +1392,172 @@ def test_runtime_binding_rejects_dirty_checkout_and_detects_committed_source_dri
     assert changed.git_commit != original.git_commit
     assert changed.git_tree != original.git_tree
 
+    git("replace", original.git_commit, changed.git_commit)
+    registry_workflow._verify_recorded_runtime_binding(original, repo_root=repo)
+    git("replace", "-d", original.git_commit)
+    git("replace", original.git_tree, changed.git_tree)
+    registry_workflow._verify_recorded_runtime_binding(original, repo_root=repo)
+    git("replace", "-d", original.git_tree)
+    runtime_path = "backend/ame_stocks_api/silver/identity_registry_workflow.py"
+    original_runtime_pin = next(item for item in original.files if item.path == runtime_path)
+    changed_runtime_pin = next(item for item in changed.files if item.path == runtime_path)
+    git("replace", original_runtime_pin.git_blob_id, changed_runtime_pin.git_blob_id)
+    registry_workflow._verify_recorded_runtime_binding(original, repo_root=repo)
+    git("replace", "-d", original_runtime_pin.git_blob_id)
+
+    # Historical replay reads only the recorded commit, so later checkout drift
+    # is irrelevant while every recorded tree/file pin remains independently
+    # authenticated from Git objects.
+    registry_workflow._verify_recorded_runtime_binding(original, repo_root=repo)
+    first_pin = original.files[0]
+
+    def replace_first_pin(pin: RuntimeFilePin) -> RegistryRuntimeBinding:
+        return replace(original, files=(pin, *original.files[1:]))
+
+    tampered_bindings = (
+        (replace(original, git_commit="0" * 40), "commit is unavailable"),
+        (replace(original, git_tree="f" * 40), "commit/tree binding changed"),
+        (
+            replace_first_pin(replace(first_pin, git_mode="100755")),
+            "mode/blob binding changed",
+        ),
+        (
+            replace_first_pin(replace(first_pin, git_blob_id="f" * 40)),
+            "mode/blob binding changed",
+        ),
+        (
+            replace_first_pin(replace(first_pin, bytes=first_pin.bytes + 1)),
+            "bytes/SHA-256 changed",
+        ),
+        (
+            replace_first_pin(replace(first_pin, sha256="f" * 64)),
+            "bytes/SHA-256 changed",
+        ),
+    )
+    for tampered, message in tampered_bindings:
+        with pytest.raises(RegistryWorkflowError, match=message):
+            registry_workflow._verify_recorded_runtime_binding(tampered, repo_root=repo)
+
+
+def test_historical_runtime_cache_is_nested_but_never_crosses_top_level_loads(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sentinel = object()
+    pin = object()
+    observed_caches: list[object | None] = []
+    nesting = False
+
+    def load_in_scope(
+        _root: Path,
+        _pin: object,
+        *,
+        revalidate_current_runtime: bool,
+    ) -> object:
+        nonlocal nesting
+        assert revalidate_current_runtime is False
+        observed_caches.append(registry_workflow._HISTORICAL_RUNTIME_REPLAY_CACHE.get())
+        if not nesting:
+            nesting = True
+            try:
+                assert (
+                    load_registry_release(  # type: ignore[arg-type]
+                        tmp_path,
+                        pin,
+                        revalidate_current_runtime=False,
+                    )
+                    is sentinel
+                )
+            finally:
+                nesting = False
+        return sentinel
+
+    monkeypatch.setattr(registry_workflow, "_load_registry_release_in_scope", load_in_scope)
+    assert (
+        load_registry_release(  # type: ignore[arg-type]
+            tmp_path,
+            pin,
+            revalidate_current_runtime=False,
+        )
+        is sentinel
+    )
+    assert observed_caches[0] is not None
+    assert observed_caches[1] is observed_caches[0]
+    assert registry_workflow._HISTORICAL_RUNTIME_REPLAY_CACHE.get() is None
+
+    assert (
+        load_registry_release(  # type: ignore[arg-type]
+            tmp_path,
+            pin,
+            revalidate_current_runtime=False,
+        )
+        is sentinel
+    )
+    assert observed_caches[2] is not observed_caches[0]
+    assert observed_caches[3] is observed_caches[2]
+    assert registry_workflow._HISTORICAL_RUNTIME_REPLAY_CACHE.get() is None
+
+
+def test_historical_release_set_replays_each_recorded_runtime_once_per_load(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _runtime_binding()
+    recorded_replays: list[RegistryRuntimeBinding] = []
+    monkeypatch.setattr(
+        registry_workflow,
+        "_verify_recorded_runtime_binding",
+        lambda binding: recorded_replays.append(binding),
+    )
+
+    class FakeLoadedSet:
+        def __init__(self, releases: tuple[object, ...]) -> None:
+            self.releases = releases
+
+        def validate_all_composite_scopes_are_exclusive(self) -> None:
+            pass
+
+    def load_in_scope(
+        _root: Path,
+        pin: RegistryReleasePin,
+        *,
+        revalidate_current_runtime: bool,
+    ) -> RegistryReleasePin:
+        registry_workflow.verify_registry_runtime_binding(
+            runtime,
+            revalidate_current_runtime=revalidate_current_runtime,
+        )
+        return pin
+
+    monkeypatch.setattr(registry_workflow, "LoadedRegistryReleaseSet", FakeLoadedSet)
+    monkeypatch.setattr(registry_workflow, "_load_registry_release_in_scope", load_in_scope)
+    pins = tuple(
+        RegistryReleasePin(
+            registry_name=name,
+            release_id=f"{index:064x}",
+            manifest_path=f"release-{index}.json",
+            manifest_sha256=f"{index + 10:064x}",
+            manifest_bytes=1,
+            release_available_session=date(2026, 7, 20),
+        )
+        for index, name in enumerate(REGISTRY_ORDER, start=1)
+    )
+
+    registry_workflow.load_registry_release_set(
+        tmp_path,
+        pins,
+        require_exclusive_composite_scopes=False,
+        revalidate_current_runtime=False,
+    )
+    assert recorded_replays == [runtime]
+    registry_workflow.load_registry_release_set(
+        tmp_path,
+        pins,
+        require_exclusive_composite_scopes=False,
+        revalidate_current_runtime=False,
+    )
+    assert recorded_replays == [runtime, runtime]
+
 
 def test_production_prerequisite_authorization_is_root_runtime_and_target_bound(
     tmp_path: Path,
@@ -1334,6 +1575,11 @@ def test_production_prerequisite_authorization_is_root_runtime_and_target_bound(
         registry_workflow,
         "capture_registry_runtime_binding",
         lambda: runtime_binding,
+    )
+    monkeypatch.setattr(
+        registry_workflow,
+        "_verify_recorded_runtime_binding",
+        lambda _binding: None,
     )
     monkeypatch.setattr(
         registry_workflow,
@@ -1380,9 +1626,7 @@ def test_production_prerequisite_authorization_is_root_runtime_and_target_bound(
     assert record_production_prerequisite_authorization(tmp_path, **kwargs) == binding_b
 
     legacy = dict(document)
-    legacy["artifact_version"] = (
-        registry_workflow._PRODUCTION_PREREQUISITE_AUTHORIZATION_VERSION_V1
-    )
+    legacy["artifact_version"] = registry_workflow._PRODUCTION_PREREQUISITE_AUTHORIZATION_VERSION_V1
     legacy_slot = registry_workflow._production_prerequisite_authorization_slot_id(
         RegistryName.ASSET_TRANSITION.value,
         "schema_contract_approval",
