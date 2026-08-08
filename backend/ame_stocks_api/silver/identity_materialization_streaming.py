@@ -3451,11 +3451,7 @@ def _execute_streaming_bounded_profile_preview(
             binding=binding,
             registry_loader=registry_loader,
         )
-        sample_binding = replace(
-            binding,
-            mode="fixture",
-            membership_artifacts=sample,
-        )
+        sample_binding = _bounded_profile_sample_binding(binding, sample)
         staging.mkdir(parents=True, exist_ok=False)
         resolved = staging / "_resolved"
         resolved.mkdir()
@@ -6041,6 +6037,20 @@ def _profile_sample_artifacts(
     if len(sample) != limit:
         raise S7StreamingMaterializationError("profile sample selection is incomplete")
     return sample
+
+
+def _bounded_profile_sample_binding(
+    binding: S7StreamingSourceBinding,
+    sample: tuple[SessionArtifactPin, ...],
+) -> S7StreamingSourceBinding:
+    """Create a non-authoritative sample without carrying production extension authority."""
+
+    return replace(
+        binding,
+        mode="fixture",
+        membership_artifacts=sample,
+        incremental_session_extension=None,
+    )
 
 
 def _profile_plan_path(plan_id: str) -> str:

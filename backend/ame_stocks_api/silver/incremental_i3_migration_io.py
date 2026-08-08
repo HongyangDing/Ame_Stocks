@@ -53,6 +53,7 @@ from ame_stocks_api.silver.asset_release_set import (
     AssetReleaseSet,
     load_exact_asset_release_set_control,
 )
+from ame_stocks_api.silver.contracts import ArtifactRef, ArtifactRole
 from ame_stocks_api.silver.identity_resolution_contract import S7_DERIVED_CONTRACTS
 from ame_stocks_api.silver.incremental_contract import (
     ArtifactPin,
@@ -1489,7 +1490,7 @@ def _load_exact_base_frontier(
             "base_release_set_id": s4.release_set_id,
             "partitions": [
                 {
-                    "artifact": item.artifact.to_dict(),
+                    "artifact": _s4_frontier_artifact_projection(item),
                     "contract_id": ASSET_CONTRACTS[item.table_name].contract_id,
                     "table": item.table_name,
                 }
@@ -1514,6 +1515,21 @@ def _load_exact_base_frontier(
     ):
         raise I3MigrationIOError("I2 base frontier differs from explicit S4 member pins")
     return frontier
+
+
+def _s4_frontier_artifact_projection(item: I3MigrationParquetPin) -> dict[str, object]:
+    """Reproduce the exact S4 producer ArtifactRef used by the frontier digest."""
+
+    return ArtifactRef(
+        path=item.artifact.path,
+        sha256=item.artifact.sha256,
+        bytes=item.artifact.bytes,
+        row_count=item.row_count,
+        media_type="application/vnd.apache.parquet",
+        role=ArtifactRole.DATA,
+        table=item.table_name,
+        schema_digest=item.schema_digest,
+    ).to_dict()
 
 
 def _asset_aggregate_projections(

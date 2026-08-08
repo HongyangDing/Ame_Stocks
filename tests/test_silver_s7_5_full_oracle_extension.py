@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import subprocess
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
 
@@ -158,6 +158,30 @@ def test_extension_loader_rejects_tampered_membership_contract(
             base_pin=extension.base_source_binding_manifest,
             session_date=_TARGET,
         )
+
+
+def test_bounded_profile_sample_drops_production_extension_authority() -> None:
+    extension, _delta_inputs, _run_spec, _membership = _authority_fixture()
+
+    @dataclass(frozen=True)
+    class Binding:
+        mode: str
+        membership_artifacts: tuple[stream.SessionArtifactPin, ...]
+        incremental_session_extension: stream.S75IncrementalSessionExtension | None
+
+    original = Binding(
+        mode="production",
+        membership_artifacts=(extension.membership_artifact,),
+        incremental_session_extension=extension,
+    )
+    sampled = stream._bounded_profile_sample_binding(
+        original,  # type: ignore[arg-type]
+        (extension.membership_artifact,),
+    )
+
+    assert sampled.mode == "fixture"
+    assert sampled.membership_artifacts == (extension.membership_artifact,)
+    assert sampled.incremental_session_extension is None
 
 
 def test_historical_full_oracle_runtime_replays_old_git_without_replace_refs(

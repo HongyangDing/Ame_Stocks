@@ -21,6 +21,7 @@ from ame_stocks_api.silver.asset_incremental import (
     S4_BASE_TERMINAL_PARTITION_SET_RULE_VERSION,
 )
 from ame_stocks_api.silver.asset_incremental_contract import S4BaseFrontier
+from ame_stocks_api.silver.contracts import ArtifactRef, ArtifactRole
 from ame_stocks_api.silver.identity_resolution_contract import S7_DERIVED_CONTRACTS
 from ame_stocks_api.silver.incremental_contract import ArtifactPin, RowVersionOperation
 from ame_stocks_api.silver.incremental_i3_checkpoint import (
@@ -501,7 +502,16 @@ def _base_fixture(tmp_path: Path):
             "base_release_set_id": s4.release_set_id,
             "partitions": [
                 {
-                    "artifact": item.artifact.to_dict(),
+                    "artifact": ArtifactRef(
+                        path=item.artifact.path,
+                        sha256=item.artifact.sha256,
+                        bytes=item.artifact.bytes,
+                        row_count=item.row_count,
+                        media_type="application/vnd.apache.parquet",
+                        role=ArtifactRole.DATA,
+                        table=item.table_name,
+                        schema_digest=item.schema_digest,
+                    ).to_dict(),
                     "contract_id": ASSET_CONTRACTS[item.table_name].contract_id,
                     "table": item.table_name,
                 }

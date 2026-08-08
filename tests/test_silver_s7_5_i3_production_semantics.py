@@ -29,15 +29,15 @@ def _append_fields() -> dict[str, object]:
     }
 
 
-def test_transform_semantics_v4_seals_every_delta_and_base_input_rule() -> None:
+def test_transform_semantics_v5_seals_every_delta_and_base_input_rule() -> None:
     assert semantics.I3_PRODUCTION_TRANSFORM_SEMANTICS_RULE_VERSION == (
-        "s7_5_i3_production_transform_semantics_v4"
+        "s7_5_i3_production_transform_semantics_v5"
     )
     assert semantics.I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST == (
-        "b74bdb3b845790e666229da12aafd1910614565bba091b2f076054d126139300"
+        "bde1641f7c4c5c303f003d6a4747e1060d1c75cccb80c7c6673e6a89098adeef"
     )
     assert semantics.I3_COMPACT_BASE_INPUT_BINDING_RULE_VERSION == (
-        "s7_5_i3_compact_base_exact_input_binding_v2"
+        "s7_5_i3_compact_base_exact_input_binding_v3"
     )
     assert (
         semantics.I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD["materialization_rules"][
