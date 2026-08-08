@@ -115,7 +115,7 @@ STREAMING_INTENT_VERSION: Final = 1
 STREAMING_CANDIDATE_VERSION: Final = 1
 STREAMING_COMPLETION_VERSION: Final = 1
 PROFILE_POLICY_VERSION: Final = "s7-streaming-bounded-size-profile-v2"
-PROFILE_SAMPLE_SELECTION_POLICY_VERSION: Final = "s7-transition-closed-calendar-strata-v1"
+PROFILE_SAMPLE_SELECTION_POLICY_VERSION: Final = "s7-transition-closed-calendar-strata-base-only-v2"
 TRANSITION_PROFILE_ANCHOR_POLICY_VERSION: Final = "s7-transition-profile-anchor-binding-v1"
 PROFILE_SAMPLE_SESSION_HARD_CAP: Final = 25
 PROFILE_AUTHORIZED_ACTION: Final = "execute_exact_s7_bounded_size_profile_once_to_awaiting_review"
@@ -3131,7 +3131,7 @@ def prepare_streaming_bounded_profile_preview_plan(
     if cap > PROFILE_SAMPLE_SESSION_HARD_CAP:
         raise S7StreamingMaterializationError("profile sample exceeds the frozen hard cap")
     sample = _profile_sample_artifacts(
-        binding.membership_artifacts,
+        _profile_sample_population(binding),
         cap,
         mandatory_sessions=(binding.transition_profile_anchor_binding.mandatory_sessions),
     )
@@ -6039,6 +6039,39 @@ def _profile_sample_artifacts(
     return sample
 
 
+def _profile_sample_population(
+    binding: S7StreamingSourceBinding,
+) -> tuple[SessionArtifactPin, ...]:
+    """Return the representative base population for a bounded size profile.
+
+    The production I2 extension contains deliberately sparse fail-closed identity
+    projections that require its exact production authority.  A bounded profile is
+    intentionally materialized through a non-authoritative fixture binding, so it
+    must sample the legacy base population only.  The projection denominator still
+    uses the complete production binding row count, including the extension; using
+    resolved base rows for the byte-rate estimate is therefore conservative.
+    """
+
+    artifacts = tuple(binding.membership_artifacts)
+    extension = binding.incremental_session_extension
+    if binding.mode != "production" or extension is None:
+        return artifacts
+    if not artifacts or artifacts[-1] != extension.membership_artifact:
+        raise S7StreamingMaterializationError(
+            "profile I2 extension differs from bound terminal membership"
+        )
+    base = artifacts[:-1]
+    if not base:
+        raise S7StreamingMaterializationError("profile base population is empty")
+    if extension.membership_artifact.session_date in {
+        *binding.transition_profile_anchor_binding.mandatory_sessions,
+    }:
+        raise S7StreamingMaterializationError(
+            "profile transition anchor cannot depend on the I2 extension"
+        )
+    return base
+
+
 def _bounded_profile_sample_binding(
     binding: S7StreamingSourceBinding,
     sample: tuple[SessionArtifactPin, ...],
@@ -6176,7 +6209,7 @@ def _load_profile_plan(
         for value in _array(document["sample_artifacts"], "profile sample artifacts")
     )
     if sample != _profile_sample_artifacts(
-        binding.membership_artifacts,
+        _profile_sample_population(binding),
         cap,
         mandatory_sessions=(binding.transition_profile_anchor_binding.mandatory_sessions),
     ):

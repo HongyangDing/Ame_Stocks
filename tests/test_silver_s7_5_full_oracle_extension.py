@@ -160,27 +160,43 @@ def test_extension_loader_rejects_tampered_membership_contract(
         )
 
 
-def test_bounded_profile_sample_drops_production_extension_authority() -> None:
+def test_bounded_profile_sample_uses_base_rows_and_drops_extension_authority() -> None:
     extension, _delta_inputs, _run_spec, _membership = _authority_fixture()
+    base_membership = replace(
+        extension.membership_artifact,
+        session_date=date(2026, 7, 9),
+        artifact=stream.ExactFilePin(
+            path=(
+                "silver/assets/universe_source_daily/session_year=2026/"
+                "session_date=2026-07-09/part.parquet"
+            ),
+            sha256=_digest("base-membership-sha"),
+            bytes=199,
+        ),
+    )
 
     @dataclass(frozen=True)
     class Binding:
         mode: str
         membership_artifacts: tuple[stream.SessionArtifactPin, ...]
         incremental_session_extension: stream.S75IncrementalSessionExtension | None
+        transition_profile_anchor_binding: SimpleNamespace
 
     original = Binding(
         mode="production",
-        membership_artifacts=(extension.membership_artifact,),
+        membership_artifacts=(base_membership, extension.membership_artifact),
         incremental_session_extension=extension,
+        transition_profile_anchor_binding=SimpleNamespace(mandatory_sessions=()),
     )
+    population = stream._profile_sample_population(original)  # type: ignore[arg-type]
     sampled = stream._bounded_profile_sample_binding(
         original,  # type: ignore[arg-type]
-        (extension.membership_artifact,),
+        population,
     )
 
+    assert population == (base_membership,)
     assert sampled.mode == "fixture"
-    assert sampled.membership_artifacts == (extension.membership_artifact,)
+    assert sampled.membership_artifacts == (base_membership,)
     assert sampled.incremental_session_extension is None
 
 
@@ -282,11 +298,23 @@ def test_extended_profile_plan_binds_executor_runtime_and_changes_slot_id(
     source_runtime = {"runtime": "historical-source"}
     execution_runtime = {"runtime": "current-executor"}
     membership = extension.membership_artifact
+    base_membership = replace(
+        membership,
+        session_date=date(2026, 7, 9),
+        artifact=stream.ExactFilePin(
+            path=(
+                "silver/assets/universe_source_daily/session_year=2026/"
+                "session_date=2026-07-09/part.parquet"
+            ),
+            sha256=_digest("profile-base-membership-sha"),
+            bytes=97,
+        ),
+    )
     transition = SimpleNamespace(mandatory_sessions=(), to_dict=lambda: {"anchor": "fixed"})
     binding = SimpleNamespace(
         contract_approvals=(),
         incremental_session_extension=extension,
-        membership_artifacts=(membership,),
+        membership_artifacts=(base_membership, membership),
         mode="production",
         runtime_binding=source_runtime,
         source_binding_id=_digest("extended-binding"),
