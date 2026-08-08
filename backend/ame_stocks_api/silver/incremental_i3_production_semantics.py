@@ -32,7 +32,7 @@ from ame_stocks_api.silver.incremental_i3_migration_core import (
     MIGRATION_SOURCE_SEED_RULE_VERSION,
 )
 
-I3_PRODUCTION_TRANSFORM_SEMANTICS_RULE_VERSION: Final = "s7_5_i3_production_transform_semantics_v3"
+I3_PRODUCTION_TRANSFORM_SEMANTICS_RULE_VERSION: Final = "s7_5_i3_production_transform_semantics_v4"
 I3_PRODUCTION_MIGRATION_ID_RULE_VERSION: Final = "s7_5_i3_production_native_v2_migration_id_v1"
 
 # These strings are deliberately defined outside migration_io so the RunSpec
@@ -40,7 +40,7 @@ I3_PRODUCTION_MIGRATION_ID_RULE_VERSION: Final = "s7_5_i3_production_native_v2_m
 # import cycle.  migration_io uses these exact rule identifiers when producing
 # and readback-validating the compact base.
 I3_COMPACT_BASE_SOURCE_RULE_VERSION: Final = "s7_5_i3_compact_base_source_v1"
-I3_COMPACT_BASE_INPUT_BINDING_RULE_VERSION: Final = "s7_5_i3_compact_base_exact_input_binding_v1"
+I3_COMPACT_BASE_INPUT_BINDING_RULE_VERSION: Final = "s7_5_i3_compact_base_exact_input_binding_v2"
 I3_COMPACT_BASE_PARTITION_RECEIPT_RULE_VERSION: Final = "s7_5_i3_compact_base_partition_receipt_v1"
 I3_COMPACT_BASE_S4_TERMINAL_RECEIPT_RULE_VERSION: Final = (
     "s7_5_i3_compact_base_s4_terminal_receipt_v1"

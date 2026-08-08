@@ -107,11 +107,12 @@ from ame_stocks_api.silver.incremental_i3_production_contract import (
 )
 from ame_stocks_api.silver.incremental_i3_production_semantics import (
     I3_COMPACT_BASE_INITIAL_SEGMENT_RULE_VERSION,
+    I3_COMPACT_BASE_INPUT_BINDING_RULE_VERSION,
     production_compact_base_initial_segment_id,
 )
 
 COMPACT_BASE_SOURCE_RULE_VERSION: Final = "s7_5_i3_compact_base_source_v1"
-COMPACT_BASE_INPUT_BINDING_RULE_VERSION: Final = "s7_5_i3_compact_base_exact_input_binding_v1"
+COMPACT_BASE_INPUT_BINDING_RULE_VERSION: Final = I3_COMPACT_BASE_INPUT_BINDING_RULE_VERSION
 COMPACT_BASE_PARTITION_RECEIPT_RULE_VERSION: Final = "s7_5_i3_compact_base_partition_receipt_v1"
 COMPACT_BASE_S4_TERMINAL_RECEIPT_RULE_VERSION: Final = "s7_5_i3_compact_base_s4_terminal_receipt_v1"
 COMPACT_BASE_UNRESOLVED_SEED_RULE_VERSION: Final = "s7_5_i3_compact_base_unresolved_seed_v1"
