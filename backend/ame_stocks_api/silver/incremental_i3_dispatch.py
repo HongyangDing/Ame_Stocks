@@ -2947,7 +2947,11 @@ def _snapshot_json_value(value: object) -> object:
         return value
     if type(value) is date:
         return value.isoformat()
-    if type(value) is datetime:
+    # Parquet replay may surface timezone-aware timestamps as a
+    # ``pandas.Timestamp`` (a ``datetime`` subclass).  This remains the same
+    # canonical temporal domain and must not make an authenticated production
+    # registry row depend on the reader's concrete scalar implementation.
+    if isinstance(value, datetime):
         if value.tzinfo is None:
             raise I3DispatchError("production registry timestamp must be timezone-aware")
         return value.isoformat()

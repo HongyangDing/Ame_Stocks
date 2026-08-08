@@ -4,6 +4,7 @@ import hashlib
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
 
+import pandas as pd
 import pytest
 
 from ame_stocks_api.artifacts import stable_digest
@@ -165,6 +166,26 @@ def _sor_rows() -> tuple[
         transition_scope,
         override.to_registry_row(),
         override_scope,
+    )
+
+
+def test_production_policy_accepts_parquet_timestamp_subclass() -> None:
+    transition_row, transition_scope, override_row, override_scope = _sor_rows()
+    override_row = dict(override_row)
+    override_row["approved_at_utc"] = pd.Timestamp("2026-07-29T07:40:36.158368Z")
+    loaded, bundle = _release_set_and_bundle(
+        {
+            IdentityRegistryKind.PROVIDER_COMPOSITE_OVERRIDE: ((override_row, override_scope),),
+            IdentityRegistryKind.ASSET_TRANSITION: ((transition_row, transition_scope),),
+        }
+    )
+
+    snapshot = load_production_identity_policy_snapshot(loaded, bundle)
+
+    selected = snapshot.decision_by_id(str(override_row["provider_composite_override_id"]))
+    assert selected.production_registry_row is not None
+    assert selected.production_registry_row["approved_at_utc"] == (
+        "2026-07-29T07:40:36.158368+00:00"
     )
 
 

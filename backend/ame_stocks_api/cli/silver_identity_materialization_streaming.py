@@ -18,6 +18,7 @@ from ame_stocks_api.silver.identity_materialization_streaming import (
     S7StreamingMaterializationError,
     StreamingResourceCaps,
     build_and_store_production_streaming_source_binding,
+    build_and_store_s75_incremental_full_source_binding,
     execute_streaming_bounded_profile_preview,
     execute_streaming_full_candidate,
     prepare_streaming_approval_request,
@@ -59,6 +60,14 @@ def build_parser() -> argparse.ArgumentParser:
     _data_root(binding)
     binding.add_argument("--registry-pins-json", type=Path, required=True)
     binding.add_argument("--cutoff-session", type=date.fromisoformat, required=True)
+
+    extended_binding = commands.add_parser(
+        "store-s75-full-oracle-binding",
+        help="extend one exact S7 base binding with the authenticated first I2 session",
+    )
+    _data_root(extended_binding)
+    extended_binding.add_argument("--base-source-binding-id", required=True)
+    extended_binding.add_argument("--session-date", type=date.fromisoformat, required=True)
 
     profile_plan = commands.add_parser(
         "prepare-profile", help="freeze the bounded size/profile plan"
@@ -136,6 +145,20 @@ def main(argv: list[str] | None = None) -> int:
                 root,
                 registry_pins=_load_registry_pins(args.registry_pins_json),
                 cutoff_session=args.cutoff_session,
+            )
+            _print(
+                {
+                    "receipt": control.receipt.to_dict(),
+                    "source_binding": binding.to_dict(),
+                    "source_binding_id": control.logical_id,
+                }
+            )
+            return 0
+        if args.command == "store-s75-full-oracle-binding":
+            binding, control = build_and_store_s75_incremental_full_source_binding(
+                root,
+                base_source_binding_id=args.base_source_binding_id,
+                session_date=args.session_date,
             )
             _print(
                 {

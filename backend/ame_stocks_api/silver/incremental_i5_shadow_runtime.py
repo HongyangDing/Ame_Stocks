@@ -59,6 +59,7 @@ from ame_stocks_api.silver.incremental_i3_production_contract import (
     I3ProductionContractError,
     I3ProductionOutputStorage,
     I3ProductionRunKind,
+    I3ProductionRunSpec,
     LoadedI3ProductionStaging,
     load_i3_production_deep_attestation_exact,
     load_i3_production_parent_shallow_exact,
@@ -738,10 +739,11 @@ def _load_production_inputs(
         meter=meter,
         disk_monitor=disk_monitor,
     )
-    if delta_inputs.source_binding != oracle_binding:
-        raise I5FullOracleSeamError(
-            "P0 full-oracle seam: producers do not bind the same exact S7 inputs"
-        )
+    _verify_full_oracle_input_closure(
+        delta_inputs=delta_inputs,
+        oracle_binding=oracle_binding,
+        run_spec=loaded.run_spec,
+    )
     _reconcile_producer_authorities(loaded, oracle_binding, incremental, oracle)
     io_delta = io_audit.sample(meter)
     meter.bytes = max(
@@ -966,7 +968,7 @@ def _full_oracle_side(
     if (
         approval_id != approval.approval_id
         or completion["source_binding_id"] != binding.source_binding_id
-        or binding.cutoff_session != I5_TARGET_SESSION
+        or not _full_oracle_covers_target(binding)
         or plan["source_binding_id"] != binding.source_binding_id
         or approval.plan_id != plan_id
     ):
@@ -1143,6 +1145,7 @@ def _full_oracle_side(
         root,
         candidate_id=candidate_id,
         candidate=candidate,
+        source_binding=binding,
         comparison_sessions=comparison_sessions,
         expected_universe_sessions=tuple(
             item.session_date for item in binding.membership_artifacts
@@ -1199,6 +1202,11 @@ def _full_oracle_side(
         transform_semantics_digest=stable_digest(
             {
                 "adapter_version": candidate["adapter_version"],
+                "incremental_extension_rule": getattr(
+                    getattr(binding, "incremental_session_extension", None),
+                    "fallback_rule_version",
+                    None,
+                ),
                 "policy_version": candidate["policy_version"],
                 "runtime_binding": plan["runtime_binding"],
                 "rule_version": "s7_5_i5_full_oracle_transform_binding_v1",
@@ -1222,6 +1230,68 @@ def _full_oracle_side(
         ),
     )
     return side, binding
+
+
+def _full_oracle_covers_target(binding: object) -> bool:
+    extension = getattr(binding, "incremental_session_extension", None)
+    if extension is None:
+        return getattr(binding, "cutoff_session", None) == I5_TARGET_SESSION
+    membership = getattr(binding, "membership_artifacts", ())
+    return (
+        getattr(extension, "membership_artifact", None) is not None
+        and extension.membership_artifact.session_date == I5_TARGET_SESSION
+        and bool(membership)
+        and membership[-1] == extension.membership_artifact
+        and getattr(binding, "cutoff_session", date.min) >= I5_TARGET_SESSION
+    )
+
+
+def _verify_full_oracle_input_closure(
+    *,
+    delta_inputs: object,
+    oracle_binding: object,
+    run_spec: I3ProductionRunSpec,
+) -> None:
+    extension = getattr(oracle_binding, "incremental_session_extension", None)
+    if extension is None:
+        if delta_inputs.source_binding != oracle_binding:
+            raise I5FullOracleSeamError(
+                "P0 full-oracle seam: producers do not bind the same exact S7 inputs"
+            )
+        return
+    expected_i2 = run_spec.i2_receipts
+    if len(expected_i2) != 1:
+        raise I5FullOracleSeamError("P0 full-oracle seam: DELTA I2 authority differs")
+    i2_pin = expected_i2[0]
+    base_artifact = delta_inputs.source_binding_artifact
+    i2_run = delta_inputs.i2_run
+    membership = next(
+        (
+            item
+            for item in i2_run.receipt.partition_receipts
+            if item.table_name == "universe_source_daily"
+        ),
+        None,
+    )
+    if (
+        extension.base_source_binding_id != delta_inputs.source_binding.source_binding_id
+        or extension.base_source_binding_manifest.to_dict() != base_artifact.to_dict()
+        or extension.i2_run_receipt_id != i2_pin.receipt_id
+        or extension.i2_run_receipt.to_dict() != i2_pin.artifact.to_dict()
+        or extension.i2_run_receipt_id != i2_run.receipt.receipt_id
+        or extension.i2_source_binding_id != i2_run.receipt.source_binding_id
+        or extension.i2_parent_frontier_id != i2_run.receipt.parent_frontier_id
+        or extension.receipt_available_session != i2_run.receipt.receipt_available_session
+        or membership is None
+        or extension.membership_partition_receipt_id != membership.partition_receipt_id
+        or extension.membership_artifact.artifact.to_dict() != membership.artifact.to_dict()
+        or extension.membership_artifact.row_count != membership.row_count
+        or extension.membership_contract_id != membership.contract_id
+        or extension.membership_schema_digest != membership.schema_digest
+    ):
+        raise I5FullOracleSeamError(
+            "P0 full-oracle seam: independent Full does not bind the exact base plus I2 inputs"
+        )
 
 
 def _official_full_sqlite_reserve_bytes(
@@ -1265,6 +1335,7 @@ def _read_oracle_outputs(
     *,
     candidate_id: str,
     candidate: Mapping[str, object],
+    source_binding: object,
     comparison_sessions: tuple[date, ...],
     expected_universe_sessions: tuple[date, ...],
     meter: _ReadMeter,
@@ -1406,6 +1477,14 @@ def _read_oracle_outputs(
         "unresolved_rows",
     }
     _keys(qa_body, required_qa, "Full oracle QA")
+    reference_unattempted_rows = _nonnegative_int(
+        qa_body["reference_inventory_unattempted_rows"],
+        "Full oracle QA reference inventory unattempted rows",
+    )
+    expected_reference_unattempted_rows = _expected_reference_unattempted_rows(
+        source_binding,
+        rows,
+    )
     zero_safety_fields = (
         "critical_failure_count",
         "identity_quality_forced_liquidation_rows",
@@ -1414,7 +1493,6 @@ def _read_oracle_outputs(
         "multi_registry_composite_override_collision_alias_rows",
         "multi_registry_composite_override_collision_eligible_rows",
         "multi_registry_composite_override_collision_resolved_rows",
-        "reference_inventory_unattempted_rows",
         "share_class_correction_before_unique_composite_rows",
         "source_membership_omission_or_duplication_rows",
         "transition_automatic_return_stitching_rows",
@@ -1426,6 +1504,7 @@ def _read_oracle_outputs(
         _nonnegative_int(qa_body[field], f"Full oracle QA {field}") != 0
         for field in zero_safety_fields
     )
+    unsafe_qa = unsafe_qa or (reference_unattempted_rows != expected_reference_unattempted_rows)
     if (
         qa_body["artifact_type"] != "s7_streaming_four_table_full_qa"
         or qa_body["state"] != full_runtime.STREAMING_STATE
@@ -1439,6 +1518,36 @@ def _read_oracle_outputs(
     )
     total_bytes += qa["artifact"].bytes
     return rows, MappingProxyType(physical), total_bytes, qa_body
+
+
+def _expected_reference_unattempted_rows(
+    source_binding: object,
+    rows: Mapping[str, Mapping[str, tuple[dict[str, object], ...]]],
+) -> int:
+    extension = getattr(source_binding, "incremental_session_extension", None)
+    if extension is None:
+        return 0
+    target_rows = rows["universe_daily"].get(I5_TARGET_SESSION.isoformat(), ())
+    count = sum(
+        1
+        for row in target_rows
+        if (
+            row.get("identity_resolution_status") == "unresolved"
+            and row.get("identity_resolution_method") == "cross_market_composite_pending_unresolved"
+            and row.get("identity_disposition") == "pending_cross_market_review"
+            and row.get("cross_market_classification_status") == "not_classified"
+            and row.get("backtest_identity_eligible") is False
+            and row.get("current_reference_factor_eligible") is False
+            and row.get("canonical_composite_figi") is None
+            and row.get("asset_id") is None
+            and row.get("ticker_alias_id") is None
+        )
+    )
+    if count != full_runtime.S75_GATE_B_UNATTEMPTED_SOURCE_ROW_COUNT:
+        raise I5FullOracleSeamError(
+            "P0 full-oracle seam: fail-closed Gate-B extension scope differs"
+        )
+    return count
 
 
 def _oracle_output_receipt(

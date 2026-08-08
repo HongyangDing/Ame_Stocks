@@ -51,6 +51,8 @@ from ame_stocks_api.silver.asset_contract import (
     ASSET_OBSERVATION_DAILY_CONTRACT,
     UNIVERSE_SOURCE_DAILY_CONTRACT,
 )
+from ame_stocks_api.silver.asset_incremental import load_completed_s4_asset_session_run
+from ame_stocks_api.silver.asset_incremental_contract import S4SessionPartitionReceipt
 from ame_stocks_api.silver.calendar_artifact import load_xnys_calendar_artifact
 from ame_stocks_api.silver.identity_market_consistency import (
     MARKET_CLASSIFICATION_VERSION,
@@ -134,6 +136,21 @@ S7_STANDING_REAFFIRMATION_SHA256: Final = hashlib.sha256(
 ).hexdigest()
 PRODUCTION_ADAPTER_VERSION: Final = "s7_frozen_registry_projection_adapter_v2"
 PRODUCTION_GATE_B_REFERENCE_VERSION: Final = MARKET_CLASSIFICATION_VERSION
+S75_INCREMENTAL_FULL_EXTENSION_RULE_VERSION: Final = (
+    "s7_5_streaming_full_authenticated_i2_extension_v1"
+)
+S75_INCREMENTAL_FULL_FALLBACK_RULE_VERSION: Final = (
+    "s7_5_streaming_full_fail_closed_first_delta_identity_v1"
+)
+S75_FIRST_DELTA_SESSION: Final = date(2026, 7, 10)
+S75_SOR_OVERRIDE_TICKER: Final = "SOR"
+S75_SOR_OVERRIDE_OBSERVED_COMPOSITE: Final = "BBG000KMY6N2"
+S75_SOR_OVERRIDE_OBSERVED_SHARE_CLASS: Final = "BBG01RK6N5G9"
+S75_SOR_OVERRIDE_CANONICAL_COMPOSITE: Final = "BBG01RK6N4M5"
+S75_SOR_OVERRIDE_VALID_FROM: Final = date(2025, 1, 2)
+S75_SOR_OVERRIDE_VALID_THROUGH: Final = date(2026, 7, 9)
+S75_SOR_OVERRIDE_SOURCE_ROW_COUNT: Final = 379
+S75_GATE_B_UNATTEMPTED_SOURCE_ROW_COUNT: Final = 16
 
 TABLE_ORDER: Final = (
     "asset_master",
@@ -321,6 +338,139 @@ class SessionArtifactPin:
             session_date=date.fromisoformat(_text(item["session_date"], "artifact session")),
             row_count=_positive(item["row_count"], "artifact row count"),
             artifact=ExactFilePin.from_dict(item["artifact"]),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class S75IncrementalSessionExtension:
+    """Authenticated one-session S4 extension for an independent S7.5 Full.
+
+    The extension never rewrites the frozen S7/S4 base binding.  It names that
+    exact binding and one completed I2 run receipt, then repeats the selected
+    ``universe_source_daily`` partition receipt so a source-binding verifier can
+    prove the appended membership without directory discovery.
+    """
+
+    base_source_binding_id: str
+    base_source_binding_manifest: ExactFilePin
+    i2_run_receipt_id: str
+    i2_run_receipt: ExactFilePin
+    i2_source_binding_id: str
+    i2_parent_frontier_id: str
+    receipt_available_session: date
+    membership_artifact: SessionArtifactPin
+    membership_partition_receipt_id: str
+    membership_contract_id: str
+    membership_schema_digest: str
+    fallback_rule_version: str = S75_INCREMENTAL_FULL_FALLBACK_RULE_VERSION
+    rule_version: str = S75_INCREMENTAL_FULL_EXTENSION_RULE_VERSION
+
+    def __post_init__(self) -> None:
+        for value, label in (
+            (self.base_source_binding_id, "extension base source-binding ID"),
+            (self.i2_run_receipt_id, "extension I2 run-receipt ID"),
+            (self.i2_source_binding_id, "extension I2 source-binding ID"),
+            (self.i2_parent_frontier_id, "extension I2 parent-frontier ID"),
+            (
+                self.membership_partition_receipt_id,
+                "extension membership partition-receipt ID",
+            ),
+            (self.membership_contract_id, "extension membership contract ID"),
+            (self.membership_schema_digest, "extension membership schema digest"),
+        ):
+            _digest(value, label)
+        if not isinstance(self.base_source_binding_manifest, ExactFilePin):
+            raise S7StreamingMaterializationError(
+                "extension base source-binding manifest pin is invalid"
+            )
+        if not isinstance(self.i2_run_receipt, ExactFilePin):
+            raise S7StreamingMaterializationError("extension I2 run-receipt pin is invalid")
+        if not isinstance(self.membership_artifact, SessionArtifactPin):
+            raise S7StreamingMaterializationError("extension membership pin is invalid")
+        if self.membership_artifact.session_date != S75_FIRST_DELTA_SESSION:
+            raise S7StreamingMaterializationError(
+                "S7.5 Full extension is not the frozen first DELTA session"
+            )
+        _native_date(self.receipt_available_session, "extension receipt availability")
+        if self.receipt_available_session < self.membership_artifact.session_date:
+            raise S7StreamingMaterializationError(
+                "extension receipt availability predates its membership"
+            )
+        if self.fallback_rule_version != S75_INCREMENTAL_FULL_FALLBACK_RULE_VERSION:
+            raise S7StreamingMaterializationError("extension fallback rule changed")
+        if self.rule_version != S75_INCREMENTAL_FULL_EXTENSION_RULE_VERSION:
+            raise S7StreamingMaterializationError("extension rule changed")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "base_source_binding_id": self.base_source_binding_id,
+            "base_source_binding_manifest": self.base_source_binding_manifest.to_dict(),
+            "fallback_rule_version": self.fallback_rule_version,
+            "i2_parent_frontier_id": self.i2_parent_frontier_id,
+            "i2_run_receipt": self.i2_run_receipt.to_dict(),
+            "i2_run_receipt_id": self.i2_run_receipt_id,
+            "i2_source_binding_id": self.i2_source_binding_id,
+            "membership_artifact": self.membership_artifact.to_dict(),
+            "membership_contract_id": self.membership_contract_id,
+            "membership_partition_receipt_id": self.membership_partition_receipt_id,
+            "membership_schema_digest": self.membership_schema_digest,
+            "receipt_available_session": self.receipt_available_session.isoformat(),
+            "rule_version": self.rule_version,
+        }
+
+    @classmethod
+    def from_dict(cls, value: object) -> S75IncrementalSessionExtension:
+        item = _mapping(value, "S7.5 incremental Full extension")
+        _expect_keys(
+            item,
+            {
+                "base_source_binding_id",
+                "base_source_binding_manifest",
+                "fallback_rule_version",
+                "i2_parent_frontier_id",
+                "i2_run_receipt",
+                "i2_run_receipt_id",
+                "i2_source_binding_id",
+                "membership_artifact",
+                "membership_contract_id",
+                "membership_partition_receipt_id",
+                "membership_schema_digest",
+                "receipt_available_session",
+                "rule_version",
+            },
+            "S7.5 incremental Full extension",
+        )
+        return cls(
+            base_source_binding_id=_digest(
+                item["base_source_binding_id"], "extension base source-binding ID"
+            ),
+            base_source_binding_manifest=ExactFilePin.from_dict(
+                item["base_source_binding_manifest"]
+            ),
+            i2_run_receipt_id=_digest(item["i2_run_receipt_id"], "extension I2 run-receipt ID"),
+            i2_run_receipt=ExactFilePin.from_dict(item["i2_run_receipt"]),
+            i2_source_binding_id=_digest(
+                item["i2_source_binding_id"], "extension I2 source-binding ID"
+            ),
+            i2_parent_frontier_id=_digest(
+                item["i2_parent_frontier_id"], "extension I2 parent-frontier ID"
+            ),
+            receipt_available_session=date.fromisoformat(
+                _text(item["receipt_available_session"], "extension receipt availability")
+            ),
+            membership_artifact=SessionArtifactPin.from_dict(item["membership_artifact"]),
+            membership_partition_receipt_id=_digest(
+                item["membership_partition_receipt_id"],
+                "extension membership partition-receipt ID",
+            ),
+            membership_contract_id=_digest(
+                item["membership_contract_id"], "extension membership contract ID"
+            ),
+            membership_schema_digest=_digest(
+                item["membership_schema_digest"], "extension membership schema digest"
+            ),
+            fallback_rule_version=_text(item["fallback_rule_version"], "extension fallback rule"),
+            rule_version=_text(item["rule_version"], "extension rule"),
         )
 
 
@@ -692,6 +842,7 @@ class S7StreamingSourceBinding:
     calendar_artifact_id: str
     calendar_artifact_sha256: str
     transition_profile_anchor_binding: TransitionProfileAnchorBinding
+    incremental_session_extension: S75IncrementalSessionExtension | None = None
     s4_release_set_id: str = S7_S4_RELEASE_SET_ID
     six_release_binding_id: str = S7_SIX_RELEASE_BINDING_ID
     source_release_pins: Mapping[str, Mapping[str, object]] = field(
@@ -755,15 +906,28 @@ class S7StreamingSourceBinding:
         _validate_runtime_binding(self.runtime_binding)
         if self.mode == "production":
             universe = S7_SOURCE_PINS["universe_source_daily"]
-            if (
+            extension = self.incremental_session_extension
+            base_artifacts = artifacts if extension is None else artifacts[:-1]
+            invalid_base = (
                 self.s4_release_set_id != S7_S4_RELEASE_SET_ID
                 or self.six_release_binding_id != S7_SIX_RELEASE_BINDING_ID
                 or self.s4_release_set_manifest.sha256 != S7_S4_RELEASE_SET_MANIFEST_SHA256
-                or len(artifacts) != PRODUCTION_SESSION_COUNT
-                or sum(item.row_count for item in artifacts) != universe.row_count
+                or len(base_artifacts) != PRODUCTION_SESSION_COUNT
+                or sum(item.row_count for item in base_artifacts) != universe.row_count
                 or universe.row_count != PRODUCTION_ROW_COUNT
-            ):
+            )
+            invalid_extension = extension is not None and (
+                len(artifacts) != PRODUCTION_SESSION_COUNT + 1
+                or artifacts[-1] != extension.membership_artifact
+                or artifacts[-1].session_date <= base_artifacts[-1].session_date
+                or self.cutoff_session < artifacts[-1].session_date
+            )
+            if invalid_base or invalid_extension:
                 raise S7StreamingMaterializationError("production S4 membership scope differs")
+        elif self.incremental_session_extension is not None:
+            raise S7StreamingMaterializationError(
+                "fixture source binding cannot carry a production I2 extension"
+            )
         object.__setattr__(self, "membership_artifacts", artifacts)
         object.__setattr__(self, "registry_pins", pins)
         object.__setattr__(self, "contract_approvals", approvals)
@@ -810,7 +974,15 @@ class S7StreamingSourceBinding:
             + self.gate_c.qa.bytes
             + sum(item.manifest_bytes for item in self.registry_pins)
         )
-        return fixed + sum(item.artifact.bytes for item in self.membership_artifacts)
+        extension_bytes = 0
+        if self.incremental_session_extension is not None:
+            extension_bytes = (
+                self.incremental_session_extension.base_source_binding_manifest.bytes
+                + self.incremental_session_extension.i2_run_receipt.bytes
+            )
+        return (
+            fixed + extension_bytes + sum(item.artifact.bytes for item in self.membership_artifacts)
+        )
 
     @property
     def source_binding_id(self) -> str:
@@ -824,7 +996,7 @@ class S7StreamingSourceBinding:
         )
 
     def logical_payload(self) -> dict[str, object]:
-        return {
+        payload = {
             "calendar_artifact_id": self.calendar_artifact_id,
             "calendar_artifact_sha256": self.calendar_artifact_sha256,
             "contract_pins": {key: dict(value) for key, value in self.contract_pins.items()},
@@ -845,6 +1017,9 @@ class S7StreamingSourceBinding:
             },
             "transition_profile_anchor_binding": (self.transition_profile_anchor_binding.to_dict()),
         }
+        if self.incremental_session_extension is not None:
+            payload["incremental_session_extension"] = self.incremental_session_extension.to_dict()
+        return payload
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -881,6 +1056,8 @@ class S7StreamingSourceBinding:
             "source_release_pins",
             "transition_profile_anchor_binding",
         }
+        if "incremental_session_extension" in item:
+            expected.add("incremental_session_extension")
         _expect_keys(item, expected, "streaming source binding")
         if item["policy_version"] != STREAMING_POLICY_VERSION:
             raise S7StreamingMaterializationError("source binding policy differs")
@@ -907,6 +1084,11 @@ class S7StreamingSourceBinding:
             calendar_artifact_sha256=_digest(item["calendar_artifact_sha256"], "calendar SHA-256"),
             transition_profile_anchor_binding=TransitionProfileAnchorBinding.from_dict(
                 item["transition_profile_anchor_binding"]
+            ),
+            incremental_session_extension=(
+                S75IncrementalSessionExtension.from_dict(item["incremental_session_extension"])
+                if "incremental_session_extension" in item
+                else None
             ),
             s4_release_set_id=_digest(item["s4_release_set_id"], "S4 release-set ID"),
             six_release_binding_id=_digest(
@@ -1308,6 +1490,23 @@ class FrozenRegistryProjectionAdapter:
     ) -> tuple[ResolutionProjection, ...]:
         if source.schema != UNIVERSE_SOURCE_DAILY_CONTRACT.arrow_schema:
             raise S7StreamingMaterializationError("projection source schema differs")
+        extension = binding.incremental_session_extension
+        if extension is not None:
+            sessions = {row["session_date"] for row in source.select(["session_date"]).to_pylist()}
+            if sessions == {extension.membership_artifact.session_date}:
+                return tuple(
+                    _s75_incremental_full_projection(
+                        row,
+                        gate_b_by_composite=gate_b_by_composite,
+                        registries=registries,
+                        binding=binding,
+                    )
+                    for row in source.to_pylist()
+                )
+            if extension.membership_artifact.session_date in sessions:
+                raise S7StreamingMaterializationError(
+                    "incremental Full extension partition crosses sessions"
+                )
         return tuple(
             _frozen_registry_projection(
                 row,
@@ -1317,6 +1516,241 @@ class FrozenRegistryProjectionAdapter:
             )
             for row in source.to_pylist()
         )
+
+
+def _s75_incremental_full_projection(
+    source: Mapping[str, object],
+    *,
+    gate_b_by_composite: Mapping[str, Mapping[str, object]],
+    registries: LoadedRegistryReleaseSet,
+    binding: S7StreamingSourceBinding,
+) -> ResolutionProjection:
+    """Resolve the first I2 session for an independent historical Full scan."""
+
+    extension = binding.incremental_session_extension
+    if (
+        extension is None
+        or source.get("session_date") != extension.membership_artifact.session_date
+    ):
+        raise S7StreamingMaterializationError("incremental Full projection scope differs")
+    observed = source.get("composite_figi")
+    gate_missing = isinstance(observed, str) and observed not in gate_b_by_composite
+    override_expired = (
+        not gate_missing
+        and isinstance(observed, str)
+        and _s75_expired_provider_override_subject(
+            source,
+            registries=registries,
+            cutoff_session=binding.cutoff_session,
+            source_s4_release_set_id=binding.s4_release_set_id,
+        )
+    )
+    if gate_missing or override_expired:
+        return _s75_pending_projection(
+            source,
+            binding=binding,
+            gate_row=(None if gate_missing else gate_b_by_composite.get(str(observed))),
+            reason=(
+                "gate_b_reference_unattempted"
+                if gate_missing
+                else "provider_composite_override_scope_expired"
+            ),
+        )
+    return _frozen_registry_projection(
+        source,
+        gate_b_by_composite=gate_b_by_composite,
+        registries=registries,
+        binding=binding,
+    )
+
+
+def _s75_expired_provider_override_subject(
+    source: Mapping[str, object],
+    *,
+    registries: LoadedRegistryReleaseSet,
+    cutoff_session: date,
+    source_s4_release_set_id: str,
+) -> bool:
+    release = registries.by_name("provider_composite_override")
+    source_id = _digest(source.get("selected_source_record_id"), "target source record ID")
+    target = source.get("session_date")
+    if type(target) is not date:
+        raise S7StreamingMaterializationError("provider-override target session is invalid")
+    effective_ids = release.effective_decision_ids(cutoff_session=cutoff_session)
+    if any(
+        source_id in release.source_scopes[decision_id].source_record_ids
+        for decision_id in effective_ids
+    ):
+        return False
+    if not _s75_is_exact_expired_sor_target(source):
+        return False
+    candidates = tuple(
+        decision_id
+        for decision_id in effective_ids
+        if (
+            release.decision_rows[decision_id].get("provider_id") == "massive"
+            and release.decision_rows[decision_id].get("provider_market") == "stocks"
+            and release.decision_rows[decision_id].get("provider_locale") == "us"
+            and release.decision_rows[decision_id].get("observed_ticker") == S75_SOR_OVERRIDE_TICKER
+            and release.decision_rows[decision_id].get("observed_composite_figi")
+            == S75_SOR_OVERRIDE_OBSERVED_COMPOSITE
+            and type(release.decision_rows[decision_id].get("valid_through_session")) is date
+            and release.decision_rows[decision_id]["valid_through_session"] < target
+        )
+    )
+    if len(candidates) != 1:
+        raise S7StreamingMaterializationError(
+            "exact SOR expired-override subject is absent or ambiguous"
+        )
+    decision_id = candidates[0]
+    row = release.decision_rows[decision_id]
+    scope = release.source_scopes[decision_id]
+    expected_decision = {
+        "canonical_composite_figi": S75_SOR_OVERRIDE_CANONICAL_COMPOSITE,
+        "canonical_composite_market_code": "US",
+        "observed_composite_market_code": "US",
+        "source_s4_release_set_id": source_s4_release_set_id,
+        "valid_from_session": S75_SOR_OVERRIDE_VALID_FROM,
+        "valid_through_session": S75_SOR_OVERRIDE_VALID_THROUGH,
+    }
+    if (
+        any(row.get(key) != value for key, value in expected_decision.items())
+        or row.get("scoped_source_record_count") != S75_SOR_OVERRIDE_SOURCE_ROW_COUNT
+    ):
+        raise S7StreamingMaterializationError("exact SOR override decision boundary changed")
+    scope_rows = tuple(scope.rows)
+    if (
+        len(scope_rows) != S75_SOR_OVERRIDE_SOURCE_ROW_COUNT
+        or min(item.session_date for item in scope_rows) != S75_SOR_OVERRIDE_VALID_FROM
+        or max(item.session_date for item in scope_rows) != S75_SOR_OVERRIDE_VALID_THROUGH
+        or any(
+            item.provider_id != "massive"
+            or item.provider_market != "stocks"
+            or item.provider_locale != "us"
+            or item.ticker != S75_SOR_OVERRIDE_TICKER
+            or item.observed_composite_figi != S75_SOR_OVERRIDE_OBSERVED_COMPOSITE
+            or item.source_s4_release_set_id != source_s4_release_set_id
+            for item in scope_rows
+        )
+    ):
+        raise S7StreamingMaterializationError("exact SOR override source scope changed")
+    terminal_rows = tuple(
+        item for item in scope_rows if item.session_date == S75_SOR_OVERRIDE_VALID_THROUGH
+    )
+    if len(terminal_rows) != 1:
+        raise S7StreamingMaterializationError("exact SOR override lacks one terminal source row")
+    terminal = terminal_rows[0]
+    if terminal.observed_share_class_figi != source.get(
+        "share_class_figi"
+    ) or terminal.primary_exchange_mic != source.get("primary_exchange_mic"):
+        raise S7StreamingMaterializationError(
+            "SOR target does not continue the exact terminal observed row"
+        )
+    return True
+
+
+def _s75_is_exact_expired_sor_target(source: Mapping[str, object]) -> bool:
+    return (
+        source.get("session_date") == S75_FIRST_DELTA_SESSION
+        and source.get("ticker") == S75_SOR_OVERRIDE_TICKER
+        and source.get("market") == "stocks"
+        and source.get("locale") == "us"
+        and source.get("composite_figi") == S75_SOR_OVERRIDE_OBSERVED_COMPOSITE
+        and source.get("share_class_figi") == S75_SOR_OVERRIDE_OBSERVED_SHARE_CLASS
+        and source.get("active_on_date") is True
+    )
+
+
+def _s75_pending_projection(
+    source: Mapping[str, object],
+    *,
+    binding: S7StreamingSourceBinding,
+    gate_row: Mapping[str, object] | None,
+    reason: str,
+) -> ResolutionProjection:
+    observed = _optional_figi(source.get("composite_figi"), "pending observed Composite")
+    observed_market = (
+        None
+        if gate_row is None
+        else _optional_text(gate_row.get("selected_market_code"), "pending market code")
+    )
+    source_available = source.get("source_available_session")
+    if type(source_available) is not date:
+        raise S7StreamingMaterializationError("pending source availability is invalid")
+    evidence_sessions = [
+        source_available,
+        max(item.release_available_session for item in binding.registry_pins),
+    ]
+    if reason == "gate_b_reference_unattempted":
+        if observed is None or gate_row is not None:
+            raise S7StreamingMaterializationError("Gate-B-unattempted fallback scope differs")
+        method = "cross_market_composite_pending_unresolved"
+        disposition = "pending_cross_market_review"
+        cross_status = "not_classified"
+    elif reason == "provider_composite_override_scope_expired":
+        if gate_row is None or not _s75_is_exact_expired_sor_target(source):
+            raise S7StreamingMaterializationError(
+                "expired provider override is not the exact SOR boundary"
+            )
+        classification = gate_row.get("classification")
+        gate_available = gate_row.get("source_available_session")
+        if (
+            observed is None
+            or observed_market != "US"
+            or classification not in GATE_B_US
+            or type(gate_available) is not date
+        ):
+            raise S7StreamingMaterializationError(
+                "expired provider override lacks exact US Gate-B evidence"
+            )
+        evidence_sessions.append(gate_available)
+        method = "provider_figi_bounce_pending_unresolved"
+        disposition = "pending_unresolved"
+        cross_status = "known_us"
+    else:  # pragma: no cover - closed caller set
+        raise S7StreamingMaterializationError("unknown S7.5 Full fallback reason")
+    evidence_available = max(evidence_sessions)
+    if evidence_available > binding.cutoff_session:
+        raise S7StreamingMaterializationError(
+            "pending target evidence exceeds the source-binding cutoff"
+        )
+    return ResolutionProjection(
+        selected_source_record_id=_digest(
+            source.get("selected_source_record_id"), "pending source record ID"
+        ),
+        observed_composite_market_code=observed_market,
+        observed_asset_id=(canonical_asset_id(observed) if observed is not None else None),
+        canonical_composite_figi=None,
+        canonical_composite_market_code=None,
+        canonical_share_class_figi=None,
+        canonical_cik_normalized=None,
+        asset_id=None,
+        share_class_id=None,
+        issuer_id=None,
+        identity_resolution_status="unresolved",
+        identity_resolution_method=method,
+        identity_disposition=disposition,
+        identity_case_id=None,
+        identity_case_available_session=None,
+        identity_adjudication_id=None,
+        cross_market_scope_id=None,
+        cross_market_adjudication_id=None,
+        cross_market_adjudication_available_session=None,
+        cross_market_classification_status=cross_status,
+        identity_case_resolution_role=None,
+        adjudication_available_session=None,
+        backtest_identity_eligible=False,
+        current_reference_factor_eligible=False,
+        security_type_scope="source_type_code_as_returned_not_historical_dictionary_v1",
+        identity_evidence_available_session=evidence_available,
+        provider_composite_override_id=None,
+        provider_composite_override_available_session=None,
+        share_class_adjudication_id=None,
+        share_class_adjudication_available_session=None,
+        asset_transition_ids=(),
+        composite_registry_match_count=0,
+        composite_registry_collision=False,
+    )
 
 
 def _selected_asset_observation_parent(
@@ -1932,6 +2366,135 @@ def build_and_store_production_streaming_source_binding(
         expected=None,
     )
     return binding, _store_verified_streaming_source_binding(root, binding)
+
+
+def build_and_store_s75_incremental_full_source_binding(
+    data_root: Path,
+    *,
+    base_source_binding_id: str,
+    session_date: date = S75_FIRST_DELTA_SESSION,
+) -> tuple[S7StreamingSourceBinding, StoredControl]:
+    """Extend one exact published S7 binding with one authenticated I2 session.
+
+    This is the independent Full-oracle input for the first production DELTA.
+    It does not consume any I3 output and does not mutate the published base
+    binding or S4 release set.
+    """
+
+    root = _root(data_root)
+    target = _native_date(session_date, "S7.5 Full extension session")
+    if target != S75_FIRST_DELTA_SESSION:
+        raise S7StreamingMaterializationError(
+            "only the frozen first S7.5 DELTA session can extend the Full oracle"
+        )
+    base, base_pin = _load_source_binding(root, base_source_binding_id)
+    registries = _authenticate_historical_production_binding(root, base)
+    extension = _load_s75_incremental_session_extension(
+        root,
+        base=base,
+        base_pin=base_pin,
+        session_date=target,
+    )
+    binding = replace(
+        base,
+        membership_artifacts=(*base.membership_artifacts, extension.membership_artifact),
+        incremental_session_extension=extension,
+    )
+    _verify_loaded_registry_set(registries, binding)
+    return binding, _store_verified_streaming_source_binding(root, binding)
+
+
+def _authenticate_historical_production_binding(
+    root: Path,
+    binding: S7StreamingSourceBinding,
+) -> LoadedRegistryReleaseSet:
+    """Replay a frozen production binding without comparing it to current Git.
+
+    Runtime provenance remains exact inside the binding and every historical
+    registry runtime is replayed from its recorded Git objects.  Only the
+    inappropriate equality-to-current-checkout gate is disabled.
+    """
+
+    if binding.mode != "production" or binding.incremental_session_extension is not None:
+        raise S7StreamingMaterializationError(
+            "historical base authentication requires an unextended production binding"
+        )
+    _verify_all_source_pins(root, binding)
+    if binding.contract_approvals != _trusted_contract_approvals(root, binding):
+        raise S7StreamingMaterializationError("historical contract approvals differ")
+    try:
+        registries = load_registry_release_set(
+            root,
+            binding.registry_pins,
+            require_exclusive_composite_scopes=False,
+            revalidate_current_runtime=False,
+        )
+    except RegistryWorkflowError as exc:
+        raise S7StreamingMaterializationError(
+            "historical registry release set cannot be replayed"
+        ) from exc
+    _verify_loaded_registry_set(registries, binding)
+    _verify_gate_c_completion(root, binding.gate_c)
+    _load_gate_b_reference(root, binding.gate_b)
+    return registries
+
+
+def _load_s75_incremental_session_extension(
+    root: Path,
+    *,
+    base: S7StreamingSourceBinding,
+    base_pin: ExactFilePin,
+    session_date: date,
+) -> S75IncrementalSessionExtension:
+    try:
+        run = load_completed_s4_asset_session_run(root, session_date)
+    except Exception as exc:
+        raise S7StreamingMaterializationError(
+            "authenticated I2 session run cannot be replayed"
+        ) from exc
+    if run is None:
+        raise S7StreamingMaterializationError("authenticated I2 session run is unavailable")
+    partitions = {item.table_name: item for item in run.receipt.partition_receipts}
+    if len(partitions) != len(run.receipt.partition_receipts):
+        raise S7StreamingMaterializationError("I2 partition receipt names repeat")
+    membership = partitions.get("universe_source_daily")
+    if not isinstance(membership, S4SessionPartitionReceipt):
+        raise S7StreamingMaterializationError("I2 run lacks universe membership")
+    if (
+        run.receipt.session_date != session_date
+        or membership.session_date != session_date
+        or membership.contract_id != UNIVERSE_SOURCE_DAILY_CONTRACT.contract_id
+        or membership.schema_digest != UNIVERSE_SOURCE_DAILY_CONTRACT.schema_digest
+        or membership.row_count <= 0
+    ):
+        raise S7StreamingMaterializationError("I2 universe membership contract differs")
+    receipt_pin = ExactFilePin(
+        path=run.receipt_artifact.path,
+        sha256=run.receipt_artifact.sha256,
+        bytes=run.receipt_artifact.bytes,
+    )
+    membership_artifact = SessionArtifactPin(
+        session_date=session_date,
+        row_count=membership.row_count,
+        artifact=ExactFilePin(
+            path=membership.artifact.path,
+            sha256=membership.artifact.sha256,
+            bytes=membership.artifact.bytes,
+        ),
+    )
+    return S75IncrementalSessionExtension(
+        base_source_binding_id=base.source_binding_id,
+        base_source_binding_manifest=base_pin,
+        i2_run_receipt_id=run.receipt.receipt_id,
+        i2_run_receipt=receipt_pin,
+        i2_source_binding_id=run.receipt.source_binding_id,
+        i2_parent_frontier_id=run.receipt.parent_frontier_id,
+        receipt_available_session=run.receipt.receipt_available_session,
+        membership_artifact=membership_artifact,
+        membership_partition_receipt_id=membership.partition_receipt_id,
+        membership_contract_id=membership.contract_id,
+        membership_schema_digest=membership.schema_digest,
+    )
 
 
 def _effective_asset_transition_decisions(
@@ -3762,6 +4325,7 @@ def _run_pass_one(
     source_rows = 0
     raw_collision_rows = 0
     unresolved_rows = 0
+    reference_inventory_unattempted_rows = 0
     share_relation_conflict_rows = 0
     share_relation_mismatch_rows = 0
     unadjudicated_share_conflict_rows = 0
@@ -3826,6 +4390,7 @@ def _run_pass_one(
                     )
             if not row["backtest_identity_eligible"]:
                 unresolved_rows += 1
+            reference_inventory_unattempted_rows += int(_is_fail_closed_gate_b_unattempted_row(row))
             (
                 relation_conflict,
                 relation_mismatch,
@@ -3901,6 +4466,7 @@ def _run_pass_one(
         "gate_b_relation_share_class_conflict_rows": share_relation_conflict_rows,
         "gate_b_relation_share_class_mismatch_rows": share_relation_mismatch_rows,
         "raw_collision_rows": raw_collision_rows,
+        "reference_inventory_unattempted_rows": reference_inventory_unattempted_rows,
         "source_membership_rows": source_rows,
         "source_lineage_digest": lineage.hexdigest(),
         "source_record_id_count": source_rows,
@@ -3922,6 +4488,8 @@ def _gate_b_share_class_state(
         return False, False, False, False, None
     gate_row = gate_b.get(observed)
     if gate_row is None:
+        if _is_fail_closed_gate_b_unattempted_row(row):
+            return False, False, False, False, None
         raise S7StreamingMaterializationError(
             "Gate-B reference inventory has an unattempted Composite"
         )
@@ -3948,6 +4516,77 @@ def _gate_b_share_class_state(
     return relation_conflict, mismatch, unadjudicated, eligible_violation, selected_share
 
 
+def _is_fail_closed_gate_b_unattempted_row(row: Mapping[str, object]) -> bool:
+    return (
+        row.get("identity_resolution_status") == "unresolved"
+        and row.get("identity_resolution_method") == "cross_market_composite_pending_unresolved"
+        and row.get("identity_disposition") == "pending_cross_market_review"
+        and row.get("cross_market_classification_status") == "not_classified"
+        and row.get("backtest_identity_eligible") is False
+        and row.get("current_reference_factor_eligible") is False
+        and row.get("canonical_composite_figi") is None
+        and row.get("asset_id") is None
+        and row.get("ticker_alias_id") is None
+        and row.get("composite_registry_match_count") == 0
+        and row.get("composite_registry_collision") is False
+    )
+
+
+def _is_s75_pending_extension_projection(
+    source: Mapping[str, object],
+    projection: ResolutionProjection,
+    binding: S7StreamingSourceBinding,
+) -> bool:
+    pending_methods = {
+        "cross_market_composite_pending_unresolved",
+        "provider_figi_bounce_pending_unresolved",
+    }
+    claims_pending = (
+        projection.identity_resolution_method in pending_methods
+        or projection.identity_disposition in {"pending_cross_market_review", "pending_unresolved"}
+    )
+    extension = binding.incremental_session_extension
+    in_scope = (
+        extension is not None
+        and source.get("session_date") == extension.membership_artifact.session_date
+    )
+    reason_pair = (
+        projection.identity_resolution_method == "cross_market_composite_pending_unresolved"
+        and projection.identity_disposition == "pending_cross_market_review"
+        and projection.cross_market_classification_status == "not_classified"
+    ) or (
+        projection.identity_resolution_method == "provider_figi_bounce_pending_unresolved"
+        and projection.identity_disposition == "pending_unresolved"
+        and projection.cross_market_classification_status == "known_us"
+        and _s75_is_exact_expired_sor_target(source)
+    )
+    common = (
+        projection.identity_resolution_status == "unresolved"
+        and projection.backtest_identity_eligible is False
+        and projection.current_reference_factor_eligible is False
+        and projection.canonical_composite_figi is None
+        and projection.canonical_composite_market_code is None
+        and projection.canonical_share_class_figi is None
+        and projection.canonical_cik_normalized is None
+        and projection.asset_id is None
+        and projection.share_class_id is None
+        and projection.issuer_id is None
+        and projection.identity_adjudication_id is None
+        and projection.cross_market_adjudication_id is None
+        and projection.provider_composite_override_id is None
+        and projection.share_class_adjudication_id is None
+        and projection.asset_transition_ids == ()
+        and projection.composite_registry_match_count == 0
+        and projection.composite_registry_collision is False
+    )
+    accepted = in_scope and reason_pair and common
+    if claims_pending and not accepted:
+        raise S7StreamingMaterializationError(
+            "S7.5 pending projection is outside its exact fail-closed scope"
+        )
+    return accepted
+
+
 def _build_and_validate_universe_row(
     source: Mapping[str, object],
     projection: ResolutionProjection,
@@ -3966,9 +4605,13 @@ def _build_and_validate_universe_row(
     observed_share = _optional_figi(source.get("share_class_figi"), "observed ShareClass")
     mic = _optional_mic(source.get("primary_exchange_mic"), "primary exchange MIC")
     observed_cik = _normalize_cik(source.get("cik"))
-    if projection.canonical_cik_normalized != observed_cik:
+    pending_extension = _is_s75_pending_extension_projection(source, projection, binding)
+    expected_canonical_cik = None if pending_extension else observed_cik
+    if projection.canonical_cik_normalized != expected_canonical_cik:
         raise S7StreamingMaterializationError("identity correction attempted to change CIK")
-    expected_issuer = _issuer_id(observed_cik) if observed_cik is not None else None
+    expected_issuer = (
+        _issuer_id(observed_cik) if observed_cik is not None and not pending_extension else None
+    )
     if projection.issuer_id != expected_issuer:
         raise S7StreamingMaterializationError("projection issuer ID differs from observed CIK")
     expected_observed_asset = (
@@ -3984,29 +4627,33 @@ def _build_and_validate_universe_row(
     gate_row: Mapping[str, object] | None = None
     if observed_composite is not None:
         gate_row = gate_b.get(observed_composite)
-        if gate_row is None:
+        if gate_row is None and not pending_extension:
             raise S7StreamingMaterializationError(
                 "Gate-B reference inventory has an unattempted Composite"
             )
-        exact_source = _selected_asset_observation_parent(
-            source,
-            binding=binding,
-        )
-        matches = tuple(
-            registries.composite_matches(exact_source, cutoff_session=binding.cutoff_session)
-        )
-        share_release = registries.by_name("share_class_adjudication")
-        share_matches = tuple(
-            share_release.decision_ids_for_exact_source_row(
-                exact_source, cutoff_session=binding.cutoff_session
+        if not pending_extension:
+            exact_source = _selected_asset_observation_parent(
+                source,
+                binding=binding,
             )
-        )
-        transition_release = registries.by_name("asset_transition")
-        transition_matches = tuple(
-            transition_release.decision_ids_for_exact_source_row(
-                exact_source, cutoff_session=binding.cutoff_session
+            matches = tuple(
+                registries.composite_matches(
+                    exact_source,
+                    cutoff_session=binding.cutoff_session,
+                )
             )
-        )
+            share_release = registries.by_name("share_class_adjudication")
+            share_matches = tuple(
+                share_release.decision_ids_for_exact_source_row(
+                    exact_source, cutoff_session=binding.cutoff_session
+                )
+            )
+            transition_release = registries.by_name("asset_transition")
+            transition_matches = tuple(
+                transition_release.decision_ids_for_exact_source_row(
+                    exact_source, cutoff_session=binding.cutoff_session
+                )
+            )
     if matches != tuple(sorted(matches)) or len(set(matches)) != len(matches):
         raise S7StreamingMaterializationError("registry Composite matches are not deterministic")
     if projection.composite_registry_match_count != len(matches):
@@ -4090,6 +4737,8 @@ def _build_and_validate_universe_row(
             decision=decision,
         )
         composite_unique = expected_canonical is not None
+    elif pending_extension:
+        pass
     elif observed_composite is not None and gate_row is not None:
         classification = _text(gate_row.get("classification"), "Gate-B classification")
         if classification in GATE_B_US:
@@ -5023,6 +5672,19 @@ def _build_qa(
     critical = int(source_rows != binding.row_count or source_ids != source_rows)
     critical += share_conflict_eligible_rows
     collision_rows = _nonnegative(pass1["raw_collision_rows"], "collision rows")
+    reference_unattempted_rows = _nonnegative(
+        pass1["reference_inventory_unattempted_rows"],
+        "reference inventory unattempted rows",
+    )
+    expected_unattempted_rows = (
+        S75_GATE_B_UNATTEMPTED_SOURCE_ROW_COUNT
+        if binding.incremental_session_extension is not None
+        else 0
+    )
+    if reference_unattempted_rows != expected_unattempted_rows:
+        raise S7StreamingMaterializationError(
+            "reference inventory unattempted scope differs from the frozen extension"
+        )
     return {
         "artifact_type": "s7_streaming_four_table_full_qa",
         "bounded_collision_examples": pass1["bounded_collision_examples"],
@@ -5044,7 +5706,7 @@ def _build_qa(
         "multi_registry_composite_override_collision_resolved_rows": 0,
         "multi_registry_composite_override_collision_rows": collision_rows,
         "publish_authorized": False,
-        "reference_inventory_unattempted_rows": 0,
+        "reference_inventory_unattempted_rows": reference_unattempted_rows,
         "session_count": binding.session_count,
         "share_class_correction_before_unique_composite_rows": 0,
         "source_membership_omission_or_duplication_rows": critical,
@@ -6441,6 +7103,13 @@ def _verify_all_source_pins(root: Path, binding: S7StreamingSourceBinding) -> No
         ),
         *binding.contract_approvals,
     ]
+    if binding.incremental_session_extension is not None:
+        pins.extend(
+            (
+                binding.incremental_session_extension.base_source_binding_manifest,
+                binding.incremental_session_extension.i2_run_receipt,
+            )
+        )
     for pin in pins:
         _verify_file_pin(root, pin)
 
@@ -6453,7 +7122,33 @@ def _load_verified_execution_sources(
 ) -> tuple[LoadedRegistryReleaseSet, dict[str, Mapping[str, object]]]:
     """Replay all bound source control chains after a durable execution intent."""
 
-    if binding.mode == "production":
+    if binding.mode == "production" and binding.incremental_session_extension is not None:
+        extension = binding.incremental_session_extension
+        base, base_pin = _load_source_binding(root, extension.base_source_binding_id)
+        if base_pin != extension.base_source_binding_manifest:
+            raise S7StreamingMaterializationError(
+                "incremental Full extension base manifest differs"
+            )
+        registries = _authenticate_historical_production_binding(root, base)
+        rebuilt_extension = _load_s75_incremental_session_extension(
+            root,
+            base=base,
+            base_pin=base_pin,
+            session_date=extension.membership_artifact.session_date,
+        )
+        rebuilt = replace(
+            base,
+            membership_artifacts=(
+                *base.membership_artifacts,
+                rebuilt_extension.membership_artifact,
+            ),
+            incremental_session_extension=rebuilt_extension,
+        )
+        if rebuilt != binding:
+            raise S7StreamingMaterializationError(
+                "incremental Full source binding changed during exact replay"
+            )
+    elif binding.mode == "production":
         rebuilt, registries = _build_official_production_source_binding(
             root,
             registry_pins=binding.registry_pins,
@@ -7627,6 +8322,7 @@ def _replay_universe_partitions(
     lineage = hashlib.sha256()
     source_rows = 0
     unresolved_rows = 0
+    reference_inventory_unattempted_rows = 0
     collision_rows = 0
     share_relation_conflict_rows = 0
     share_relation_mismatch_rows = 0
@@ -7701,6 +8397,9 @@ def _replay_universe_partitions(
                                 }
                             )
                     unresolved_rows += int(not bool(row["backtest_identity_eligible"]))
+                    reference_inventory_unattempted_rows += int(
+                        _is_fail_closed_gate_b_unattempted_row(row)
+                    )
                     (
                         relation_conflict,
                         relation_mismatch,
@@ -7737,6 +8436,7 @@ def _replay_universe_partitions(
         "gate_b_relation_share_class_conflict_rows": share_relation_conflict_rows,
         "gate_b_relation_share_class_mismatch_rows": share_relation_mismatch_rows,
         "raw_collision_rows": collision_rows,
+        "reference_inventory_unattempted_rows": reference_inventory_unattempted_rows,
         "source_lineage_digest": lineage.hexdigest(),
         "source_membership_rows": source_rows,
         "source_record_id_count": source_rows,

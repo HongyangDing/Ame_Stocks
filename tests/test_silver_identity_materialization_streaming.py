@@ -605,6 +605,7 @@ def test_two_pass_real_parquet_preserves_inactive_and_gaps(tmp_path: Path) -> No
         binding.gate_c.candidate_manifest.sha256
     )
     assert binding.gate_c.identity_case_preview_id != binding.gate_b.candidate_id
+    assert "incremental_session_extension" not in binding.logical_payload()
     assert S7StreamingSourceBinding.from_dict(binding.to_dict()) == binding
     result = _execute(tmp_path, binding, registries, runtime)
 
@@ -1741,6 +1742,7 @@ def test_production_cli_has_no_publish_or_adapter_input_and_freezes_full_adapter
         for action in parser._actions
         if isinstance(action.choices, dict) and "execute-full" in action.choices
     )
+    assert "store-s75-full-oracle-binding" in commands
     assert all("publish" not in command for command in commands)
     help_text = parser.format_help()
     assert "--adapter" not in help_text
