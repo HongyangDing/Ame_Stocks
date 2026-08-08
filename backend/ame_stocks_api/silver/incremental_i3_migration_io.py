@@ -1231,7 +1231,7 @@ def _load_legacy_release_member_pins(
 ) -> I3LegacyV1BasePins:
     release_artifact = run_spec.i0_oracle.artifact
     marker = _strict_canonical_json(
-        _read_exact_artifact(root, release_artifact), trailing_newline=False
+        _read_exact_artifact(root, release_artifact), trailing_newline=True
     )
     if set(marker) != _S7_RELEASE_SET_FIELDS:
         raise I3MigrationIOError("S7 published release-set fields differ")
@@ -1272,7 +1272,7 @@ def _load_legacy_release_member_pins(
             bytes=_positive_int(descriptor["bytes"], "S7 member manifest bytes"),
         )
         member_content = _read_exact_artifact(root, descriptor_pin)
-        member = _strict_canonical_json(member_content, trailing_newline=False)
+        member = _strict_canonical_json(member_content, trailing_newline=True)
         if set(member) != _S7_MEMBER_FIELDS:
             raise I3MigrationIOError("S7 member release fields differ")
         member_payload = dict(member)

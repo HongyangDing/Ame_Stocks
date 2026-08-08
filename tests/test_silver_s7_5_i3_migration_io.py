@@ -80,13 +80,16 @@ _SOURCE_FIELDS = {
 
 
 def _canonical_control(value: object) -> bytes:
-    return json.dumps(
-        value,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-        allow_nan=False,
-    ).encode("utf-8")
+    return (
+        json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        ).encode("utf-8")
+        + b"\n"
+    )
 
 
 def _receipt(table_name: str, session: date | None) -> dict[str, object]:
@@ -171,6 +174,8 @@ def _synthetic_s7_release(
             payload["row_count"] = int(payload["row_count"]) + 1
         member = {**payload, "release_id": stable_digest(payload)}
         content = _canonical_control(member)
+        if mutation == "member_no_newline" and table_name == "asset_master":
+            content = content.removesuffix(b"\n")
         member_path = root / f"manifests/s7/member-{table_name}.json"
         member_path.parent.mkdir(parents=True, exist_ok=True)
         member_path.write_bytes(content)
@@ -219,7 +224,10 @@ def _synthetic_s7_release(
         "release_set_id": LEGACY_S7_V1_RELEASE_SET_ID,
     }
     marker_path = root / "manifests/s7/release-set.json"
-    marker_path.write_bytes(_canonical_control(marker))
+    marker_content = _canonical_control(marker)
+    if mutation == "marker_no_newline":
+        marker_content = marker_content.removesuffix(b"\n")
+    marker_path.write_bytes(marker_content)
     return SimpleNamespace(
         i0_oracle=SimpleNamespace(
             object_id=LEGACY_S7_V1_RELEASE_SET_ID,
@@ -1048,6 +1056,8 @@ def test_exact_manifest_expanders_build_complete_sorted_pin_sets(
         ("unordered", "sorted and session-unique"),
         ("duplicate_session", "session-unique"),
         ("missing_member", "member order differs"),
+        ("marker_no_newline", "not canonical"),
+        ("member_no_newline", "not canonical"),
     ),
 )
 def test_s7_manifest_expansion_rejects_tampered_or_ambiguous_members(
