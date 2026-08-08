@@ -125,7 +125,7 @@ def test_base_config_exposes_only_exact_inputs_availability_and_caps(tmp_path: P
 
 def test_transform_semantics_golden_binds_bounded_base_and_initial_segment() -> None:
     assert I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST == (
-        "62f4103dcfc9cd33e240b169f53c51621676acc2ac3fd3360b58d42491f958f8"
+        "fbc70e3b4c2c9708ce1b343f2a4d893761c3f2ee47c136271517cb2c361e3408"
     )
     assert (
         I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD["materialization_rules"]["bounded_aggregation"]
@@ -136,6 +136,12 @@ def test_transform_semantics_golden_binds_bounded_base_and_initial_segment() -> 
             "bounded_aggregation_session_batch_cap"
         ]
         == I3_COMPACT_BASE_AGGREGATE_SESSION_BATCH_CAP
+    )
+    assert (
+        I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD["materialization_rules"][
+            "exact_case_sensitive_ticker"
+        ]
+        == "s7_5_i3_exact_case_sensitive_provider_ticker_v1"
     )
     assert (
         I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD["materialization_rules"]["initial_rowset_segment"]

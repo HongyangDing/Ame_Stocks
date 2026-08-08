@@ -168,6 +168,22 @@ def test_compact_root_migration_roundtrips_every_v1_projection() -> None:
     )
 
 
+def test_compact_alias_migration_preserves_exact_mixed_case_provider_ticker() -> None:
+    _, _, legacy_alias, _, _ = _legacy_alias_and_masters()
+    legacy_alias = dict(legacy_alias)
+    legacy_alias["ticker"] = "AANw"
+
+    migrated = migrate_alias_root(
+        legacy_alias,
+        policy=_policy(),
+        migration_available_session=RUN_AVAILABLE,
+        source_record_seed_digest=_digest("mixed-case-alias-seed"),
+    )
+
+    assert migrated.state.segment.ticker == "AANw"
+    assert migrated.row["ticker"] == "AANw"
+
+
 def test_share_only_v1_observed_consistent_becomes_narrow_v2_disposition() -> None:
     _, _, legacy_alias, _, _ = _legacy_alias_and_masters()
     share_decision_id = _digest("share-only-decision")

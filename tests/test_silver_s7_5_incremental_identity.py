@@ -125,6 +125,11 @@ def test_alias_segment_id_is_exactly_the_stable_observation_payload() -> None:
         "valid_through_session",
     }.isdisjoint(segment.logical_payload())
 
+    mixed_case = _segment(ticker="AANw")
+    assert mixed_case.ticker == "AANw"
+    assert mixed_case.logical_payload()["ticker"] == "AANw"
+    assert mixed_case.alias_segment_id != _segment(ticker="AANW").alias_segment_id
+
     for field, value in (
         ("namespace", "ame_stocks.identity.wrong_domain"),
         ("rule_version", "ame_stocks_alias_segment_id_v999"),

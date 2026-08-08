@@ -1136,10 +1136,11 @@ def _optional_token(value: object, label: str) -> str | None:
 
 
 def _ticker(value: object) -> str:
-    ticker = _text(value, "ticker")
-    if ticker != ticker.upper():
-        raise IncrementalIdentityError("ticker must use its canonical uppercase spelling")
-    return ticker
+    # Massive ticker values are exact, case-sensitive provider identifiers.
+    # In particular, suffixes such as ``w``/``r``/``p`` are intentionally
+    # lower-case in historical S4/S7 rows.  Normalising or rejecting those
+    # spellings would change the provider identity grain.
+    return _text(value, "ticker")
 
 
 def _digest(value: object, label: str) -> str:
