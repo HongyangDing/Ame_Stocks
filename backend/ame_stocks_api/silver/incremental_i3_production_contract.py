@@ -81,6 +81,8 @@ from ame_stocks_api.silver.incremental_i3_production_semantics import (
     I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST,
     production_compact_base_initial_segment_id,
     production_compact_base_row_validator_digest,
+    production_delta_append_segment_id,
+    production_delta_row_validator_digest,
     production_native_v2_migration_id,
 )
 
@@ -1699,6 +1701,74 @@ def validate_production_compact_base_initial_rowsets(
             raise I3ProductionContractError(
                 "compact BASE initial rowset segment differs from module-owned identity"
             )
+
+
+def validate_production_delta_append_outputs(
+    run_spec: I3ProductionRunSpec,
+    table_outputs: tuple[I3ProductionTableOutput, ...],
+    parent_output_set: I3ProductionOutputSet,
+) -> None:
+    """Require one exact, module-owned append beyond an authenticated parent."""
+
+    if not isinstance(run_spec, I3ProductionRunSpec):
+        raise I3ProductionContractError("DELTA append validation requires a production RunSpec")
+    if run_spec.run_kind is not I3ProductionRunKind.DELTA:
+        return
+    if not isinstance(parent_output_set, I3ProductionOutputSet):
+        raise I3ProductionContractError("DELTA append validation requires a parent OutputSet")
+    if (
+        type(table_outputs) is not tuple
+        or tuple(item.table_name for item in table_outputs) != I3_V2_TABLE_ORDER
+        or tuple(item.table_name for item in parent_output_set.table_outputs) != I3_V2_TABLE_ORDER
+    ):
+        raise I3ProductionContractError("DELTA outputs differ from the four-table order")
+    for parent_output, output in zip(
+        parent_output_set.table_outputs[:-1], table_outputs[:-1], strict=True
+    ):
+        parent_rowset = parent_output.rowset_index
+        rowset = output.rowset_index
+        if (
+            parent_rowset is None
+            or output.storage is not I3ProductionOutputStorage.ROWSET_INDEX
+            or rowset is None
+            or len(rowset.segments) != len(parent_rowset.segments) + 1
+            or rowset.segments[:-1] != parent_rowset.segments
+        ):
+            raise I3ProductionContractError(
+                "DELTA versioned outputs require the exact parent prefix and one suffix"
+            )
+        segment = rowset.segments[-1]
+        expected_segment_id = production_delta_append_segment_id(
+            table_name=output.table_name,
+            parent_rowset_id=parent_rowset.rowset_index_id,
+            parent_segment_ids=tuple(item.segment_id for item in parent_rowset.segments),
+            artifact=segment.artifact,
+            terminal_session=run_spec.terminal_session,
+            availability_session=run_spec.run_available_session,
+            native_v2_migration_id=run_spec.native_v2_migration_id,
+        )
+        if (
+            rowset.terminal_session != run_spec.terminal_session
+            or segment.availability_session != run_spec.run_available_session
+            or segment.segment_id != expected_segment_id
+        ):
+            raise I3ProductionContractError(
+                "DELTA append segment differs from module-owned identity"
+            )
+    parent_dataset = parent_output_set.table_outputs[-1].dataset_index
+    dataset = table_outputs[-1].dataset_index
+    if (
+        parent_dataset is None
+        or dataset is None
+        or len(dataset.partitions) != len(parent_dataset.partitions) + 1
+        or dataset.partitions[:-1] != parent_dataset.partitions
+        or dataset.terminal_session != run_spec.terminal_session
+        or dataset.partitions[-1].session_date != run_spec.terminal_session
+        or dataset.partitions[-1].availability_session != run_spec.run_available_session
+    ):
+        raise I3ProductionContractError(
+            "DELTA universe requires the exact parent prefix and target-session suffix"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -3365,8 +3435,16 @@ def load_i3_production_staging_exact(
 
     validate_production_compact_base_initial_rowsets(run_spec, output_set.table_outputs)
 
-    calendar_sessions = _verify_external_production_dependencies(root, run_spec)
     parent_staging = _verify_production_parent_exact(root, run_spec)
+    if run_spec.run_kind is I3ProductionRunKind.DELTA:
+        if parent_staging is None or parent_staging.receipt.output_set is None:
+            raise I3ProductionContractError("DELTA staging lacks an authenticated parent OutputSet")
+        validate_production_delta_append_outputs(
+            run_spec,
+            output_set.table_outputs,
+            parent_staging.receipt.output_set,
+        )
+    calendar_sessions = _verify_external_production_dependencies(root, run_spec)
     _verify_i2_receipts_exact(
         root,
         run_spec,
@@ -4420,13 +4498,22 @@ def _verify_gate_a_indexed_row_changes(
                 raise I3ProductionContractError(
                     "indexed compact-base row semantics are not module-owned new roots"
                 )
-        elif operation not in {
-            RowVersionOperation.NEW_ROOT,
-            RowVersionOperation.MECHANICAL_SUCCESSOR,
-        }:
-            raise I3ProductionContractError(
-                "indexed clean delta contains a non-mechanical row operation"
+        else:
+            if operation not in {
+                RowVersionOperation.NEW_ROOT,
+                RowVersionOperation.MECHANICAL_SUCCESSOR,
+            }:
+                raise I3ProductionContractError("indexed DELTA row semantics are not module-owned")
+            expected_validator = production_delta_row_validator_digest(
+                table_name=table_name,
+                schema_digest=I3_V2_CONTRACTS[table_name].schema_digest,
+                operation=operation.value,
             )
+            if (
+                availability != manifest.availability_cutoff_session
+                or row["validator_semantics_digest"] != expected_validator
+            ):
+                raise I3ProductionContractError("indexed DELTA row semantics are not module-owned")
         artifact = ArtifactPin(
             path=str(row["index_artifact_path"]),
             sha256=str(row["index_artifact_sha256"]),
@@ -4967,4 +5054,5 @@ __all__ = [
     "production_physical_index_digest",
     "production_v2_contract_pins",
     "validate_production_compact_base_initial_rowsets",
+    "validate_production_delta_append_outputs",
 ]

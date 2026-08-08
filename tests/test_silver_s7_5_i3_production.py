@@ -12,6 +12,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 from test_silver_s7_5_i3_migration_io import _base_fixture
+from test_silver_s7_5_i3_production_contract import _delta_run_spec
 
 from ame_stocks_api.artifacts import stable_digest
 from ame_stocks_api.silver import (
@@ -19,8 +20,10 @@ from ame_stocks_api.silver import (
     calendar_artifact,
     identity_materialization_publish,
     identity_registry_workflow,
+    incremental_contract,
 )
 from ame_stocks_api.silver import identity_materialization_streaming as streaming
+from ame_stocks_api.silver import incremental_i3_delta_io as delta_io
 from ame_stocks_api.silver import incremental_i3_production as production
 from ame_stocks_api.silver import incremental_i3_production_contract as contract
 from ame_stocks_api.silver import incremental_i3_production_inputs as production_inputs
@@ -40,6 +43,7 @@ from ame_stocks_api.silver.incremental_i3_production import (
     I3ProductionPreparedMaterialization,
     I3ProductionStageError,
     stage_i3_production_base,
+    stage_i3_production_delta,
     verify_i3_production_deep_attestation,
 )
 from ame_stocks_api.silver.incremental_i3_production_contract import (
@@ -76,6 +80,222 @@ def _copy_exact_pin(root: Path, source: ArtifactPin, relative: str) -> ArtifactP
         sha256=hashlib.sha256(content).hexdigest(),
         bytes=len(content),
     )
+
+
+def _interrupted_retry_delta_fixture(
+    root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from test_silver_s7_5_i3_delta_io import CALENDAR, _integration_fixture
+    from test_silver_s7_5_incremental_contract import _validated_base
+
+    run_spec, parent, loaded, target_rows = _integration_fixture(root)
+    fixture_parent = _validated_base().candidate
+    gate_policy = production._gate_a_qa_policy()
+    parent_partition = replace(
+        fixture_parent.manifest.added_partition_receipts[0],
+        partition_key=parent.checkpoint.last_session.isoformat(),
+    )
+    parent_change_digest = incremental_contract.logical_change_set_digest(
+        added_partition_receipts=(parent_partition,),
+        partition_replacements=(),
+        added_row_version_receipts=(),
+        superseded_row_version_ids=(),
+    )
+    gate_spec = replace(
+        fixture_parent.run_spec,
+        schema_digest=production.I3_V2_SCHEMA_BUNDLE_DIGEST,
+        transform_semantics_digest=run_spec.transform_semantics_digest,
+        identity_policy_bundle_id=(run_spec.identity_policy_bundle.identity_policy_bundle_id),
+        calendar_digest=run_spec.calendar.calendar_artifact_id,
+        expected_change_set_digest=parent_change_digest,
+        qa_policy=gate_policy,
+        rss_cap_bytes=run_spec.resource_caps.rss_bytes_hard_cap,
+        disk_floor_bytes=run_spec.resource_caps.disk_free_bytes_hard_floor,
+    )
+    gate_qa = replace(
+        fixture_parent.run_receipt.qa_receipt,
+        qa_policy_id=gate_policy.qa_policy_id,
+        run_spec_id=gate_spec.run_spec_id,
+        source_binding_digest=gate_spec.source_binding_digest,
+        change_set_digest=parent_change_digest,
+        results=tuple(
+            replace(
+                old,
+                check_id=new.check_id,
+                semantics_digest=new.semantics_digest,
+            )
+            for old, new in zip(
+                fixture_parent.run_receipt.qa_receipt.results,
+                gate_policy.checks,
+                strict=True,
+            )
+        ),
+    )
+    gate_checkpoint = replace(
+        fixture_parent.run_receipt.checkpoint,
+        run_spec_id=gate_spec.run_spec_id,
+        last_session=parent.checkpoint.last_session,
+        rebuild_basis_digest=incremental_contract.checkpoint_rebuild_basis_from_change_digest(
+            gate_spec,
+            change_set_digest=parent_change_digest,
+        ),
+    )
+    gate_receipt = replace(
+        fixture_parent.run_receipt,
+        run_spec_id=gate_spec.run_spec_id,
+        actual_input_set_digest=gate_spec.source_binding_digest,
+        output_set_digest=parent_change_digest,
+        qa_receipt=gate_qa,
+        checkpoint=gate_checkpoint,
+    )
+    gate_manifest = replace(
+        fixture_parent.manifest,
+        resolved_view=gate_spec.resolved_view,
+        schema_digest=gate_spec.schema_digest,
+        transform_semantics_digest=gate_spec.transform_semantics_digest,
+        identity_policy_bundle_id=gate_spec.identity_policy_bundle_id,
+        calendar_digest=gate_spec.calendar_digest,
+        source_binding_digest=gate_spec.source_binding_digest,
+        source_cutoff_session=gate_spec.source_cutoff_session,
+        availability_cutoff_session=gate_spec.availability_cutoff_session,
+        release_available_session=gate_spec.release_available_session,
+        qa_policy_id=gate_policy.qa_policy_id,
+        qa_receipt_id=gate_qa.qa_receipt_id,
+        added_partition_receipts=(parent_partition,),
+        run_spec_pin=incremental_contract.control_object_pin(
+            gate_spec,
+            path="control/interrupted-retry-parent-run-spec.json",
+        ),
+        run_receipt_pin=incremental_contract.control_object_pin(
+            gate_receipt,
+            path="control/interrupted-retry-parent-run-receipt.json",
+        ),
+    )
+    gate_manifest_pin = gate_manifest.exact_pin(
+        manifest_path="releases/interrupted-retry-parent/manifest.json"
+    )
+    gate_candidate = incremental_contract.validate_release_projection(
+        gate_spec,
+        gate_receipt,
+        gate_manifest,
+        manifest_pin=gate_manifest_pin,
+        parent_release=None,
+    )
+    attested_parent = incremental_contract._mint_content_attested_release(
+        gate_candidate,
+        resolved_content_digest=gate_manifest.resolved_content_digest,
+        snapshot_digest=gate_manifest.resolved_content_digest,
+    )
+    parent.receipt.output_set = replace(
+        parent.receipt.output_set,
+        gate_a_manifest_pin=attested_parent.manifest_pin,
+        gate_a_run_spec_pin=attested_parent.manifest.run_spec_pin,
+        gate_a_run_receipt_pin=attested_parent.manifest.run_receipt_pin,
+        resolved_content_digest=attested_parent.manifest.resolved_content_digest,
+    )
+    parent.completion = SimpleNamespace(
+        completion_id=stable_digest({"fixture": "interrupted-retry-parent-completion"}),
+    )
+    parent.gate_a_manifest = attested_parent.manifest
+    parent.gate_a_release = attested_parent
+    parent_deep = contract.I3ProductionDeepVerificationAttestation(
+        completion_id=parent.completion.completion_id,
+        completion_artifact=run_spec.parent_shadow_completion_artifact,
+        gate_a_manifest_pin=attested_parent.manifest_pin,
+        native_v2_release=NativeV2ParentReleasePin.from_manifest(
+            parent.manifest,
+            path=parent.receipt.output_set.release_manifest_artifact.path,
+        ),
+        checkpoint_id=parent.receipt.output_set.checkpoint_id,
+        checkpoint_artifact=parent.receipt.output_set.checkpoint_artifact,
+        output_set_id=parent.receipt.output_set.output_set_id,
+        row_semantic_attestation_digest=stable_digest(
+            {"fixture": "interrupted-retry-parent-row-attestation"}
+        ),
+        terminal_state_digest=parent.checkpoint.resolved_state_digest,
+        physical_index_digest=contract.production_physical_index_digest(parent.receipt.output_set),
+        parent_frontier_attestation_digest=None,
+        attestation_available_session=run_spec.run_available_session,
+        verification_resource_observation=contract.I3ProductionResourceObservation(
+            peak_rss_bytes=1,
+            elapsed_seconds=1,
+            minimum_disk_free_bytes=80 * 1024**3,
+            temporary_bytes=0,
+        ),
+    )
+    parent_deep_path = root / run_spec.parent_deep_attestation_artifact.path
+    parent_deep_path.write_bytes(parent_deep.canonical_bytes())
+    parent_deep_pin = parent_deep.exact_pin(path=run_spec.parent_deep_attestation_artifact.path)
+    parent.deep_attestation = parent_deep
+    run_spec = replace(
+        run_spec,
+        parent_gate_a_manifest=attested_parent.manifest_pin,
+        parent_deep_attestation_artifact=parent_deep_pin,
+    )
+    declared_inputs = delta_io._unique_artifact_pins(
+        tuple(
+            parent_deep_pin if item.path == parent_deep_pin.path else item
+            for item in loaded.binding.declared_input_artifacts
+        )
+    )
+    loaded = replace(
+        loaded,
+        binding=replace(
+            loaded.binding,
+            run_spec_id=run_spec.run_spec_id,
+            parent_deep_attestation_id=parent_deep.deep_attestation_id,
+            parent_deep_attestation_artifact=parent_deep_pin,
+            declared_input_artifacts=declared_inputs,
+            parent_output_bytes=sum(item.bytes for item in declared_inputs),
+        ),
+    )
+    relative = (
+        "manifests/silver/identity/s7-5-native-v2-staging/run-specs/"
+        f"run_spec_id={run_spec.run_spec_id}/run-spec.json"
+    )
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(run_spec.canonical_bytes())
+    run_spec_pin = run_spec.exact_pin(path=relative)
+    monkeypatch.setattr(
+        contract,
+        "_verify_external_production_dependencies",
+        lambda _root, _spec: CALENDAR,
+    )
+    monkeypatch.setattr(
+        contract,
+        "_verify_production_parent_exact",
+        lambda _root, _spec: parent,
+    )
+    monkeypatch.setattr(
+        contract,
+        "_verify_i2_receipts_exact",
+        lambda _root, _spec, *, calendar_sessions, parent_staging: None,
+    )
+    monkeypatch.setattr(delta_io, "_require_delta_controls", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        delta_io,
+        "load_production_delta_materializer",
+        lambda **kwargs: delta_io.ProductionDeltaMaterializer(run_spec.run_spec_id),
+    )
+    monkeypatch.setattr(
+        delta_io,
+        "load_production_delta_input_binding",
+        lambda **kwargs: loaded,
+    )
+    monkeypatch.setattr(
+        delta_io,
+        "_resolve_target_rows",
+        lambda *args, **kwargs: (
+            target_rows,
+            {
+                "gate_b_reference_unattempted": 16,
+                "provider_composite_override_scope_expired": 1,
+            },
+        ),
+    )
+    return run_spec, run_spec_pin, parent
 
 
 def _patch_exact_upstreams(monkeypatch: pytest.MonkeyPatch, terminal) -> None:
@@ -782,6 +1002,221 @@ def test_external_authority_entrypoints_reject_exact_controls_copied_below_tmp(
             temporary_deep,
             expected_kind=I3ProductionRunKind.BASE,
         )
+
+
+@pytest.mark.parametrize(
+    "copied_relative",
+    (
+        "manifests/latest/i3/delta/run-spec.json",
+        "manifests/silver/identity/s7-5-native-v2-staging/copied/run-spec.json",
+    ),
+)
+def test_stage_delta_rejects_copied_noncanonical_run_spec_before_any_read_or_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    copied_relative: str,
+) -> None:
+    run_spec = _delta_run_spec()
+    canonical_relative = (
+        "manifests/silver/identity/s7-5-native-v2-staging/run-specs/"
+        f"run_spec_id={run_spec.run_spec_id}/run-spec.json"
+    )
+    canonical_path = tmp_path / canonical_relative
+    canonical_path.parent.mkdir(parents=True, exist_ok=True)
+    canonical_path.write_bytes(run_spec.canonical_bytes())
+    canonical_pin = run_spec.exact_pin(path=canonical_relative)
+    copied_pin = _copy_exact_pin(tmp_path, canonical_pin, copied_relative)
+    reads: list[str] = []
+
+    def forbidden_read(_root: Path, relative: str) -> bytes:
+        reads.append(relative)
+        raise AssertionError("DELTA stage read a noncanonical RunSpec")
+
+    monkeypatch.setattr(production, "_read_control", forbidden_read)
+    with pytest.raises(I3ProductionStageError, match="module-owned canonical"):
+        stage_i3_production_delta(
+            tmp_path,
+            copied_pin,
+            materializer=SimpleNamespace(),
+        )
+    assert reads == []
+    assert not (tmp_path / production._OUTPUT_ROOT).exists()
+
+
+def test_stage_delta_rejects_canonical_shape_with_another_run_spec_id_before_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_spec = _delta_run_spec()
+    wrong_id = stable_digest({"fixture": "another-delta-run-spec"})
+    copied_relative = (
+        "manifests/silver/identity/s7-5-native-v2-staging/run-specs/"
+        f"run_spec_id={wrong_id}/run-spec.json"
+    )
+    path = tmp_path / copied_relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(run_spec.canonical_bytes())
+    copied_pin = run_spec.exact_pin(path=copied_relative)
+    original_read = production._read_control
+    reads: list[str] = []
+
+    def observed_read(root: Path, relative: str) -> bytes:
+        reads.append(relative)
+        return original_read(root, relative)
+
+    monkeypatch.setattr(production, "_read_control", observed_read)
+    with pytest.raises(I3ProductionStageError, match="exact RunSpec ID"):
+        stage_i3_production_delta(
+            tmp_path,
+            copied_pin,
+            materializer=SimpleNamespace(),
+        )
+    assert reads == [copied_relative]
+    assert not (tmp_path / production._OUTPUT_ROOT).exists()
+
+
+def test_interrupted_retry_resumes_from_durable_phase_after_process_seal_reset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_spec, run_spec_pin, parent = _interrupted_retry_delta_fixture(tmp_path, monkeypatch)
+    parent_before = production._production_parent_evidence(parent)
+
+    with pytest.raises(production.I3ProductionInterruptedRetryPending) as stopped:
+        production.exercise_i3_production_interrupted_retry(tmp_path, run_spec_pin)
+
+    pending = stopped.value
+    assert (tmp_path / pending.phase_one_artifact.path).is_file()
+    assert (tmp_path / pending.failed_receipt_artifact.path).is_file()
+    assert not (tmp_path / production._completion_relative(run_spec)).exists()
+    assert not (tmp_path / production._deep_attestation_relative(run_spec)).exists()
+    assert production._production_parent_evidence(parent) == parent_before
+
+    # A resumed OS process has no access to the first process's weak live seal.
+    production._ACTIVE_INTERRUPTION_CAPABILITIES.clear()
+    resumed = production.exercise_i3_production_interrupted_retry(tmp_path, run_spec_pin)
+
+    assert resumed.reused is False
+    assert resumed.receipt.failed_receipt_artifact == pending.failed_receipt_artifact
+    assert resumed.receipt.phase_one_artifact == pending.phase_one_artifact
+    assert resumed.receipt.parent_reader_before_digest == parent_before[0]
+    assert resumed.receipt.parent_reader_after_digest == parent_before[0]
+    assert resumed.receipt.deleted_artifact_count == 0
+    assert resumed.receipt.unpublished_visible_count == 0
+    assert resumed.stage_result.completion_pin == resumed.receipt.completion_artifact
+    assert resumed.stage_result.deep_attestation_pin == resumed.receipt.deep_attestation_artifact
+
+    replayed = production.exercise_i3_production_interrupted_retry(tmp_path, run_spec_pin)
+    assert replayed.reused is True
+    assert replayed.receipt == resumed.receipt
+    assert replayed.receipt_artifact == resumed.receipt_artifact
+    assert replayed.stage_result.completion_pin == resumed.stage_result.completion_pin
+    assert replayed.stage_result.deep_attestation_pin == resumed.stage_result.deep_attestation_pin
+
+
+def test_interrupted_retry_rejects_non_module_failpoint_before_phase_one(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_spec, run_spec_pin, _parent = _interrupted_retry_delta_fixture(tmp_path, monkeypatch)
+
+    with pytest.raises(I3ProductionStageError, match="failpoint is not module-owned"):
+        production.exercise_i3_production_interrupted_retry(
+            tmp_path,
+            run_spec_pin,
+            fail_after="caller_selected_failpoint",
+        )
+
+    assert not (tmp_path / production._interrupted_retry_phase_one_relative(run_spec)).exists()
+    assert not (tmp_path / production._completion_relative(run_spec)).exists()
+
+
+@pytest.mark.parametrize("workspace_kind", ("normal", "phase_one"))
+def test_interrupted_retry_rejects_partial_workspace_before_materialization(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    workspace_kind: str,
+) -> None:
+    run_spec, run_spec_pin, _parent = _interrupted_retry_delta_fixture(tmp_path, monkeypatch)
+    relative = (
+        production._workspace_relative(run_spec)
+        if workspace_kind == "normal"
+        else production._interrupted_retry_workspace_relative(run_spec)
+    )
+    (tmp_path / relative).mkdir(parents=True)
+
+    with pytest.raises(I3ProductionStageError, match="absent clean phase-one"):
+        production.exercise_i3_production_interrupted_retry(tmp_path, run_spec_pin)
+
+    assert not (tmp_path / production._interrupted_retry_phase_one_relative(run_spec)).exists()
+    assert not (tmp_path / production._completion_relative(run_spec)).exists()
+
+
+def test_interrupted_retry_rejects_completion_without_phase_one_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_spec, run_spec_pin, _parent = _interrupted_retry_delta_fixture(tmp_path, monkeypatch)
+    completion = tmp_path / production._completion_relative(run_spec)
+    completion.parent.mkdir(parents=True, exist_ok=True)
+    completion.write_bytes(b"{}\n")
+
+    with pytest.raises(I3ProductionStageError, match="without phase-one evidence"):
+        production.exercise_i3_production_interrupted_retry(tmp_path, run_spec_pin)
+
+
+@pytest.mark.parametrize("tamper", ("phase_one", "failed_receipt", "frozen_artifact"))
+def test_interrupted_retry_rejects_tampered_durable_phase_chain(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tamper: str,
+) -> None:
+    run_spec, run_spec_pin, _parent = _interrupted_retry_delta_fixture(tmp_path, monkeypatch)
+    with pytest.raises(production.I3ProductionInterruptedRetryPending) as stopped:
+        production.exercise_i3_production_interrupted_retry(tmp_path, run_spec_pin)
+    phase, _phase_pin = production._load_interrupted_retry_phase_one(tmp_path, run_spec)
+    target = {
+        "phase_one": tmp_path / stopped.value.phase_one_artifact.path,
+        "failed_receipt": tmp_path / stopped.value.failed_receipt_artifact.path,
+        "frozen_artifact": tmp_path / phase.frozen_artifacts[0].path,
+    }[tamper]
+    original = target.read_bytes()
+    target.chmod(0o644)
+    target.write_bytes(bytes((original[0] ^ 1,)) + original[1:])
+
+    with pytest.raises((I3ProductionStageError, contract.I3ProductionContractError)):
+        production.exercise_i3_production_interrupted_retry(tmp_path, run_spec_pin)
+    assert not (tmp_path / production._completion_relative(run_spec)).exists()
+
+
+def test_interrupted_retry_rejects_concurrent_exact_session_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_spec, run_spec_pin, _parent = _interrupted_retry_delta_fixture(tmp_path, monkeypatch)
+    lock = tmp_path / production._lock_relative(run_spec)
+
+    with (
+        production._exclusive_lock(lock),
+        pytest.raises(
+            I3ProductionStageError,
+            match="holds the exact session lock",
+        ),
+    ):
+        production.exercise_i3_production_interrupted_retry(tmp_path, run_spec_pin)
+
+    assert not (tmp_path / production._interrupted_retry_phase_one_relative(run_spec)).exists()
+
+
+def test_interrupted_retry_rejects_unsealed_capability() -> None:
+    capability = production._I3ProductionInterruptionCapability(
+        run_spec_id=stable_digest({"fixture": "forged-interruption-capability"}),
+        fail_after=production.FAILED_RECEIPT_DURABLE_BEFORE_COMPLETION,
+        phase_one_id=None,
+    )
+
+    with pytest.raises(I3ProductionStageError, match="not module-sealed"):
+        production._require_interruption_capability(capability, phase_one_id=None)
 
 
 def test_compact_index_writer_hashes_and_reads_each_physical_artifact_once(

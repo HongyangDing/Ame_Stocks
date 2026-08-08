@@ -10,6 +10,7 @@ post-write verification.  It has no publish, pointer, network, or cutover API.
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import math
 import os
 import resource
@@ -17,9 +18,11 @@ import shutil
 import stat
 import sys
 import time
+import weakref
 from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import date
 from pathlib import Path
 from typing import Protocol, runtime_checkable
@@ -81,6 +84,7 @@ from ame_stocks_api.silver.incremental_i3_production_contract import (
     I3ProductionTableOutput,
     LoadedI3ProductionStaging,
     load_i3_production_deep_attestation_exact,
+    load_i3_production_run_receipt_exact,
     load_i3_production_run_spec_exact,
     load_i3_production_staging_exact,
     production_gate_a_input_pins,
@@ -88,13 +92,18 @@ from ame_stocks_api.silver.incremental_i3_production_contract import (
 )
 from ame_stocks_api.silver.incremental_i3_production_semantics import (
     production_compact_base_row_validator_digest,
+    production_delta_row_validator_digest,
 )
 
 _CONTROL_ROOT = "manifests/silver/identity/s7-5-native-v2-staging"
+_DELTA_RUN_SPEC_ROOT = f"{_CONTROL_ROOT}/run-specs"
 _LOCK_ROOT = "locks/silver/identity/s7-5-native-v2-staging"
 _TEMP_ROOT = "tmp/silver-identity-s7-5-native-v2-staging"
 _OUTPUT_ROOT = "silver/schema=v2/identity/native_v2_staging"
+_INTERRUPTED_RETRY_OUTPUT_ROOT = "silver/schema=v2/identity/native_v2_interrupted_retry"
 _DELTA_BOUNDARY_PARTITION_COUNT = 3
+FAILED_RECEIPT_DURABLE_BEFORE_COMPLETION: str = "failed_receipt_durable_before_completion"
+I3_PRODUCTION_INTERRUPTED_RETRY_RULE_VERSION = "s7_5_i3_interrupted_retry_exercise_v1"
 _PARTITION_QA_ID = "partition_session_calendar_contiguous"
 _ROW_QA_ID = "row_semantic_proof_complete"
 _PARTITION_QA_SEMANTICS = stable_digest(
@@ -177,6 +186,237 @@ class I3ProductionStageResult:
     reused: bool
 
 
+class I3ProductionInterruptedRetryPending(I3ProductionStageError):
+    """Expected first-process stop after the failed receipt becomes durable."""
+
+    def __init__(
+        self,
+        *,
+        phase_one_artifact: ArtifactPin,
+        failed_receipt_artifact: ArtifactPin,
+    ) -> None:
+        super().__init__(
+            "DELTA interrupted-retry phase one stopped after its failed receipt became durable",
+            failed_receipt_pin=failed_receipt_artifact,
+        )
+        self.phase_one_artifact = phase_one_artifact
+        self.failed_receipt_artifact = failed_receipt_artifact
+
+
+@dataclass(frozen=True, slots=True)
+class I3ProductionInterruptedRetryReceipt:
+    """Durable proof that a failed DELTA attempt recovered without parent damage."""
+
+    run_spec_id: str
+    run_spec_artifact: ArtifactPin
+    phase_one_artifact: ArtifactPin
+    failed_receipt_id: str
+    failed_receipt_artifact: ArtifactPin
+    frozen_envelope_digest: str
+    parent_reader_before_digest: str
+    parent_reader_after_digest: str
+    parent_artifact_set_digest: str
+    parent_artifact_count: int
+    deleted_artifact_count: int
+    unpublished_visible_count: int
+    completion_id: str
+    completion_artifact: ArtifactPin
+    deep_attestation_id: str
+    deep_attestation_artifact: ArtifactPin
+    fail_after: str = FAILED_RECEIPT_DURABLE_BEFORE_COMPLETION
+
+    def __post_init__(self) -> None:
+        for value, label in (
+            (self.run_spec_id, "interrupted-retry RunSpec ID"),
+            (self.failed_receipt_id, "interrupted-retry failed-receipt ID"),
+            (self.frozen_envelope_digest, "interrupted-retry frozen-envelope digest"),
+            (self.parent_reader_before_digest, "interrupted-retry parent-before digest"),
+            (self.parent_reader_after_digest, "interrupted-retry parent-after digest"),
+            (self.parent_artifact_set_digest, "interrupted-retry parent-artifact digest"),
+            (self.completion_id, "interrupted-retry completion ID"),
+            (self.deep_attestation_id, "interrupted-retry deep-attestation ID"),
+        ):
+            _require_lower_sha256(value, label)
+        for value, label in (
+            (self.run_spec_artifact, "interrupted-retry RunSpec artifact"),
+            (self.phase_one_artifact, "interrupted-retry phase-one artifact"),
+            (self.failed_receipt_artifact, "interrupted-retry failed-receipt artifact"),
+            (self.completion_artifact, "interrupted-retry completion artifact"),
+            (self.deep_attestation_artifact, "interrupted-retry deep-attestation artifact"),
+        ):
+            if not isinstance(value, ArtifactPin):
+                raise I3ProductionStageError(f"{label} is invalid")
+        if self.fail_after != FAILED_RECEIPT_DURABLE_BEFORE_COMPLETION:
+            raise I3ProductionStageError("interrupted-retry failpoint is invalid")
+        if (
+            type(self.parent_artifact_count) is not int
+            or self.parent_artifact_count <= 0
+            or self.deleted_artifact_count != 0
+            or self.unpublished_visible_count != 0
+            or self.parent_reader_before_digest != self.parent_reader_after_digest
+        ):
+            raise I3ProductionStageError("interrupted-retry safety evidence is invalid")
+        validate_production_delta_run_spec_artifact_path(
+            self.run_spec_artifact,
+            run_spec_id=self.run_spec_id,
+        )
+
+    @property
+    def receipt_id(self) -> str:
+        return stable_digest(self.logical_payload())
+
+    def logical_payload(self) -> dict[str, object]:
+        return {
+            "artifact_type": "s7_5_i3_production_interrupted_retry_receipt",
+            "completion_artifact": self.completion_artifact.to_dict(),
+            "completion_id": self.completion_id,
+            "deep_attestation_artifact": self.deep_attestation_artifact.to_dict(),
+            "deep_attestation_id": self.deep_attestation_id,
+            "deleted_artifact_count": self.deleted_artifact_count,
+            "fail_after": self.fail_after,
+            "failed_receipt_artifact": self.failed_receipt_artifact.to_dict(),
+            "failed_receipt_id": self.failed_receipt_id,
+            "frozen_envelope_digest": self.frozen_envelope_digest,
+            "parent_artifact_count": self.parent_artifact_count,
+            "parent_artifact_set_digest": self.parent_artifact_set_digest,
+            "parent_reader_after_digest": self.parent_reader_after_digest,
+            "parent_reader_before_digest": self.parent_reader_before_digest,
+            "phase_one_artifact": self.phase_one_artifact.to_dict(),
+            "publish_authorized": False,
+            "rule_version": I3_PRODUCTION_INTERRUPTED_RETRY_RULE_VERSION,
+            "run_spec_artifact": self.run_spec_artifact.to_dict(),
+            "run_spec_id": self.run_spec_id,
+            "unpublished_visible_count": self.unpublished_visible_count,
+        }
+
+    def to_dict(self) -> dict[str, object]:
+        return {"receipt_id": self.receipt_id, **self.logical_payload()}
+
+    def canonical_bytes(self) -> bytes:
+        return _canonical_json_bytes(self.to_dict())
+
+    def exact_pin(self, *, path: str) -> ArtifactPin:
+        content = self.canonical_bytes()
+        return ArtifactPin(
+            path=path,
+            sha256=hashlib.sha256(content).hexdigest(),
+            bytes=len(content),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class I3ProductionInterruptedRetryResult:
+    receipt: I3ProductionInterruptedRetryReceipt
+    receipt_artifact: ArtifactPin
+    stage_result: I3ProductionStageResult
+    reused: bool
+
+
+@dataclass(frozen=True, slots=True, weakref_slot=True)
+class _I3ProductionInterruptionCapability:
+    run_spec_id: str
+    fail_after: str
+    phase_one_id: str | None
+    _seal: object = dataclass_field(default=None, init=False, repr=False, compare=False)
+
+
+_INTERRUPTION_CAPABILITY_SEAL = object()
+_ACTIVE_INTERRUPTION_CAPABILITIES: weakref.WeakValueDictionary[
+    int, _I3ProductionInterruptionCapability
+] = weakref.WeakValueDictionary()
+
+
+@dataclass(frozen=True, slots=True)
+class _InterruptedRetryPhaseOne:
+    run_spec_id: str
+    run_spec_artifact: ArtifactPin
+    failed_receipt_id: str
+    failed_receipt_artifact: ArtifactPin
+    frozen_envelope_digest: str
+    frozen_artifacts: tuple[ArtifactPin, ...]
+    parent_reader_before_digest: str
+    parent_reader_after_digest: str
+    parent_artifact_set_digest: str
+    parent_artifact_count: int
+    deleted_artifact_count: int
+    unpublished_visible_count: int
+    fail_after: str = FAILED_RECEIPT_DURABLE_BEFORE_COMPLETION
+
+    def __post_init__(self) -> None:
+        for value, label in (
+            (self.run_spec_id, "phase-one RunSpec ID"),
+            (self.failed_receipt_id, "phase-one failed-receipt ID"),
+            (self.frozen_envelope_digest, "phase-one frozen-envelope digest"),
+            (self.parent_reader_before_digest, "phase-one parent-before digest"),
+            (self.parent_reader_after_digest, "phase-one parent-after digest"),
+            (self.parent_artifact_set_digest, "phase-one parent-artifact digest"),
+        ):
+            _require_lower_sha256(value, label)
+        if not isinstance(self.run_spec_artifact, ArtifactPin) or not isinstance(
+            self.failed_receipt_artifact, ArtifactPin
+        ):
+            raise I3ProductionStageError("phase-one control artifact is invalid")
+        if (
+            type(self.frozen_artifacts) is not tuple
+            or not self.frozen_artifacts
+            or not all(isinstance(item, ArtifactPin) for item in self.frozen_artifacts)
+            or tuple(item.path for item in self.frozen_artifacts)
+            != tuple(sorted({item.path for item in self.frozen_artifacts}))
+        ):
+            raise I3ProductionStageError("phase-one frozen artifacts are invalid")
+        if self.fail_after != FAILED_RECEIPT_DURABLE_BEFORE_COMPLETION:
+            raise I3ProductionStageError("phase-one failpoint is invalid")
+        if (
+            type(self.parent_artifact_count) is not int
+            or self.parent_artifact_count <= 0
+            or self.deleted_artifact_count != 0
+            or self.unpublished_visible_count != 0
+            or self.parent_reader_before_digest != self.parent_reader_after_digest
+        ):
+            raise I3ProductionStageError("phase-one safety evidence is invalid")
+        validate_production_delta_run_spec_artifact_path(
+            self.run_spec_artifact,
+            run_spec_id=self.run_spec_id,
+        )
+
+    @property
+    def phase_one_id(self) -> str:
+        return stable_digest(self.logical_payload())
+
+    def logical_payload(self) -> dict[str, object]:
+        return {
+            "artifact_type": "s7_5_i3_production_interrupted_retry_phase_one",
+            "deleted_artifact_count": self.deleted_artifact_count,
+            "fail_after": self.fail_after,
+            "failed_receipt_artifact": self.failed_receipt_artifact.to_dict(),
+            "failed_receipt_id": self.failed_receipt_id,
+            "frozen_artifacts": [item.to_dict() for item in self.frozen_artifacts],
+            "frozen_envelope_digest": self.frozen_envelope_digest,
+            "parent_artifact_count": self.parent_artifact_count,
+            "parent_artifact_set_digest": self.parent_artifact_set_digest,
+            "parent_reader_after_digest": self.parent_reader_after_digest,
+            "parent_reader_before_digest": self.parent_reader_before_digest,
+            "rule_version": I3_PRODUCTION_INTERRUPTED_RETRY_RULE_VERSION,
+            "run_spec_artifact": self.run_spec_artifact.to_dict(),
+            "run_spec_id": self.run_spec_id,
+            "unpublished_visible_count": self.unpublished_visible_count,
+        }
+
+    def to_dict(self) -> dict[str, object]:
+        return {"phase_one_id": self.phase_one_id, **self.logical_payload()}
+
+    def canonical_bytes(self) -> bytes:
+        return _canonical_json_bytes(self.to_dict())
+
+    def exact_pin(self, *, path: str) -> ArtifactPin:
+        content = self.canonical_bytes()
+        return ArtifactPin(
+            path=path,
+            sha256=hashlib.sha256(content).hexdigest(),
+            bytes=len(content),
+        )
+
+
 def stage_i3_production_base(
     data_root: Path,
     run_spec_pin: ArtifactPin,
@@ -215,6 +455,8 @@ def stage_i3_production(
     """Stage one exact production base/delta and stop at ``awaiting_review``."""
 
     root = data_root.expanduser().resolve()
+    if expected_kind is I3ProductionRunKind.DELTA:
+        validate_production_delta_run_spec_artifact_path(run_spec_pin)
     _reject_temporary_authority_pin(run_spec_pin, "RunSpec")
     run_spec = load_i3_production_run_spec_exact(
         run_spec_pin, lambda relative: _read_control(root, relative)
@@ -222,6 +464,11 @@ def stage_i3_production(
     if run_spec.run_kind is not expected_kind:
         raise I3ProductionStageError(
             f"requested {expected_kind.value} command received a {run_spec.run_kind.value} RunSpec"
+        )
+    if expected_kind is I3ProductionRunKind.DELTA:
+        validate_production_delta_run_spec_artifact_path(
+            run_spec_pin,
+            run_spec_id=run_spec.run_spec_id,
         )
     if not isinstance(materializer, I3ProductionMaterializer):
         raise I3ProductionStageError("production materializer does not implement the sealed seam")
@@ -325,6 +572,477 @@ def stage_i3_production(
                 f"{expected_kind.value} staging failed: {qualifier}{exc}",
                 failed_receipt_pin=failed_pin,
             ) from exc
+
+
+def exercise_i3_production_interrupted_retry(
+    data_root: Path,
+    run_spec_pin: ArtifactPin,
+    *,
+    fail_after: str = FAILED_RECEIPT_DURABLE_BEFORE_COMPLETION,
+) -> I3ProductionInterruptedRetryResult:
+    """Exercise a real two-process DELTA interruption and exact normal retry.
+
+    The first call always raises :class:`I3ProductionInterruptedRetryPending`
+    after the failed receipt and phase-one metadata are immutable and before a
+    completion/deep attestation exists.  A later call, including in a fresh
+    process, exact-replays that evidence, independently rematerializes through
+    the official DELTA adapter, compares a path-neutral frozen envelope digest,
+    and invokes the ordinary staging entrypoint.  Calls after completion only
+    exact-replay the durable exercise receipt.
+    """
+
+    if fail_after != FAILED_RECEIPT_DURABLE_BEFORE_COMPLETION:
+        raise I3ProductionStageError("interrupted-retry failpoint is not module-owned")
+    root = data_root.expanduser().resolve()
+    validate_production_delta_run_spec_artifact_path(run_spec_pin)
+    run_spec = load_i3_production_run_spec_exact(
+        run_spec_pin,
+        lambda relative: _read_control(root, relative),
+    )
+    if run_spec.run_kind is not I3ProductionRunKind.DELTA:
+        raise I3ProductionStageError("interrupted-retry harness requires a DELTA RunSpec")
+    validate_production_delta_run_spec_artifact_path(
+        run_spec_pin,
+        run_spec_id=run_spec.run_spec_id,
+    )
+    phase_relative = _interrupted_retry_phase_one_relative(run_spec)
+    receipt_relative = _interrupted_retry_receipt_relative(run_spec)
+    phase_exists = safe_relative_path(root, phase_relative).exists()
+    receipt_exists = safe_relative_path(root, receipt_relative).exists()
+    completion_exists = safe_relative_path(root, _completion_relative(run_spec)).exists()
+    deep_exists = safe_relative_path(root, _deep_attestation_relative(run_spec)).exists()
+    if receipt_exists:
+        if not phase_exists or not completion_exists or not deep_exists:
+            raise I3ProductionStageError(
+                "interrupted-retry receipt has an incomplete durable control chain"
+            )
+        return _replay_interrupted_retry_result(
+            root,
+            run_spec=run_spec,
+            run_spec_pin=run_spec_pin,
+            reused=True,
+        )
+    if not phase_exists and (completion_exists or deep_exists):
+        raise I3ProductionStageError(
+            "interrupted-retry cannot adopt an existing completion without phase-one evidence"
+        )
+    if phase_exists:
+        return _resume_i3_production_interrupted_retry(
+            root,
+            run_spec=run_spec,
+            run_spec_pin=run_spec_pin,
+        )
+
+    for relative in (
+        _workspace_relative(run_spec),
+        _interrupted_retry_workspace_relative(run_spec),
+    ):
+        path = safe_relative_path(root, relative)
+        if path.exists() or path.is_symlink():
+            raise I3ProductionStageError(
+                "interrupted-retry requires absent clean phase-one and normal workspaces"
+            )
+    capability = _I3ProductionInterruptionCapability(
+        run_spec_id=run_spec.run_spec_id,
+        fail_after=fail_after,
+        phase_one_id=None,
+    )
+    object.__setattr__(capability, "_seal", _INTERRUPTION_CAPABILITY_SEAL)
+    _ACTIVE_INTERRUPTION_CAPABILITIES[id(capability)] = capability
+    try:
+        _execute_interrupted_retry_phase_one(
+            root,
+            run_spec=run_spec,
+            run_spec_pin=run_spec_pin,
+            capability=capability,
+        )
+    except _InjectedProductionInterruption as interruption:
+        if interruption.capability is not capability:
+            raise I3ProductionStageError(
+                "interrupted-retry exception lost its module seal"
+            ) from None
+        raise I3ProductionInterruptedRetryPending(
+            phase_one_artifact=interruption.phase_one_artifact,
+            failed_receipt_artifact=interruption.failed_receipt_artifact,
+        ) from None
+    finally:
+        _ACTIVE_INTERRUPTION_CAPABILITIES.pop(id(capability), None)
+    raise I3ProductionStageError("interrupted-retry phase one did not interrupt")
+
+
+class _InjectedProductionInterruption(RuntimeError):
+    def __init__(
+        self,
+        *,
+        capability: _I3ProductionInterruptionCapability,
+        phase_one_artifact: ArtifactPin,
+        failed_receipt_artifact: ArtifactPin,
+    ) -> None:
+        super().__init__(FAILED_RECEIPT_DURABLE_BEFORE_COMPLETION)
+        self.capability = capability
+        self.phase_one_artifact = phase_one_artifact
+        self.failed_receipt_artifact = failed_receipt_artifact
+
+
+class _InterruptedRetryResumeMaterializer:
+    def __init__(
+        self,
+        *,
+        capability: _I3ProductionInterruptionCapability,
+        delegate: I3ProductionMaterializer,
+        phase_one: _InterruptedRetryPhaseOne,
+    ) -> None:
+        _require_interruption_capability(capability, phase_one_id=phase_one.phase_one_id)
+        self._capability = capability
+        self._delegate = delegate
+        self._phase_one = phase_one
+        self.prepared: I3ProductionPreparedMaterialization | None = None
+
+    def prepare(
+        self,
+        *,
+        data_root: Path,
+        run_spec: I3ProductionRunSpec,
+        parent: LoadedI3ProductionStaging | None,
+        workspace: Path,
+    ) -> I3ProductionPreparedMaterialization:
+        _require_interruption_capability(
+            self._capability,
+            phase_one_id=self._phase_one.phase_one_id,
+        )
+        if (
+            run_spec.run_spec_id != self._phase_one.run_spec_id
+            or parent is None
+            or _production_parent_evidence(parent)[0] != self._phase_one.parent_reader_before_digest
+        ):
+            raise I3ProductionStageError("interrupted-retry resume authority differs")
+        prepared = self._delegate.prepare(
+            data_root=data_root,
+            run_spec=run_spec,
+            parent=parent,
+            workspace=workspace,
+        )
+        observed = _delta_frozen_envelope_digest(prepared, parent=parent)
+        if observed != self._phase_one.frozen_envelope_digest:
+            raise I3ProductionStageError(
+                "interrupted-retry rematerialized envelope differs from phase one"
+            )
+        self.prepared = prepared
+        return prepared
+
+
+def _execute_interrupted_retry_phase_one(
+    root: Path,
+    *,
+    run_spec: I3ProductionRunSpec,
+    run_spec_pin: ArtifactPin,
+    capability: _I3ProductionInterruptionCapability,
+) -> None:
+    _require_interruption_capability(capability, phase_one_id=None)
+    from ame_stocks_api.silver.incremental_i3_delta_io import (
+        load_production_delta_materializer,
+    )
+
+    lock_path = safe_relative_path(root, _lock_relative(run_spec))
+    with _exclusive_lock(lock_path):
+        for relative in (
+            _completion_relative(run_spec),
+            _deep_attestation_relative(run_spec),
+            _interrupted_retry_phase_one_relative(run_spec),
+            _interrupted_retry_receipt_relative(run_spec),
+        ):
+            path = safe_relative_path(root, relative)
+            if path.exists() or path.is_symlink():
+                raise I3ProductionStageError(
+                    "interrupted-retry phase one found an existing durable result"
+                )
+        started = time.monotonic()
+        minimum_disk = shutil.disk_usage(root).free
+        _check_live_resources(root, run_spec)
+        calendar_sessions = contract._verify_external_production_dependencies(root, run_spec)
+        parent = contract._verify_production_parent_exact(root, run_spec)
+        if parent is None:
+            raise I3ProductionStageError("interrupted-retry DELTA lacks an exact parent")
+        contract._verify_i2_receipts_exact(
+            root,
+            run_spec,
+            calendar_sessions=calendar_sessions,
+            parent_staging=parent,
+        )
+        parent_before, parent_set_digest, parent_count = _production_parent_evidence(parent)
+        materializer = load_production_delta_materializer(
+            data_root=root,
+            run_spec=run_spec,
+        )
+        workspace = safe_relative_path(root, _interrupted_retry_workspace_relative(run_spec))
+        workspace.mkdir(parents=True, exist_ok=False)
+        prepared = materializer.prepare(
+            data_root=root,
+            run_spec=run_spec,
+            parent=parent,
+            workspace=workspace,
+        )
+        _verify_prepared_materialization_authority(
+            root,
+            run_spec,
+            prepared,
+            parent=parent,
+        )
+        _validate_prepared(root, run_spec, prepared, parent=parent)
+        observation = _combined_observation(
+            root,
+            prepared.resource_observation,
+            started=started,
+        )
+        observation.validate_caps(run_spec.resource_caps)
+        minimum_disk = min(minimum_disk, observation.minimum_disk_free_bytes)
+        frozen_digest = _delta_frozen_envelope_digest(prepared, parent=parent)
+        frozen_artifacts = _delta_new_prepared_artifacts(prepared, parent=parent)
+        reloaded_parent = contract._verify_production_parent_exact(root, run_spec)
+        if reloaded_parent is None:  # pragma: no cover - DELTA invariant
+            raise I3ProductionStageError("interrupted-retry parent disappeared")
+        parent_after, after_set_digest, after_count = _production_parent_evidence(reloaded_parent)
+        if (
+            parent_after != parent_before
+            or after_set_digest != parent_set_digest
+            or after_count != parent_count
+        ):
+            raise I3ProductionStageError("interrupted-retry phase one changed its parent")
+        detail_digest = _interruption_failure_detail_digest(run_spec, frozen_digest)
+        failed_receipt = I3ProductionRunReceipt(
+            run_spec_id=run_spec.run_spec_id,
+            run_spec_artifact=run_spec_pin,
+            state=I3ProductionRunState.FAILED,
+            receipt_available_session=run_spec.run_available_session,
+            resource_observation=I3ProductionResourceObservation(
+                peak_rss_bytes=max(observation.peak_rss_bytes, _peak_rss_bytes()),
+                elapsed_seconds=max(
+                    observation.elapsed_seconds,
+                    max(0, math.ceil(time.monotonic() - started)),
+                ),
+                minimum_disk_free_bytes=min(minimum_disk, shutil.disk_usage(root).free),
+                temporary_bytes=observation.temporary_bytes,
+            ),
+            failure_code="interrupted_retry_injected",
+            failure_detail_digest=detail_digest,
+        )
+        failed_relative = (
+            f"{_run_root(run_spec)}/failed-receipts/receipt_id={failed_receipt.receipt_id}.json"
+        )
+        failed_pin = failed_receipt.exact_pin(path=failed_relative)
+        phase_one = _InterruptedRetryPhaseOne(
+            run_spec_id=run_spec.run_spec_id,
+            run_spec_artifact=run_spec_pin,
+            failed_receipt_id=failed_receipt.receipt_id,
+            failed_receipt_artifact=failed_pin,
+            frozen_envelope_digest=frozen_digest,
+            frozen_artifacts=frozen_artifacts,
+            parent_reader_before_digest=parent_before,
+            parent_reader_after_digest=parent_after,
+            parent_artifact_set_digest=parent_set_digest,
+            parent_artifact_count=parent_count,
+            deleted_artifact_count=0,
+            unpublished_visible_count=0,
+        )
+        phase_relative = _interrupted_retry_phase_one_relative(run_spec)
+        phase_pin = _write_immutable(root, phase_relative, phase_one.canonical_bytes())
+        if phase_pin != phase_one.exact_pin(path=phase_relative):
+            raise I3ProductionStageError("interrupted-retry phase-one bytes changed")
+        observed_failed_pin = _write_immutable(
+            root,
+            failed_relative,
+            failed_receipt.canonical_bytes(),
+        )
+        if observed_failed_pin != failed_pin:
+            raise I3ProductionStageError("interrupted-retry failed-receipt bytes changed")
+        _verify_interrupted_failed_receipt(
+            root,
+            run_spec=run_spec,
+            phase_one=phase_one,
+        )
+        if any(
+            safe_relative_path(root, relative).exists()
+            or safe_relative_path(root, relative).is_symlink()
+            for relative in (
+                _completion_relative(run_spec),
+                _deep_attestation_relative(run_spec),
+            )
+        ):
+            raise I3ProductionStageError(
+                "interrupted-retry phase one exposed a completion before interruption"
+            )
+        raise _InjectedProductionInterruption(
+            capability=capability,
+            phase_one_artifact=phase_pin,
+            failed_receipt_artifact=failed_pin,
+        )
+
+
+def _resume_i3_production_interrupted_retry(
+    root: Path,
+    *,
+    run_spec: I3ProductionRunSpec,
+    run_spec_pin: ArtifactPin,
+) -> I3ProductionInterruptedRetryResult:
+    from ame_stocks_api.silver.incremental_i3_delta_io import (
+        load_production_delta_materializer,
+    )
+
+    phase_one, phase_pin = _load_interrupted_retry_phase_one(root, run_spec)
+    if phase_one.run_spec_artifact != run_spec_pin:
+        raise I3ProductionStageError("interrupted-retry phase one names another RunSpec pin")
+    _verify_interrupted_failed_receipt(root, run_spec=run_spec, phase_one=phase_one)
+    for artifact in phase_one.frozen_artifacts:
+        _verify_file(root, artifact)
+    parent = contract._verify_production_parent_exact(root, run_spec)
+    if parent is None:
+        raise I3ProductionStageError("interrupted-retry resume lacks its exact parent")
+    parent_before, parent_set_digest, parent_count = _production_parent_evidence(parent)
+    if (
+        parent_before != phase_one.parent_reader_before_digest
+        or parent_set_digest != phase_one.parent_artifact_set_digest
+        or parent_count != phase_one.parent_artifact_count
+    ):
+        raise I3ProductionStageError("interrupted-retry resume parent differs from phase one")
+    completion_exists = safe_relative_path(root, _completion_relative(run_spec)).exists()
+    if not completion_exists:
+        normal_workspace = safe_relative_path(root, _workspace_relative(run_spec))
+        if normal_workspace.exists() or normal_workspace.is_symlink():
+            raise I3ProductionStageError(
+                "interrupted-retry normal retry workspace is partial or foreign"
+            )
+    delegate = load_production_delta_materializer(data_root=root, run_spec=run_spec)
+    capability = _I3ProductionInterruptionCapability(
+        run_spec_id=run_spec.run_spec_id,
+        fail_after=FAILED_RECEIPT_DURABLE_BEFORE_COMPLETION,
+        phase_one_id=phase_one.phase_one_id,
+    )
+    object.__setattr__(capability, "_seal", _INTERRUPTION_CAPABILITY_SEAL)
+    _ACTIVE_INTERRUPTION_CAPABILITIES[id(capability)] = capability
+    wrapper = _InterruptedRetryResumeMaterializer(
+        capability=capability,
+        delegate=delegate,
+        phase_one=phase_one,
+    )
+    try:
+        stage_result = stage_i3_production_delta(
+            root,
+            run_spec_pin,
+            materializer=wrapper,
+        )
+    finally:
+        _ACTIVE_INTERRUPTION_CAPABILITIES.pop(id(capability), None)
+    observed_digest = _delta_frozen_envelope_digest_from_loaded(
+        stage_result.loaded,
+        parent=parent,
+    )
+    if observed_digest != phase_one.frozen_envelope_digest:
+        raise I3ProductionStageError("interrupted-retry completed envelope differs from phase one")
+    reloaded_parent = contract._verify_production_parent_exact(root, run_spec)
+    if reloaded_parent is None:  # pragma: no cover
+        raise I3ProductionStageError("interrupted-retry parent disappeared after retry")
+    parent_after, after_set_digest, after_count = _production_parent_evidence(reloaded_parent)
+    if (
+        parent_after != parent_before
+        or after_set_digest != parent_set_digest
+        or after_count != parent_count
+    ):
+        raise I3ProductionStageError("interrupted-retry normal retry changed its parent")
+    deep = load_i3_production_deep_attestation_exact(
+        stage_result.deep_attestation_pin,
+        lambda relative: _read_control(root, relative),
+    )
+    receipt = I3ProductionInterruptedRetryReceipt(
+        run_spec_id=run_spec.run_spec_id,
+        run_spec_artifact=run_spec_pin,
+        phase_one_artifact=phase_pin,
+        failed_receipt_id=phase_one.failed_receipt_id,
+        failed_receipt_artifact=phase_one.failed_receipt_artifact,
+        frozen_envelope_digest=phase_one.frozen_envelope_digest,
+        parent_reader_before_digest=parent_before,
+        parent_reader_after_digest=parent_after,
+        parent_artifact_set_digest=parent_set_digest,
+        parent_artifact_count=parent_count,
+        deleted_artifact_count=0,
+        unpublished_visible_count=phase_one.unpublished_visible_count,
+        completion_id=stage_result.loaded.completion.completion_id,
+        completion_artifact=stage_result.completion_pin,
+        deep_attestation_id=deep.deep_attestation_id,
+        deep_attestation_artifact=stage_result.deep_attestation_pin,
+    )
+    receipt_relative = _interrupted_retry_receipt_relative(run_spec)
+    receipt_pin = _write_immutable(root, receipt_relative, receipt.canonical_bytes())
+    if receipt_pin != receipt.exact_pin(path=receipt_relative):
+        raise I3ProductionStageError("interrupted-retry receipt bytes changed")
+    return _replay_interrupted_retry_result(
+        root,
+        run_spec=run_spec,
+        run_spec_pin=run_spec_pin,
+        reused=False,
+        stage_result=stage_result,
+    )
+
+
+def _replay_interrupted_retry_result(
+    root: Path,
+    *,
+    run_spec: I3ProductionRunSpec,
+    run_spec_pin: ArtifactPin,
+    reused: bool,
+    stage_result: I3ProductionStageResult | None = None,
+) -> I3ProductionInterruptedRetryResult:
+    phase_one, phase_pin = _load_interrupted_retry_phase_one(root, run_spec)
+    receipt, receipt_pin = _load_interrupted_retry_receipt(root, run_spec)
+    if (
+        phase_one.run_spec_artifact != run_spec_pin
+        or receipt.run_spec_artifact != run_spec_pin
+        or receipt.phase_one_artifact != phase_pin
+        or receipt.failed_receipt_id != phase_one.failed_receipt_id
+        or receipt.failed_receipt_artifact != phase_one.failed_receipt_artifact
+        or receipt.frozen_envelope_digest != phase_one.frozen_envelope_digest
+    ):
+        raise I3ProductionStageError("interrupted-retry durable controls do not reconcile")
+    _verify_interrupted_failed_receipt(root, run_spec=run_spec, phase_one=phase_one)
+    for artifact in phase_one.frozen_artifacts:
+        _verify_file(root, artifact)
+    loaded = verify_i3_production_deep_attestation(
+        root,
+        receipt.completion_artifact,
+        receipt.deep_attestation_artifact,
+        expected_kind=I3ProductionRunKind.DELTA,
+    )
+    deep = load_i3_production_deep_attestation_exact(
+        receipt.deep_attestation_artifact,
+        lambda relative: _read_control(root, relative),
+    )
+    parent = contract._verify_production_parent_exact(root, run_spec)
+    if parent is None:
+        raise I3ProductionStageError("interrupted-retry replay lacks its exact parent")
+    parent_digest, parent_set_digest, parent_count = _production_parent_evidence(parent)
+    if (
+        receipt.completion_id != loaded.completion.completion_id
+        or receipt.deep_attestation_id != deep.deep_attestation_id
+        or receipt.parent_reader_before_digest != parent_digest
+        or receipt.parent_reader_after_digest != parent_digest
+        or receipt.parent_artifact_set_digest != parent_set_digest
+        or receipt.parent_artifact_count != parent_count
+        or receipt.frozen_envelope_digest
+        != _delta_frozen_envelope_digest_from_loaded(loaded, parent=parent)
+    ):
+        raise I3ProductionStageError("interrupted-retry exact replay differs")
+    if stage_result is None:
+        stage_result = I3ProductionStageResult(
+            completion_pin=receipt.completion_artifact,
+            deep_attestation_pin=receipt.deep_attestation_artifact,
+            loaded=loaded,
+            reused=True,
+        )
+    return I3ProductionInterruptedRetryResult(
+        receipt=receipt,
+        receipt_artifact=receipt_pin,
+        stage_result=stage_result,
+        reused=reused,
+    )
 
 
 def _verify_prepared_materialization_authority(
@@ -912,6 +1630,17 @@ def _gate_a_row_version_change_index(
                 raise I3ProductionStageError(
                     "compact-base row validator semantics are not module-owned"
                 )
+        else:
+            expected_validator = production_delta_row_validator_digest(
+                table_name=item.table_name,
+                schema_digest=contract.I3_V2_CONTRACTS[item.table_name].schema_digest,
+                operation=item.operation.value,
+            )
+            if (
+                item.availability_session != run_spec.run_available_session
+                or item.validator_semantics_digest != expected_validator
+            ):
+                raise I3ProductionStageError("DELTA row validator semantics are not module-owned")
         row: dict[str, object] = {
             "availability_session": item.availability_session,
             "index_artifact_bytes": item.index_artifact.bytes,
@@ -1032,6 +1761,350 @@ def _reject_temporary_authority_pin(pin: ArtifactPin, label: str) -> None:
         raise I3ProductionStageError(f"temporary {label} cannot acquire production authority")
 
 
+def validate_production_delta_run_spec_artifact_path(
+    pin: ArtifactPin,
+    *,
+    run_spec_id: str | None = None,
+) -> str:
+    """Validate the module-owned DELTA RunSpec locator before staging reads.
+
+    The path shape is rejected before any artifact is opened.  Once the exact
+    RunSpec has been parsed, ``run_spec_id`` closes the embedded path identity.
+    BASE staging deliberately does not use this DELTA-only locator contract.
+    """
+
+    if not isinstance(pin, ArtifactPin):
+        raise I3ProductionStageError("DELTA RunSpec artifact pin is invalid")
+    prefix = f"{_DELTA_RUN_SPEC_ROOT}/run_spec_id="
+    suffix = "/run-spec.json"
+    if not pin.path.startswith(prefix) or not pin.path.endswith(suffix):
+        raise I3ProductionStageError("DELTA RunSpec artifact path is not module-owned canonical")
+    embedded_id = pin.path[len(prefix) : -len(suffix)]
+    if (
+        len(embedded_id) != 64
+        or any(character not in "0123456789abcdef" for character in embedded_id)
+        or "/" in embedded_id
+    ):
+        raise I3ProductionStageError("DELTA RunSpec artifact path is not module-owned canonical")
+    if run_spec_id is not None and (
+        not isinstance(run_spec_id, str)
+        or len(run_spec_id) != 64
+        or any(character not in "0123456789abcdef" for character in run_spec_id)
+        or embedded_id != run_spec_id
+    ):
+        raise I3ProductionStageError(
+            "DELTA RunSpec artifact path does not match its exact RunSpec ID"
+        )
+    return embedded_id
+
+
+def _require_interruption_capability(
+    capability: _I3ProductionInterruptionCapability,
+    *,
+    phase_one_id: str | None,
+) -> None:
+    if (
+        type(capability) is not _I3ProductionInterruptionCapability
+        or capability._seal is not _INTERRUPTION_CAPABILITY_SEAL
+        or _ACTIVE_INTERRUPTION_CAPABILITIES.get(id(capability)) is not capability
+        or capability.fail_after != FAILED_RECEIPT_DURABLE_BEFORE_COMPLETION
+        or capability.phase_one_id != phase_one_id
+    ):
+        raise I3ProductionStageError("interrupted-retry capability is not module-sealed")
+
+
+def _production_parent_evidence(
+    parent: LoadedI3ProductionStaging,
+) -> tuple[str, str, int]:
+    output_set = parent.receipt.output_set
+    if output_set is None:
+        raise I3ProductionStageError("interrupted-retry parent lacks an OutputSet")
+    reader_digest = stable_digest(
+        {
+            "checkpoint_id": parent.checkpoint.checkpoint_id,
+            "completion_id": parent.completion.completion_id,
+            "gate_a_release_id": parent.gate_a_manifest.release_id,
+            "output_set_id": output_set.output_set_id,
+            "rule_version": "s7_5_i3_interrupted_retry_parent_reader_v1",
+        }
+    )
+    artifacts: dict[str, ArtifactPin] = {}
+    for output in output_set.table_outputs:
+        if output.dataset_index is not None:
+            selected = tuple(item.artifact for item in output.dataset_index.partitions)
+        elif output.rowset_index is not None:
+            selected = tuple(item.artifact for item in output.rowset_index.segments)
+        else:
+            selected = (output.manifest_output.artifact,)
+        for artifact in selected:
+            prior = artifacts.get(artifact.path)
+            if prior is not None and prior != artifact:
+                raise I3ProductionStageError(
+                    "interrupted-retry parent path has conflicting exact pins"
+                )
+            artifacts[artifact.path] = artifact
+    ordered = tuple(artifacts[path] for path in sorted(artifacts))
+    if not ordered:
+        raise I3ProductionStageError("interrupted-retry parent artifact set is empty")
+    return (
+        reader_digest,
+        stable_digest(
+            {
+                "artifacts": [item.to_dict() for item in ordered],
+                "rule_version": "s7_5_i3_interrupted_retry_parent_artifact_set_v1",
+            }
+        ),
+        len(ordered),
+    )
+
+
+def _delta_frozen_envelope_digest(
+    prepared: I3ProductionPreparedMaterialization,
+    *,
+    parent: LoadedI3ProductionStaging,
+) -> str:
+    return _delta_frozen_envelope_digest_from_parts(
+        prepared.table_outputs,
+        prepared.native_manifest,
+        prepared.checkpoint,
+        parent=parent,
+    )
+
+
+def _delta_frozen_envelope_digest_from_loaded(
+    loaded: LoadedI3ProductionStaging,
+    *,
+    parent: LoadedI3ProductionStaging,
+) -> str:
+    output_set = loaded.receipt.output_set
+    if output_set is None:
+        raise I3ProductionStageError("interrupted-retry completion lacks an OutputSet")
+    return _delta_frozen_envelope_digest_from_parts(
+        output_set.table_outputs,
+        loaded.manifest,
+        loaded.checkpoint,
+        parent=parent,
+    )
+
+
+def _delta_frozen_envelope_digest_from_parts(
+    table_outputs: tuple[I3ProductionTableOutput, ...],
+    native_manifest: NativeV2ReleaseManifest,
+    checkpoint: I3CheckpointState,
+    *,
+    parent: LoadedI3ProductionStaging,
+) -> str:
+    parent_output_set = parent.receipt.output_set
+    if parent_output_set is None:
+        raise I3ProductionStageError("interrupted-retry parent lost its OutputSet")
+    physical: list[dict[str, object]] = []
+    for parent_output, output in zip(
+        parent_output_set.table_outputs,
+        table_outputs,
+        strict=True,
+    ):
+        if output.table_name == "universe_daily":
+            parent_index = parent_output.dataset_index
+            child_index = output.dataset_index
+            if (
+                parent_index is None
+                or child_index is None
+                or child_index.partitions[:-1] != parent_index.partitions
+                or len(child_index.partitions) != len(parent_index.partitions) + 1
+            ):
+                raise I3ProductionStageError(
+                    "interrupted-retry universe envelope is not one exact append"
+                )
+            partition = child_index.partitions[-1]
+            physical.append(
+                {
+                    "artifact_bytes": partition.artifact.bytes,
+                    "artifact_sha256": partition.artifact.sha256,
+                    "availability_session": partition.availability_session.isoformat(),
+                    "contract_id": partition.contract_id,
+                    "row_count": partition.row_count,
+                    "schema_digest": partition.schema_digest,
+                    "session_date": partition.session_date.isoformat(),
+                    "table_name": output.table_name,
+                }
+            )
+        else:
+            parent_rowset = parent_output.rowset_index
+            child_rowset = output.rowset_index
+            if (
+                parent_rowset is None
+                or child_rowset is None
+                or child_rowset.segments[:-1] != parent_rowset.segments
+                or len(child_rowset.segments) != len(parent_rowset.segments) + 1
+            ):
+                raise I3ProductionStageError(
+                    "interrupted-retry rowset envelope is not one exact append"
+                )
+            segment = child_rowset.segments[-1]
+            physical.append(
+                {
+                    "artifact_bytes": segment.artifact.bytes,
+                    "artifact_sha256": segment.artifact.sha256,
+                    "availability_session": segment.availability_session.isoformat(),
+                    "contract_id": segment.contract_id,
+                    "row_count": segment.row_count,
+                    "schema_digest": segment.schema_digest,
+                    "table_name": output.table_name,
+                }
+            )
+    terminal = [
+        {
+            "artifact_bytes": item.index_artifact.bytes,
+            "artifact_sha256": item.index_artifact.sha256,
+            "availability_session": item.availability_session.isoformat(),
+            "predecessor_row_version_id": item.predecessor_row_version_id,
+            "row_payload_digest": item.row_payload_digest,
+            "row_version_id": item.row_version_id,
+            "stable_row_key": item.stable_row_key,
+            "table_name": item.table_name,
+        }
+        for item in checkpoint.terminal_row_versions
+    ]
+    checkpoint_semantics = {
+        "asset_aggregates": [item.to_dict() for item in checkpoint.asset_aggregates],
+        "availability_cutoff_session": checkpoint.availability_cutoff_session.isoformat(),
+        "calendar_digest": checkpoint.calendar_digest,
+        "identity_policy_bundle": checkpoint.identity_policy_bundle.to_dict(),
+        "identity_policy_bundle_artifact": (checkpoint.identity_policy_bundle_artifact.to_dict()),
+        "issuer_aggregates": [item.to_dict() for item in checkpoint.issuer_aggregates],
+        "last_session": checkpoint.last_session.isoformat(),
+        "open_aliases": [item.to_dict() for item in checkpoint.open_aliases],
+        "resolved_partition_map": [
+            {
+                "artifact_bytes": item.artifact.bytes,
+                "artifact_sha256": item.artifact.sha256,
+                "availability_session": item.availability_session.isoformat(),
+                "row_count": item.row_count,
+                "session_date": item.session_date.isoformat(),
+            }
+            for item in checkpoint.resolved_partition_map
+        ],
+        "s4_terminal_pins": [item.to_dict() for item in checkpoint.s4_terminal_pins],
+        "schema_digest": checkpoint.schema_digest,
+        "source_cutoff_session": checkpoint.source_cutoff_session.isoformat(),
+        "transform_semantics_digest": checkpoint.transform_semantics_digest,
+        "unresolved_subjects": [item.to_dict() for item in checkpoint.unresolved_subjects],
+    }
+    return stable_digest(
+        {
+            "availability_session": native_manifest.release_available_session.isoformat(),
+            "checkpoint_semantics": checkpoint_semantics,
+            "identity_policy_bundle_id": native_manifest.identity_policy_bundle_id,
+            "native_v2_migration_id": native_manifest.native_v2_migration_id,
+            "physical_suffixes": physical,
+            "rule_version": "s7_5_i3_interrupted_retry_frozen_envelope_v1",
+            "terminal_row_versions": terminal,
+            "terminal_session": native_manifest.terminal_session.isoformat(),
+            "transform_semantics_digest": native_manifest.transform_semantics_digest,
+        }
+    )
+
+
+def _delta_new_prepared_artifacts(
+    prepared: I3ProductionPreparedMaterialization,
+    *,
+    parent: LoadedI3ProductionStaging,
+) -> tuple[ArtifactPin, ...]:
+    parent_output_set = parent.receipt.output_set
+    if parent_output_set is None:
+        raise I3ProductionStageError("interrupted-retry parent lost its OutputSet")
+    pins = [prepared.native_manifest_artifact, prepared.checkpoint_artifact]
+    for parent_output, output in zip(
+        parent_output_set.table_outputs,
+        prepared.table_outputs,
+        strict=True,
+    ):
+        pins.append(output.manifest_output.artifact)
+        if output.dataset_index is not None:
+            parent_index = parent_output.dataset_index
+            if parent_index is None:
+                raise I3ProductionStageError("interrupted-retry parent dataset index is absent")
+            pins.extend(
+                item.artifact
+                for item in output.dataset_index.partitions[len(parent_index.partitions) :]
+            )
+        elif output.rowset_index is not None:
+            parent_rowset = parent_output.rowset_index
+            if parent_rowset is None:
+                raise I3ProductionStageError("interrupted-retry parent rowset index is absent")
+            pins.extend(
+                item.artifact
+                for item in output.rowset_index.segments[len(parent_rowset.segments) :]
+            )
+    pins.extend(item.index_artifact for item in prepared.row_versions)
+    by_path: dict[str, ArtifactPin] = {}
+    for pin in pins:
+        if not isinstance(pin, ArtifactPin):
+            raise I3ProductionStageError("interrupted-retry frozen artifact is invalid")
+        prior = by_path.get(pin.path)
+        if prior is not None and prior != pin:
+            raise I3ProductionStageError("interrupted-retry artifact path has conflicting pins")
+        by_path[pin.path] = pin
+    return tuple(by_path[path] for path in sorted(by_path))
+
+
+def _interruption_failure_detail_digest(
+    run_spec: I3ProductionRunSpec,
+    frozen_envelope_digest: str,
+) -> str:
+    return stable_digest(
+        {
+            "fail_after": FAILED_RECEIPT_DURABLE_BEFORE_COMPLETION,
+            "frozen_envelope_digest": frozen_envelope_digest,
+            "rule_version": I3_PRODUCTION_INTERRUPTED_RETRY_RULE_VERSION,
+            "run_spec_id": run_spec.run_spec_id,
+        }
+    )
+
+
+def _verify_interrupted_failed_receipt(
+    root: Path,
+    *,
+    run_spec: I3ProductionRunSpec,
+    phase_one: _InterruptedRetryPhaseOne,
+) -> I3ProductionRunReceipt:
+    expected_relative = (
+        f"{_run_root(run_spec)}/failed-receipts/receipt_id={phase_one.failed_receipt_id}.json"
+    )
+    if phase_one.failed_receipt_artifact.path != expected_relative:
+        raise I3ProductionStageError(
+            "interrupted-retry failed receipt is not at its canonical locator"
+        )
+    try:
+        receipt = load_i3_production_run_receipt_exact(
+            phase_one.failed_receipt_artifact,
+            lambda relative: _read_control(root, relative),
+        )
+    except contract.I3ProductionContractError as exc:
+        raise I3ProductionStageError(
+            "interrupted-retry failed receipt does not exact-replay"
+        ) from exc
+    expected_detail_digest = _interruption_failure_detail_digest(
+        run_spec,
+        phase_one.frozen_envelope_digest,
+    )
+    if (
+        receipt.receipt_id != phase_one.failed_receipt_id
+        or receipt.exact_pin(path=expected_relative) != phase_one.failed_receipt_artifact
+        or receipt.run_spec_id != run_spec.run_spec_id
+        or receipt.run_spec_artifact != phase_one.run_spec_artifact
+        or receipt.state is not I3ProductionRunState.FAILED
+        or receipt.failure_code != "interrupted_retry_injected"
+        or receipt.failure_detail_digest != expected_detail_digest
+        or receipt.output_set is not None
+        or receipt.receipt_available_session != run_spec.run_available_session
+    ):
+        raise I3ProductionStageError(
+            "interrupted-retry failed receipt differs from its phase-one authority"
+        )
+    return receipt
+
+
 def _validate_prepared(
     root: Path,
     run_spec: I3ProductionRunSpec,
@@ -1049,6 +2122,16 @@ def _validate_prepared(
         raise I3ProductionStageError("prepared output table order differs")
     try:
         contract.validate_production_compact_base_initial_rowsets(run_spec, prepared.table_outputs)
+        if run_spec.run_kind is I3ProductionRunKind.DELTA:
+            if parent is None or parent.receipt.output_set is None:
+                raise contract.I3ProductionContractError(
+                    "DELTA staging lacks an authenticated parent OutputSet"
+                )
+            contract.validate_production_delta_append_outputs(
+                run_spec,
+                prepared.table_outputs,
+                parent.receipt.output_set,
+            )
     except contract.I3ProductionContractError as exc:
         raise I3ProductionStageError(str(exc)) from exc
     authoritative_pins = [
@@ -1318,6 +2401,286 @@ def _workspace_relative(run_spec: I3ProductionRunSpec) -> str:
     return f"{_OUTPUT_ROOT}/run_spec_id={run_spec.run_spec_id}"
 
 
+def _interrupted_retry_workspace_relative(run_spec: I3ProductionRunSpec) -> str:
+    return f"{_INTERRUPTED_RETRY_OUTPUT_ROOT}/run_spec_id={run_spec.run_spec_id}/phase-one"
+
+
+def _interrupted_retry_phase_one_relative(run_spec: I3ProductionRunSpec) -> str:
+    return _control_relative(
+        run_spec,
+        "failure-exercises/interrupted-retry/phase-one.json",
+    )
+
+
+def _interrupted_retry_receipt_relative(run_spec: I3ProductionRunSpec) -> str:
+    return _control_relative(
+        run_spec,
+        "failure-exercises/interrupted-retry/receipt.json",
+    )
+
+
+def _load_interrupted_retry_phase_one(
+    root: Path,
+    run_spec: I3ProductionRunSpec,
+) -> tuple[_InterruptedRetryPhaseOne, ArtifactPin]:
+    relative = _interrupted_retry_phase_one_relative(run_spec)
+    pin = _pin_existing(root, relative)
+    item = _closed_control_mapping(
+        _read_canonical_json(root, pin),
+        {
+            "artifact_type",
+            "deleted_artifact_count",
+            "fail_after",
+            "failed_receipt_artifact",
+            "failed_receipt_id",
+            "frozen_artifacts",
+            "frozen_envelope_digest",
+            "parent_artifact_count",
+            "parent_artifact_set_digest",
+            "parent_reader_after_digest",
+            "parent_reader_before_digest",
+            "phase_one_id",
+            "rule_version",
+            "run_spec_artifact",
+            "run_spec_id",
+            "unpublished_visible_count",
+        },
+        "interrupted-retry phase one",
+    )
+    _require_literal(
+        item["artifact_type"],
+        "s7_5_i3_production_interrupted_retry_phase_one",
+        "interrupted-retry phase-one artifact type",
+    )
+    _require_literal(
+        item["rule_version"],
+        I3_PRODUCTION_INTERRUPTED_RETRY_RULE_VERSION,
+        "interrupted-retry phase-one rule",
+    )
+    frozen = item["frozen_artifacts"]
+    if type(frozen) is not list or not frozen:
+        raise I3ProductionStageError("interrupted-retry frozen-artifact list is invalid")
+    result = _InterruptedRetryPhaseOne(
+        run_spec_id=_require_json_text(item["run_spec_id"], "phase-one RunSpec ID"),
+        run_spec_artifact=_artifact_pin_from_json(
+            item["run_spec_artifact"],
+            "phase-one RunSpec artifact",
+        ),
+        failed_receipt_id=_require_json_text(
+            item["failed_receipt_id"],
+            "phase-one failed-receipt ID",
+        ),
+        failed_receipt_artifact=_artifact_pin_from_json(
+            item["failed_receipt_artifact"],
+            "phase-one failed-receipt artifact",
+        ),
+        frozen_envelope_digest=_require_json_text(
+            item["frozen_envelope_digest"],
+            "phase-one frozen-envelope digest",
+        ),
+        frozen_artifacts=tuple(
+            _artifact_pin_from_json(value, "phase-one frozen artifact") for value in frozen
+        ),
+        parent_reader_before_digest=_require_json_text(
+            item["parent_reader_before_digest"],
+            "phase-one parent-before digest",
+        ),
+        parent_reader_after_digest=_require_json_text(
+            item["parent_reader_after_digest"],
+            "phase-one parent-after digest",
+        ),
+        parent_artifact_set_digest=_require_json_text(
+            item["parent_artifact_set_digest"],
+            "phase-one parent-artifact digest",
+        ),
+        parent_artifact_count=_require_json_int(
+            item["parent_artifact_count"],
+            "phase-one parent-artifact count",
+        ),
+        deleted_artifact_count=_require_json_int(
+            item["deleted_artifact_count"],
+            "phase-one deleted-artifact count",
+        ),
+        unpublished_visible_count=_require_json_int(
+            item["unpublished_visible_count"],
+            "phase-one unpublished-visible count",
+        ),
+        fail_after=_require_json_text(item["fail_after"], "phase-one failpoint"),
+    )
+    claimed_id = _require_json_text(item["phase_one_id"], "phase-one ID")
+    if (
+        claimed_id != result.phase_one_id
+        or result.run_spec_id != run_spec.run_spec_id
+        or result.exact_pin(path=relative) != pin
+    ):
+        raise I3ProductionStageError("interrupted-retry phase one does not reproduce")
+    return result, pin
+
+
+def _load_interrupted_retry_receipt(
+    root: Path,
+    run_spec: I3ProductionRunSpec,
+) -> tuple[I3ProductionInterruptedRetryReceipt, ArtifactPin]:
+    relative = _interrupted_retry_receipt_relative(run_spec)
+    pin = _pin_existing(root, relative)
+    item = _closed_control_mapping(
+        _read_canonical_json(root, pin),
+        {
+            "artifact_type",
+            "completion_artifact",
+            "completion_id",
+            "deep_attestation_artifact",
+            "deep_attestation_id",
+            "deleted_artifact_count",
+            "fail_after",
+            "failed_receipt_artifact",
+            "failed_receipt_id",
+            "frozen_envelope_digest",
+            "parent_artifact_count",
+            "parent_artifact_set_digest",
+            "parent_reader_after_digest",
+            "parent_reader_before_digest",
+            "phase_one_artifact",
+            "publish_authorized",
+            "receipt_id",
+            "rule_version",
+            "run_spec_artifact",
+            "run_spec_id",
+            "unpublished_visible_count",
+        },
+        "interrupted-retry receipt",
+    )
+    _require_literal(
+        item["artifact_type"],
+        "s7_5_i3_production_interrupted_retry_receipt",
+        "interrupted-retry receipt artifact type",
+    )
+    _require_literal(
+        item["rule_version"],
+        I3_PRODUCTION_INTERRUPTED_RETRY_RULE_VERSION,
+        "interrupted-retry receipt rule",
+    )
+    if item["publish_authorized"] is not False:
+        raise I3ProductionStageError("interrupted-retry receipt cannot authorize publication")
+    result = I3ProductionInterruptedRetryReceipt(
+        run_spec_id=_require_json_text(item["run_spec_id"], "receipt RunSpec ID"),
+        run_spec_artifact=_artifact_pin_from_json(
+            item["run_spec_artifact"],
+            "receipt RunSpec artifact",
+        ),
+        phase_one_artifact=_artifact_pin_from_json(
+            item["phase_one_artifact"],
+            "receipt phase-one artifact",
+        ),
+        failed_receipt_id=_require_json_text(
+            item["failed_receipt_id"],
+            "receipt failed-receipt ID",
+        ),
+        failed_receipt_artifact=_artifact_pin_from_json(
+            item["failed_receipt_artifact"],
+            "receipt failed-receipt artifact",
+        ),
+        frozen_envelope_digest=_require_json_text(
+            item["frozen_envelope_digest"],
+            "receipt frozen-envelope digest",
+        ),
+        parent_reader_before_digest=_require_json_text(
+            item["parent_reader_before_digest"],
+            "receipt parent-before digest",
+        ),
+        parent_reader_after_digest=_require_json_text(
+            item["parent_reader_after_digest"],
+            "receipt parent-after digest",
+        ),
+        parent_artifact_set_digest=_require_json_text(
+            item["parent_artifact_set_digest"],
+            "receipt parent-artifact digest",
+        ),
+        parent_artifact_count=_require_json_int(
+            item["parent_artifact_count"],
+            "receipt parent-artifact count",
+        ),
+        deleted_artifact_count=_require_json_int(
+            item["deleted_artifact_count"],
+            "receipt deleted-artifact count",
+        ),
+        unpublished_visible_count=_require_json_int(
+            item["unpublished_visible_count"],
+            "receipt unpublished-visible count",
+        ),
+        completion_id=_require_json_text(item["completion_id"], "receipt completion ID"),
+        completion_artifact=_artifact_pin_from_json(
+            item["completion_artifact"],
+            "receipt completion artifact",
+        ),
+        deep_attestation_id=_require_json_text(
+            item["deep_attestation_id"],
+            "receipt deep-attestation ID",
+        ),
+        deep_attestation_artifact=_artifact_pin_from_json(
+            item["deep_attestation_artifact"],
+            "receipt deep-attestation artifact",
+        ),
+        fail_after=_require_json_text(item["fail_after"], "receipt failpoint"),
+    )
+    claimed_id = _require_json_text(item["receipt_id"], "interrupted-retry receipt ID")
+    if (
+        claimed_id != result.receipt_id
+        or result.run_spec_id != run_spec.run_spec_id
+        or result.exact_pin(path=relative) != pin
+    ):
+        raise I3ProductionStageError("interrupted-retry receipt does not reproduce")
+    return result, pin
+
+
+def _closed_control_mapping(
+    value: object,
+    expected_keys: set[str],
+    label: str,
+) -> Mapping[str, object]:
+    if type(value) is not dict or set(value) != expected_keys:
+        raise I3ProductionStageError(f"{label} is not a closed-schema control")
+    return value
+
+
+def _artifact_pin_from_json(value: object, label: str) -> ArtifactPin:
+    item = _closed_control_mapping(value, {"bytes", "path", "sha256"}, label)
+    path = _require_json_text(item["path"], f"{label} path")
+    sha256 = _require_json_text(item["sha256"], f"{label} SHA-256")
+    byte_count = _require_json_int(item["bytes"], f"{label} bytes")
+    try:
+        return ArtifactPin(path=path, sha256=sha256, bytes=byte_count)
+    except Exception as exc:
+        raise I3ProductionStageError(f"{label} is invalid") from exc
+
+
+def _require_json_text(value: object, label: str) -> str:
+    if type(value) is not str or not value:
+        raise I3ProductionStageError(f"{label} is invalid")
+    return value
+
+
+def _require_json_int(value: object, label: str) -> int:
+    if type(value) is not int or value < 0:
+        raise I3ProductionStageError(f"{label} is invalid")
+    return value
+
+
+def _require_literal(value: object, expected: object, label: str) -> None:
+    if value != expected or type(value) is not type(expected):
+        raise I3ProductionStageError(f"{label} is invalid")
+
+
+def _require_lower_sha256(value: object, label: str) -> str:
+    if (
+        type(value) is not str
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise I3ProductionStageError(f"{label} is not a lowercase SHA-256 digest")
+    return value
+
+
 def _write_immutable(root: Path, relative: str, content: bytes) -> ArtifactPin:
     stored = write_bytes_immutable(
         root,
@@ -1384,14 +2747,20 @@ def _canonical_json_bytes(value: object) -> bytes:
 
 
 __all__ = [
+    "FAILED_RECEIPT_DURABLE_BEFORE_COMPLETION",
+    "I3ProductionInterruptedRetryPending",
+    "I3ProductionInterruptedRetryReceipt",
+    "I3ProductionInterruptedRetryResult",
     "I3ProductionMaterializer",
     "I3ProductionPreparedMaterialization",
     "I3ProductionPreparedRowVersion",
     "I3ProductionStageError",
     "I3ProductionStageResult",
+    "exercise_i3_production_interrupted_retry",
     "stage_i3_production",
     "stage_i3_production_base",
     "stage_i3_production_delta",
+    "validate_production_delta_run_spec_artifact_path",
     "verify_i3_production",
     "verify_i3_production_base",
     "verify_i3_production_deep_attestation",

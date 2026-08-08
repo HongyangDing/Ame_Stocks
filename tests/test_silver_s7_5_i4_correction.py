@@ -21,11 +21,17 @@ from test_silver_s7_5_i3_runner import (
 from test_silver_s7_5_incremental_contract import _projection as _gate_projection
 
 from ame_stocks_api.artifacts import stable_digest
+from ame_stocks_api.silver import incremental_i3_runner as i3_runner
+from ame_stocks_api.silver import incremental_i4_correction as i4_correction
 from ame_stocks_api.silver.incremental_contract import (
     ArtifactPin,
     CheckpointReceipt,
     PartitionReceipt,
     PartitionReplacement,
+    ReleaseType,
+    RowSemanticProofReceipt,
+    RowVersionOperation,
+    RowVersionReceipt,
     RowVersionReference,
     control_object_pin,
     correction_scope_digest,
@@ -45,12 +51,14 @@ from ame_stocks_api.silver.incremental_i3_checkpoint import (
     IdentityRegistryKind,
     IdentityRegistryReleasePin,
     NativeV2ParentReleasePin,
+    OpenAliasState,
     ResolvedPartitionState,
     i3_resolved_state_digest,
 )
 from ame_stocks_api.silver.incremental_i3_contract import I3_V2_CONTRACTS
 from ame_stocks_api.silver.incremental_i3_dispatch import (
     IdentityObservation,
+    IdentityPolicySnapshot,
     RegistryDecision,
     RegistrySourceScopeRow,
     _mint_production_identity_policy_snapshot,
@@ -61,12 +69,18 @@ from ame_stocks_api.silver.incremental_i4_correction import (
     ExactGroupExpansionRequired,
     ExactGroupSessionSlot,
     ExactIdentityGroup,
+    I4AliasStateLedgerEntry,
+    I4AliasStateLedgerRelease,
     I4ApprovalEvent,
     I4ApprovalEventAttestation,
     I4ApprovalLedgerEntry,
     I4ApprovalLedgerRelease,
     I4CorrectionError,
     I4CorrectionPlan,
+    I4LateSourceChangeLedgerRelease,
+    I4LateSourceLedgerEntry,
+    I4LateSourceSnapshot,
+    I4ProductionCorrectionCause,
     I4RegistryChangeLedgerRelease,
     I4RegistryLedgerEntry,
     ProductionI4CorrectionCapability,
@@ -82,6 +96,12 @@ from ame_stocks_api.silver.incremental_i4_correction import (
     validate_canonical_row_correction,
 )
 from ame_stocks_api.silver.incremental_identity import (
+    AliasResolutionDisposition,
+    AliasResolutionMethod,
+    AliasResolutionStatus,
+    AliasResolutionVersion,
+    AliasSegmentIdentity,
+    ShareClassResolutionMethod,
     canonical_asset_id,
     canonical_issuer_id,
     canonical_share_class_id,
@@ -778,6 +798,42 @@ def _parquet_bytes(rows: tuple[dict[str, object], ...]) -> bytes:
     return sink.getvalue().to_pybytes()
 
 
+def _table_parquet_bytes(
+    table_name: str,
+    rows: tuple[dict[str, object], ...],
+) -> bytes:
+    table = pa.Table.from_pylist(list(rows), schema=I3_V2_CONTRACTS[table_name].arrow_schema)
+    sink = pa.BufferOutputStream()
+    pq.write_table(table, sink, compression="NONE")
+    return sink.getvalue().to_pybytes()
+
+
+def _jsonable(value: object) -> object:
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in sorted(value.items())}
+    if isinstance(value, (tuple, list)):
+        return [_jsonable(item) for item in value]
+    return value
+
+
+def _row_semantic_proof_content(proof: RowSemanticProofReceipt) -> bytes:
+    body = {
+        "artifact_type": "s7_5_i3_production_row_semantic_proof",
+        "operation": proof.operation.value,
+        "predecessor_payload_digest": proof.predecessor_payload_digest,
+        "predecessor_row_version_id": proof.predecessor_row_version_id,
+        "row_payload_digest": proof.row_payload_digest,
+        "row_version_id": proof.row_version_id,
+        "rule_version": "s7_5_i3_production_row_semantic_proof_v1",
+        "stable_row_key": proof.stable_row_key,
+        "table_name": proof.table_name,
+        "validator_semantics_digest": proof.validator_semantics_digest,
+    }
+    return _canonical_bytes({"proof_id": stable_digest(body), **body})
+
+
 def _row_version_references(
     rows: tuple[dict[str, object], ...],
 ) -> tuple[RowVersionReference, ...]:
@@ -849,6 +905,245 @@ def _native_row(
         }
     )
     return row
+
+
+def _production_alias_state(
+    row: dict[str, object],
+    *,
+    canonical_composite: str,
+    policy_bundle: IdentityPolicyBundle,
+    available_session: date,
+    decision_id: str | None = None,
+    segment: AliasSegmentIdentity | None = None,
+) -> OpenAliasState:
+    session = row["session_date"]
+    assert isinstance(session, date)
+    segment = segment or AliasSegmentIdentity(
+        provider_id="massive",
+        provider_market="stocks",
+        provider_locale="us",
+        ticker=str(row["ticker"]),
+        observed_composite_figi=str(row["observed_composite_figi"]),
+        observed_share_class_figi=str(row["observed_share_class_figi"]),
+        observed_cik_normalized=CIK,
+        valid_from_session=session,
+        segment_origin_source_record_id=str(row["selected_source_record_id"]),
+    )
+    adjudicated = decision_id is not None
+    resolution = AliasResolutionVersion.for_segment(
+        segment,
+        canonical_asset_id=canonical_asset_id(canonical_composite),
+        canonical_composite_figi=canonical_composite,
+        canonical_share_class_id=canonical_share_class_id(SHARE),
+        canonical_share_class_figi=SHARE,
+        canonical_issuer_id=canonical_issuer_id(CIK),
+        canonical_cik_normalized=CIK,
+        resolution_method=(
+            AliasResolutionMethod.APPROVED_PROVIDER_CONTAMINATION_OVERRIDE
+            if adjudicated
+            else AliasResolutionMethod.DIRECT_OBSERVED
+        ),
+        resolution_status=AliasResolutionStatus.RESOLVED,
+        disposition=(
+            AliasResolutionDisposition.CONFIRMED_PROVIDER_CONTAMINATION
+            if adjudicated
+            else AliasResolutionDisposition.OBSERVED_CONSISTENT
+        ),
+        decision_lineage_ids=(decision_id,) if decision_id is not None else (),
+        share_class_resolution_method=ShareClassResolutionMethod.DIRECT_OBSERVED,
+        share_class_decision_lineage_ids=(),
+        identity_policy_bundle_id=policy_bundle.identity_policy_bundle_id,
+        identity_cutoff_session=policy_bundle.policy_cutoff_session,
+        resolution_available_session=min(
+            available_session,
+            policy_bundle.policy_cutoff_session,
+        ),
+        evidence_cutoff_session=policy_bundle.policy_cutoff_session,
+        evidence_available_session=min(
+            available_session,
+            policy_bundle.policy_cutoff_session,
+        ),
+        valid_through_session=session,
+        source_record_set_digest=stable_digest(
+            {"source_record_ids": [row["selected_source_record_id"]]}
+        ),
+        predecessor_alias_resolution_version_id=None,
+        is_tombstone=False,
+        tombstone_reason_code=None,
+    )
+    return OpenAliasState(segment=segment, resolution=resolution)
+
+
+def _source_from_native_row(row: dict[str, object]) -> SourceIdentityKey:
+    return SourceIdentityKey(
+        provider_id="massive",
+        provider_market="stocks",
+        provider_locale="us",
+        ticker=str(row["ticker"]),
+        session_date=row["session_date"],  # type: ignore[arg-type]
+        source_record_id=str(row["selected_source_record_id"]),
+        observed_composite_figi=str(row["observed_composite_figi"]),
+        observed_composite_country=str(row["observed_composite_market_code"]),
+        observed_share_class_figi=str(row["observed_share_class_figi"]),
+        active_on_date=bool(row["active_on_date"]),
+    )
+
+
+def _reauthorize_production_case(
+    case: SimpleNamespace,
+    *,
+    artifacts: dict[str, bytes],
+    replacement_receipts: tuple[PartitionReceipt, ...],
+    target_policy: IdentityPolicySnapshot,
+    target_bundle_pin: ArtifactPin,
+    alias_state_ledger: I4AliasStateLedgerRelease,
+    alias_state_ledger_pin: ArtifactPin,
+    registry_ledger: I4RegistryChangeLedgerRelease | None,
+    registry_ledger_pin: ArtifactPin | None,
+    late_source_ledger: I4LateSourceChangeLedgerRelease | None,
+    late_source_ledger_pin: ArtifactPin | None,
+    label: str,
+    added_row_version_receipts: tuple[RowVersionReceipt, ...] | None = None,
+    superseded_row_version_ids: tuple[str, ...] | None = None,
+) -> dict[str, object]:
+    row_receipts = (
+        case.kwargs["added_row_version_receipts"]
+        if added_row_version_receipts is None
+        else added_row_version_receipts
+    )
+    superseded = (
+        case.kwargs["superseded_row_version_ids"]
+        if superseded_row_version_ids is None
+        else superseded_row_version_ids
+    )
+    parent_by_session = {
+        date.fromisoformat(item.partition_key): item
+        for item in case.parent_manifest.added_partition_receipts
+    }
+    replacements = tuple(
+        PartitionReplacement(
+            parent_by_session[date.fromisoformat(item.partition_key)],
+            item,
+        )
+        for item in replacement_receipts
+    )
+    change_set = logical_change_set_digest(
+        added_partition_receipts=(),
+        partition_replacements=replacements,
+        added_row_version_receipts=row_receipts,
+        superseded_row_version_ids=superseded,
+    )
+    replacement_sessions = {date.fromisoformat(item.partition_key) for item in replacement_receipts}
+    source_binding = production_i4_source_binding_digest(
+        parent_manifest_pin=case.kwargs["parent_manifest_pin"],
+        parent_run_receipt_artifact=case.parent_manifest.run_receipt_pin.artifact,
+        parent_checkpoint_artifact=case.kwargs["parent_checkpoint_artifact"],
+        parent_partition_artifacts=tuple(
+            item.artifact
+            for item in case.checkpoint.resolved_partition_map
+            if item.session_date in replacement_sessions
+        ),
+        replacement_partition_receipts=replacement_receipts,
+        prior_policy_bundle_artifact=case.checkpoint.identity_policy_bundle_artifact,
+        target_policy_bundle_artifact=target_bundle_pin,
+        alias_state_ledger_artifact=alias_state_ledger_pin,
+        registry_ledger_artifact=registry_ledger_pin,
+        late_source_ledger_artifact=late_source_ledger_pin,
+        added_row_version_receipts=row_receipts,
+    )
+    scope = correction_scope_digest(
+        parent_release_id=case.parent_manifest.release_id,
+        change_set_digest=change_set,
+    )
+    target_bundle = target_policy.policy_bundle
+    event = I4ApprovalEvent(
+        authorized_action=CorrectionAuthorizedAction.PUBLISH_EXACT_CORRECTION,
+        parent_release_id=case.parent_manifest.release_id,
+        expected_change_set_digest=change_set,
+        source_binding_digest=source_binding,
+        schema_digest=case.parent_manifest.schema_digest,
+        transform_semantics_digest=case.parent_manifest.transform_semantics_digest,
+        calendar_digest=case.parent_manifest.calendar_digest,
+        identity_policy_before_id=(
+            case.checkpoint.identity_policy_bundle.identity_policy_bundle_id
+        ),
+        identity_policy_after_id=target_bundle.identity_policy_bundle_id,
+        scope_digest=scope,
+        approver_id="joe",
+        event_available_session=PRODUCTION_APPROVAL_AVAILABLE,
+    )
+    event_pin = event.exact_pin(path=f"approvals/i4/{label}-event.json")
+    body = CorrectionAuthorization(
+        authorized_action=CorrectionAuthorizedAction.PUBLISH_EXACT_CORRECTION,
+        literal_version=CORRECTION_AUTHORIZATION_LITERAL_VERSION,
+        parent_release_id=case.parent_manifest.release_id,
+        expected_change_set_digest=change_set,
+        source_binding_digest=source_binding,
+        schema_digest=case.parent_manifest.schema_digest,
+        transform_semantics_digest=case.parent_manifest.transform_semantics_digest,
+        calendar_digest=case.parent_manifest.calendar_digest,
+        identity_policy_before_id=(
+            case.checkpoint.identity_policy_bundle.identity_policy_bundle_id
+        ),
+        identity_policy_after_id=target_bundle.identity_policy_bundle_id,
+        scope_digest=scope,
+        approval_event_id=event.approval_event_id,
+        approval_event_sha256=event_pin.sha256,
+        approver_id="joe",
+        approval_available_session=PRODUCTION_APPROVAL_AVAILABLE,
+        evidence_pins=(
+            GateEvidencePin(
+                artifact=_gate_artifact(
+                    f"{label}-evidence",
+                    path=f"approvals/i4/{label}-evidence.json",
+                ),
+                available_session=PRODUCTION_APPROVAL_AVAILABLE,
+            ),
+        ),
+    )
+    authorization = PinnedCorrectionAuthorization.freeze(
+        body,
+        path=f"approvals/i4/{label}-authorization.json",
+    )
+    ledger = I4ApprovalLedgerRelease(
+        release_sequence=1,
+        previous_ledger_release_id=None,
+        release_available_session=PRODUCTION_APPROVAL_AVAILABLE,
+        entries=(
+            I4ApprovalLedgerEntry(
+                ledger_index=1,
+                authorization_id=body.authorization_id,
+                authorization_artifact=authorization.artifact,
+                approval_event_id=event.approval_event_id,
+                event_artifact=event_pin,
+                recorded_available_session=PRODUCTION_APPROVAL_AVAILABLE,
+            ),
+        ),
+    )
+    ledger_pin = ledger.exact_pin(path=f"approvals/i4/{label}-ledger.json")
+    artifacts[authorization.artifact.path] = _canonical_bytes(body.to_dict())
+    artifacts[event_pin.path] = event.canonical_bytes()
+    artifacts[ledger_pin.path] = ledger.canonical_bytes()
+    return {
+        **case.kwargs,
+        "replacement_partition_receipts": replacement_receipts,
+        "target_policy_snapshot": target_policy,
+        "target_policy_bundle_artifact": target_bundle_pin,
+        "registry_ledger": registry_ledger,
+        "registry_ledger_artifact": registry_ledger_pin,
+        "late_source_ledger": late_source_ledger,
+        "late_source_ledger_artifact": late_source_ledger_pin,
+        "alias_state_ledger": alias_state_ledger,
+        "alias_state_ledger_artifact": alias_state_ledger_pin,
+        "added_row_version_receipts": row_receipts,
+        "superseded_row_version_ids": superseded,
+        "authorization": authorization,
+        "approval_event": event,
+        "approval_event_artifact": event_pin,
+        "approval_ledger": ledger,
+        "approval_ledger_artifact": ledger_pin,
+        "artifact_reader": artifacts.__getitem__,
+    }
 
 
 def _production_case(
@@ -1015,8 +1310,10 @@ def _production_case(
 
     parent_rows_by_session: dict[date, tuple[dict[str, object], ...]] = {}
     replacement_rows_by_session: dict[date, tuple[dict[str, object], ...]] = {}
+    alias_entries: list[I4AliasStateLedgerEntry] = []
+    aapl_segment: AliasSegmentIdentity | None = None
     for index, session in enumerate(PRODUCTION_SESSIONS):
-        alias_segment_id = _digest(f"production-aapl-alias-{session}")
+        alias_segment_id = _digest("production-aapl-alias")
         stable_alias_version = _digest(f"production-aapl-stable-resolution-{session}")
         if index == 0:
             parent_aapl = _native_row(
@@ -1045,31 +1342,81 @@ def _production_case(
                 alias_resolution_version_id=_digest("production-aapl-new-resolution"),
                 identity_adjudication_id=successor_id,
             )
+            parent_alias_state = _production_alias_state(
+                parent_aapl,
+                canonical_composite=CANONICAL,
+                policy_bundle=prior_bundle,
+                available_session=PRODUCTION_PARENT_AVAILABLE,
+                decision_id=predecessor_id,
+            )
+            aapl_segment = parent_alias_state.segment
+            corrected_alias_state = _production_alias_state(
+                replacement_aapl,
+                canonical_composite=SECOND_CANONICAL,
+                policy_bundle=target_bundle,
+                available_session=PRODUCTION_REPLACEMENT_AVAILABLE,
+                decision_id=successor_id,
+                segment=aapl_segment,
+            )
+            replacement_aapl["asset_master_version_id"] = parent_aapl["asset_master_version_id"]
+            replacement_aapl["identity_evidence_available_session"] = PRODUCTION_APPROVAL_AVAILABLE
         else:
+            assert aapl_segment is not None
             parent_aapl = _native_row(
                 session,
                 ticker="AAPL",
                 source_label=f"production-aapl-{session}",
-                observed_composite=CANONICAL,
+                observed_composite=OBSERVED,
                 observed_market="US",
                 canonical_composite=CANONICAL,
                 policy_bundle=prior_bundle,
                 row_available_session=PRODUCTION_PARENT_AVAILABLE,
                 alias_segment_id=alias_segment_id,
                 alias_resolution_version_id=stable_alias_version,
+                identity_adjudication_id=predecessor_id,
             )
             replacement_aapl = _native_row(
                 session,
                 ticker="AAPL",
                 source_label=f"production-aapl-{session}",
-                observed_composite=CANONICAL,
+                observed_composite=OBSERVED,
                 observed_market="US",
                 canonical_composite=CANONICAL,
                 policy_bundle=target_bundle,
                 row_available_session=PRODUCTION_REPLACEMENT_AVAILABLE,
                 alias_segment_id=alias_segment_id,
                 alias_resolution_version_id=stable_alias_version,
+                identity_adjudication_id=predecessor_id,
             )
+            parent_alias_state = _production_alias_state(
+                parent_aapl,
+                canonical_composite=CANONICAL,
+                policy_bundle=prior_bundle,
+                available_session=PRODUCTION_PARENT_AVAILABLE,
+                decision_id=predecessor_id,
+                segment=aapl_segment,
+            )
+            corrected_alias_state = parent_alias_state
+        for row, state in (
+            (parent_aapl, parent_alias_state),
+            (replacement_aapl, corrected_alias_state),
+        ):
+            row["alias_segment_id"] = state.segment.alias_segment_id
+            row["alias_resolution_version_id"] = state.resolution.alias_resolution_version_id
+        alias_entries.append(
+            I4AliasStateLedgerEntry(
+                entry_sequence=index + 1,
+                group=ExactIdentityGroup(
+                    provider_id="massive",
+                    provider_market="stocks",
+                    provider_locale="us",
+                    ticker="AAPL",
+                ),
+                session_date=session,
+                parent_open_alias=parent_alias_state,
+                corrected_open_alias=corrected_alias_state,
+            )
+        )
         parent_rows: tuple[dict[str, object], ...] = (parent_aapl,)
         replacement_rows: tuple[dict[str, object], ...] = (replacement_aapl,)
         if index == 0:
@@ -1107,6 +1454,29 @@ def _production_case(
             replacement_rows = (replacement_aapl, replacement_msft)
         parent_rows_by_session[session] = parent_rows
         replacement_rows_by_session[session] = replacement_rows
+
+    terminal_parent_alias = alias_entries[-1].parent_open_alias
+    first_entry = alias_entries[0]
+    corrected_first_resolution = replace(
+        first_entry.corrected_open_alias.resolution,
+        segment=first_entry.corrected_open_alias.segment,
+        predecessor_alias_resolution_version_id=(
+            terminal_parent_alias.resolution.alias_resolution_version_id
+        ),
+    )
+    corrected_first_state = OpenAliasState(
+        segment=first_entry.corrected_open_alias.segment,
+        resolution=corrected_first_resolution,
+    )
+    alias_entries[0] = replace(
+        first_entry,
+        corrected_open_alias=corrected_first_state,
+    )
+    for row in replacement_rows_by_session[PRODUCTION_SESSIONS[0]]:
+        if row["ticker"] == "AAPL":
+            row["alias_resolution_version_id"] = (
+                corrected_first_resolution.alias_resolution_version_id
+            )
 
     artifacts: dict[str, bytes] = {}
     frontiers: list[ResolvedPartitionState] = []
@@ -1157,7 +1527,61 @@ def _production_case(
             )
         )
 
+    untouched_session = date(2026, 7, 6)
+    untouched_row = _native_row(
+        untouched_session,
+        ticker="AAPL",
+        source_label="production-aapl-untouched-history",
+        observed_composite=CANONICAL,
+        observed_market="US",
+        canonical_composite=CANONICAL,
+        policy_bundle=prior_bundle,
+        row_available_session=PRODUCTION_PARENT_AVAILABLE,
+        alias_segment_id=_digest("production-untouched-alias"),
+        alias_resolution_version_id=_digest("production-untouched-resolution"),
+    )
+    untouched_rows = (untouched_row,)
+    untouched_content = _parquet_bytes(untouched_rows)
+    untouched_pin = _bytes_pin(
+        f"silver/i4/parent/{untouched_session.isoformat()}.parquet",
+        untouched_content,
+    )
+    artifacts[untouched_pin.path] = untouched_content
+    untouched_receipt = PartitionReceipt(
+        table_name="universe_daily",
+        partition_key=untouched_session.isoformat(),
+        receipt=untouched_pin,
+        row_count=1,
+        schema_digest=I3_V2_CONTRACTS["universe_daily"].schema_digest,
+        availability_session=PRODUCTION_PARENT_AVAILABLE,
+        row_version_references=_row_version_references(untouched_rows),
+    )
+    parent_receipts.insert(0, untouched_receipt)
+    frontiers.insert(
+        0,
+        ResolvedPartitionState(
+            session_date=untouched_session,
+            partition_receipt_id=_digest("production-parent-receipt-untouched"),
+            artifact=untouched_pin,
+            row_count=1,
+            availability_session=PRODUCTION_PARENT_AVAILABLE,
+        ),
+    )
+
     frontier_tuple = tuple(frontiers)
+    parent_open_aliases = (terminal_parent_alias,)
+    parent_terminal_rows = tuple(
+        replace(
+            item,
+            stable_row_key=terminal_parent_alias.segment.alias_segment_id,
+            row_version_id=(terminal_parent_alias.resolution.alias_resolution_version_id),
+            row_payload_digest=stable_digest(terminal_parent_alias.to_dict()),
+            availability_session=PRODUCTION_PARENT_AVAILABLE,
+        )
+        if item.table_name == "ticker_alias"
+        else item
+        for item in base_checkpoint.terminal_row_versions
+    )
     resolved_state_digest = i3_resolved_state_digest(
         last_session=base_checkpoint.last_session,
         source_cutoff_session=base_checkpoint.source_cutoff_session,
@@ -1168,12 +1592,12 @@ def _production_case(
         transform_semantics_digest=base_checkpoint.transform_semantics_digest,
         identity_policy_bundle=prior_bundle,
         identity_policy_bundle_artifact=base_checkpoint.identity_policy_bundle_artifact,
-        open_aliases=base_checkpoint.open_aliases,
+        open_aliases=parent_open_aliases,
         asset_aggregates=base_checkpoint.asset_aggregates,
         issuer_aggregates=base_checkpoint.issuer_aggregates,
         unresolved_subjects=base_checkpoint.unresolved_subjects,
         resolved_partition_map=frontier_tuple,
-        terminal_row_versions=base_checkpoint.terminal_row_versions,
+        terminal_row_versions=parent_terminal_rows,
     )
     native_manifest = replace(
         _parent_manifest(prior_bundle, resolved_state_digest=resolved_state_digest),
@@ -1185,7 +1609,9 @@ def _production_case(
             native_manifest,
             path="manifests/i4/native-v2-parent.json",
         ),
+        open_aliases=parent_open_aliases,
         resolved_partition_map=frontier_tuple,
+        terminal_row_versions=parent_terminal_rows,
     )
     checkpoint_pin = checkpoint.exact_pin(path="checkpoints/i4/parent.json")
     artifacts[checkpoint.parent_release.manifest.path] = native_manifest.canonical_bytes()
@@ -1263,26 +1689,124 @@ def _production_case(
     )
     registry_ledger_pin = registry_ledger.exact_pin(path="registries/i4/change-ledger.json")
     artifacts[registry_ledger_pin.path] = registry_ledger.canonical_bytes()
+    alias_state_ledger = I4AliasStateLedgerRelease(
+        release_sequence=1,
+        previous_ledger_release_id=None,
+        release_available_session=PRODUCTION_REPLACEMENT_AVAILABLE,
+        entries=tuple(alias_entries),
+    )
+    alias_state_ledger_pin = alias_state_ledger.exact_pin(path="aliases/i4/state-ledger.json")
+    artifacts[alias_state_ledger_pin.path] = alias_state_ledger.canonical_bytes()
 
+    corrected_alias_state = alias_entries[0].corrected_open_alias
+    corrected_alias_source = next(
+        row
+        for row in replacement_rows_by_session[PRODUCTION_SESSIONS[0]]
+        if row["ticker"] == "AAPL"
+    )
+    alias_row = i3_runner._alias_physical_row(
+        corrected_alias_source,
+        segment=corrected_alias_state.segment,
+        resolution=corrected_alias_state.resolution,
+        availability_session=PRODUCTION_REPLACEMENT_AVAILABLE,
+        calendar_index={session: index for index, session in enumerate(PRODUCTION_SESSIONS)},
+    )
+    alias_row_content = _table_parquet_bytes("ticker_alias", (alias_row,))
+    alias_row_pin = _bytes_pin(
+        "silver/i4/ticker-alias/reviewed-correction.parquet",
+        alias_row_content,
+    )
+    artifacts[alias_row_pin.path] = alias_row_content
+    alias_row_payload_digest = stable_digest(_jsonable(alias_row))
+    terminal_alias_row = next(
+        item
+        for item in parent_terminal_rows
+        if item.table_name == "ticker_alias"
+        and item.stable_row_key == corrected_alias_state.segment.alias_segment_id
+    )
+    alias_validator_semantics_digest = stable_digest(
+        {
+            "operation": RowVersionOperation.REVIEWED_CORRECTION.value,
+            "rule_version": "s7_5_i4_ticker_alias_reviewed_correction_v1",
+            "schema_digest": I3_V2_CONTRACTS["ticker_alias"].schema_digest,
+            "table_name": "ticker_alias",
+        }
+    )
+    alias_proof_body = {
+        "artifact_type": "s7_5_i3_production_row_semantic_proof",
+        "operation": RowVersionOperation.REVIEWED_CORRECTION.value,
+        "predecessor_payload_digest": terminal_alias_row.row_payload_digest,
+        "predecessor_row_version_id": terminal_alias_row.row_version_id,
+        "row_payload_digest": alias_row_payload_digest,
+        "row_version_id": corrected_alias_state.resolution.alias_resolution_version_id,
+        "rule_version": "s7_5_i3_production_row_semantic_proof_v1",
+        "stable_row_key": corrected_alias_state.segment.alias_segment_id,
+        "table_name": "ticker_alias",
+        "validator_semantics_digest": alias_validator_semantics_digest,
+    }
+    alias_proof_content = _canonical_bytes(
+        {"proof_id": stable_digest(alias_proof_body), **alias_proof_body}
+    )
+    alias_proof_pin = _bytes_pin(
+        "proofs/i4/ticker-alias-reviewed-correction.json",
+        alias_proof_content,
+    )
+    artifacts[alias_proof_pin.path] = alias_proof_content
+    alias_semantic_proof = RowSemanticProofReceipt(
+        table_name="ticker_alias",
+        stable_row_key=corrected_alias_state.segment.alias_segment_id,
+        row_version_id=corrected_alias_state.resolution.alias_resolution_version_id,
+        predecessor_row_version_id=terminal_alias_row.row_version_id,
+        operation=RowVersionOperation.REVIEWED_CORRECTION,
+        row_payload_digest=alias_row_payload_digest,
+        predecessor_payload_digest=terminal_alias_row.row_payload_digest,
+        validator_semantics_digest=alias_validator_semantics_digest,
+        artifact=alias_proof_pin,
+    )
+    alias_row_receipt = RowVersionReceipt(
+        table_name="ticker_alias",
+        stable_row_key=corrected_alias_state.segment.alias_segment_id,
+        row_version_id=corrected_alias_state.resolution.alias_resolution_version_id,
+        predecessor_row_version_id=terminal_alias_row.row_version_id,
+        operation=RowVersionOperation.REVIEWED_CORRECTION,
+        availability_session=PRODUCTION_REPLACEMENT_AVAILABLE,
+        index_artifact=alias_row_pin,
+        row_locator="row_index=0",
+        row_payload_digest=alias_row_payload_digest,
+        semantic_proof=alias_semantic_proof,
+    )
+    added_row_version_receipts = (alias_row_receipt,)
+    superseded_row_version_ids = (terminal_alias_row.row_version_id,)
+
+    parent_receipt_by_session = {
+        date.fromisoformat(item.partition_key): item for item in parent_receipts
+    }
     replacements = tuple(
-        PartitionReplacement(parent, replacement)
-        for parent, replacement in zip(parent_receipts, replacement_receipts, strict=True)
+        PartitionReplacement(
+            parent_receipt_by_session[date.fromisoformat(replacement.partition_key)],
+            replacement,
+        )
+        for replacement in replacement_receipts
     )
     change_set_digest = logical_change_set_digest(
         added_partition_receipts=(),
         partition_replacements=replacements,
-        added_row_version_receipts=(),
-        superseded_row_version_ids=(),
+        added_row_version_receipts=added_row_version_receipts,
+        superseded_row_version_ids=superseded_row_version_ids,
     )
     source_binding_digest = production_i4_source_binding_digest(
         parent_manifest_pin=parent_manifest_pin,
         parent_run_receipt_artifact=parent_manifest.run_receipt_pin.artifact,
         parent_checkpoint_artifact=checkpoint_pin,
-        parent_partition_artifacts=tuple(item.artifact for item in frontier_tuple),
+        parent_partition_artifacts=tuple(
+            item.artifact for item in frontier_tuple if item.session_date in PRODUCTION_SESSIONS
+        ),
         replacement_partition_receipts=tuple(replacement_receipts),
         prior_policy_bundle_artifact=checkpoint.identity_policy_bundle_artifact,
         target_policy_bundle_artifact=target_bundle_pin,
+        alias_state_ledger_artifact=alias_state_ledger_pin,
         registry_ledger_artifact=registry_ledger_pin,
+        added_row_version_receipts=added_row_version_receipts,
     )
     scope_digest = correction_scope_digest(
         parent_release_id=parent_manifest.release_id,
@@ -1365,8 +1889,12 @@ def _production_case(
         "target_policy_bundle_artifact": target_bundle_pin,
         "registry_ledger": registry_ledger,
         "registry_ledger_artifact": registry_ledger_pin,
-        "added_row_version_receipts": (),
-        "superseded_row_version_ids": (),
+        "late_source_ledger": None,
+        "late_source_ledger_artifact": None,
+        "alias_state_ledger": alias_state_ledger,
+        "alias_state_ledger_artifact": alias_state_ledger_pin,
+        "added_row_version_receipts": added_row_version_receipts,
+        "superseded_row_version_ids": superseded_row_version_ids,
         "authorization": authorization,
         "approval_event": approval_event,
         "approval_event_artifact": approval_event_pin,
@@ -1388,9 +1916,465 @@ def _production_case(
         registry_entry=registry_entry,
         registry_ledger=registry_ledger,
         registry_ledger_pin=registry_ledger_pin,
+        alias_state_ledger=alias_state_ledger,
+        alias_state_ledger_pin=alias_state_ledger_pin,
         approval_event=approval_event,
         approval_event_pin=approval_event_pin,
         authorization=authorization,
+        alias_row=alias_row,
+        alias_row_pin=alias_row_pin,
+        alias_proof_pin=alias_proof_pin,
+        alias_row_receipt=alias_row_receipt,
+    )
+
+
+def _forge_alias_nonprojection_evidence(
+    case: SimpleNamespace,
+    *,
+    resolution_changes: dict[str, object],
+    label: str,
+    replacement_raw_changes: dict[str, object] | None = None,
+) -> SimpleNamespace:
+    artifacts = dict(case.artifacts)
+    entry = case.alias_state_ledger.entries[0]
+    segment = entry.corrected_open_alias.segment
+    resolution = replace(
+        entry.corrected_open_alias.resolution,
+        segment=segment,
+        **resolution_changes,
+    )
+    state = OpenAliasState(segment=segment, resolution=resolution)
+    ledger = replace(
+        case.alias_state_ledger,
+        entries=(
+            replace(entry, corrected_open_alias=state),
+            *case.alias_state_ledger.entries[1:],
+        ),
+    )
+    ledger_pin = ledger.exact_pin(path=f"aliases/i4/{label}-state-ledger.json")
+    artifacts[ledger_pin.path] = ledger.canonical_bytes()
+
+    first_receipt = case.kwargs["replacement_partition_receipts"][0]
+    rows = tuple(pq.read_table(pa.BufferReader(artifacts[first_receipt.receipt.path])).to_pylist())
+    for row in rows:
+        if row["ticker"] == "AAPL":
+            row.update(replacement_raw_changes or {})
+            row["alias_resolution_version_id"] = resolution.alias_resolution_version_id
+    replacement_content = _parquet_bytes(rows)
+    replacement_pin = _bytes_pin(
+        f"silver/i4/replacement/{label}.parquet",
+        replacement_content,
+    )
+    artifacts[replacement_pin.path] = replacement_content
+    replacement_receipt = replace(
+        first_receipt,
+        receipt=replacement_pin,
+        row_version_references=_row_version_references(rows),
+    )
+    replacement_receipts = (
+        replacement_receipt,
+        *case.kwargs["replacement_partition_receipts"][1:],
+    )
+
+    source = next(row for row in rows if row["ticker"] == "AAPL")
+    alias_row = i3_runner._alias_physical_row(
+        source,
+        segment=segment,
+        resolution=resolution,
+        availability_session=PRODUCTION_REPLACEMENT_AVAILABLE,
+        calendar_index={session: index for index, session in enumerate(PRODUCTION_SESSIONS)},
+    )
+    alias_content = _table_parquet_bytes("ticker_alias", (alias_row,))
+    alias_pin = _bytes_pin(
+        f"silver/i4/ticker-alias/{label}.parquet",
+        alias_content,
+    )
+    artifacts[alias_pin.path] = alias_content
+    payload_digest = stable_digest(_jsonable(alias_row))
+    proof_seed = replace(
+        case.alias_row_receipt.semantic_proof,
+        row_version_id=resolution.alias_resolution_version_id,
+        row_payload_digest=payload_digest,
+    )
+    proof_content = _row_semantic_proof_content(proof_seed)
+    proof_pin = _bytes_pin(f"proofs/i4/{label}.json", proof_content)
+    artifacts[proof_pin.path] = proof_content
+    proof = replace(proof_seed, artifact=proof_pin)
+    receipt = replace(
+        case.alias_row_receipt,
+        row_version_id=resolution.alias_resolution_version_id,
+        index_artifact=alias_pin,
+        row_payload_digest=payload_digest,
+        semantic_proof=proof,
+    )
+    kwargs = {
+        **case.kwargs,
+        "replacement_partition_receipts": replacement_receipts,
+        "alias_state_ledger": ledger,
+        "alias_state_ledger_artifact": ledger_pin,
+        "added_row_version_receipts": (receipt,),
+        "artifact_reader": artifacts.__getitem__,
+    }
+    return SimpleNamespace(
+        kwargs=kwargs,
+        artifacts=artifacts,
+        replacement_receipts=replacement_receipts,
+        alias_state_ledger=ledger,
+        alias_state_ledger_pin=ledger_pin,
+        row_receipt=receipt,
+    )
+
+
+def _late_source_case() -> SimpleNamespace:
+    case = _production_case()
+    artifacts = dict(case.artifacts)
+    session = PRODUCTION_SESSIONS[0]
+    first_replacement = case.kwargs["replacement_partition_receipts"][0]
+    replacement_rows = tuple(
+        pq.read_table(pa.BufferReader(artifacts[first_replacement.receipt.path])).to_pylist()
+    )
+    replacement_msft = next(row for row in replacement_rows if row["ticker"] == "MSFT")
+    prior_bundle = case.checkpoint.identity_policy_bundle
+    corrected_aapl = _native_row(
+        session,
+        ticker="AAPL",
+        source_label="production-aapl-exact-late-source",
+        observed_composite=SECOND_CANONICAL,
+        observed_market="US",
+        canonical_composite=SECOND_CANONICAL,
+        policy_bundle=prior_bundle,
+        row_available_session=PRODUCTION_REPLACEMENT_AVAILABLE,
+        alias_segment_id=_digest("temporary-late-source-alias"),
+        alias_resolution_version_id=_digest("temporary-late-source-resolution"),
+    )
+    corrected_state = _production_alias_state(
+        corrected_aapl,
+        canonical_composite=SECOND_CANONICAL,
+        policy_bundle=prior_bundle,
+        available_session=PRODUCTION_REPLACEMENT_AVAILABLE,
+    )
+    corrected_aapl["alias_segment_id"] = corrected_state.segment.alias_segment_id
+    corrected_aapl["alias_resolution_version_id"] = (
+        corrected_state.resolution.alias_resolution_version_id
+    )
+    corrected_rows = tuple(
+        sorted((corrected_aapl, replacement_msft), key=lambda row: str(row["ticker"]))
+    )
+    corrected_content = _parquet_bytes(corrected_rows)
+    corrected_pin = _bytes_pin(
+        f"silver/i4/late-source/{session.isoformat()}.parquet",
+        corrected_content,
+    )
+    artifacts[corrected_pin.path] = corrected_content
+    corrected_receipt = PartitionReceipt(
+        table_name="universe_daily",
+        partition_key=session.isoformat(),
+        receipt=corrected_pin,
+        row_count=len(corrected_rows),
+        schema_digest=I3_V2_CONTRACTS["universe_daily"].schema_digest,
+        availability_session=PRODUCTION_REPLACEMENT_AVAILABLE,
+        row_version_references=_row_version_references(corrected_rows),
+    )
+    replacement_receipts = (
+        corrected_receipt,
+        *case.kwargs["replacement_partition_receipts"][1:],
+    )
+
+    alias_state_ledger = replace(
+        case.alias_state_ledger,
+        entries=(
+            replace(
+                case.alias_state_ledger.entries[0],
+                corrected_open_alias=corrected_state,
+            ),
+            *case.alias_state_ledger.entries[1:],
+        ),
+    )
+    alias_state_ledger_pin = alias_state_ledger.exact_pin(
+        path="aliases/i4/late-source-state-ledger.json"
+    )
+    artifacts[alias_state_ledger_pin.path] = alias_state_ledger.canonical_bytes()
+
+    parent_frontier = next(
+        item for item in case.checkpoint.resolved_partition_map if item.session_date == session
+    )
+    parent_rows = tuple(
+        pq.read_table(pa.BufferReader(artifacts[parent_frontier.artifact.path])).to_pylist()
+    )
+    parent_snapshot = I4LateSourceSnapshot(
+        source_release_id=_digest("late-source-parent-release"),
+        session_date=session,
+        source_available_session=PRODUCTION_PARENT_AVAILABLE,
+        rows=tuple(
+            sorted(
+                (_source_from_native_row(row) for row in parent_rows),
+                key=lambda row: (
+                    row.provider_id,
+                    row.provider_market,
+                    row.provider_locale,
+                    row.ticker,
+                    row.source_record_id,
+                ),
+            )
+        ),
+    )
+    corrected_snapshot = I4LateSourceSnapshot(
+        source_release_id=_digest("late-source-corrected-release"),
+        session_date=session,
+        source_available_session=PRODUCTION_REPLACEMENT_AVAILABLE,
+        rows=tuple(
+            sorted(
+                (_source_from_native_row(row) for row in corrected_rows),
+                key=lambda row: (
+                    row.provider_id,
+                    row.provider_market,
+                    row.provider_locale,
+                    row.ticker,
+                    row.source_record_id,
+                ),
+            )
+        ),
+    )
+    parent_snapshot_pin = parent_snapshot.exact_pin(path="sources/i4/late-source-parent.json")
+    corrected_snapshot_pin = corrected_snapshot.exact_pin(
+        path="sources/i4/late-source-corrected.json"
+    )
+    artifacts[parent_snapshot_pin.path] = parent_snapshot.canonical_bytes()
+    artifacts[corrected_snapshot_pin.path] = corrected_snapshot.canonical_bytes()
+    late_source_ledger = I4LateSourceChangeLedgerRelease(
+        release_sequence=1,
+        previous_ledger_release_id=None,
+        release_available_session=PRODUCTION_REPLACEMENT_AVAILABLE,
+        entries=(
+            I4LateSourceLedgerEntry(
+                entry_sequence=1,
+                session_date=session,
+                parent_snapshot_artifact=parent_snapshot_pin,
+                corrected_snapshot_artifact=corrected_snapshot_pin,
+                change_available_session=PRODUCTION_REPLACEMENT_AVAILABLE,
+            ),
+        ),
+    )
+    late_source_ledger_pin = late_source_ledger.exact_pin(path="sources/i4/late-source-ledger.json")
+    artifacts[late_source_ledger_pin.path] = late_source_ledger.canonical_bytes()
+    kwargs = {
+        **case.kwargs,
+        "replacement_partition_receipts": replacement_receipts,
+        "registry_ledger": None,
+        "registry_ledger_artifact": None,
+        "late_source_ledger": late_source_ledger,
+        "late_source_ledger_artifact": late_source_ledger_pin,
+        "alias_state_ledger": alias_state_ledger,
+        "alias_state_ledger_artifact": alias_state_ledger_pin,
+        "artifact_reader": artifacts.__getitem__,
+    }
+    return SimpleNamespace(
+        base=case,
+        kwargs=kwargs,
+        artifacts=artifacts,
+        parent_snapshot=parent_snapshot,
+        corrected_snapshot=corrected_snapshot,
+        parent_snapshot_pin=parent_snapshot_pin,
+        corrected_snapshot_pin=corrected_snapshot_pin,
+        late_source_ledger=late_source_ledger,
+        late_source_ledger_pin=late_source_ledger_pin,
+        alias_state_ledger=alias_state_ledger,
+        alias_state_ledger_pin=alias_state_ledger_pin,
+    )
+
+
+def _replace_late_source_evidence(
+    case: SimpleNamespace,
+    *,
+    parent_snapshot: I4LateSourceSnapshot,
+    corrected_snapshot: I4LateSourceSnapshot,
+    label: str,
+    change_available_session: date = PRODUCTION_REPLACEMENT_AVAILABLE,
+) -> SimpleNamespace:
+    artifacts = dict(case.artifacts)
+    parent_pin = parent_snapshot.exact_pin(path=f"sources/i4/{label}-parent.json")
+    corrected_pin = corrected_snapshot.exact_pin(path=f"sources/i4/{label}-corrected.json")
+    artifacts[parent_pin.path] = parent_snapshot.canonical_bytes()
+    artifacts[corrected_pin.path] = corrected_snapshot.canonical_bytes()
+    ledger = I4LateSourceChangeLedgerRelease(
+        release_sequence=1,
+        previous_ledger_release_id=None,
+        release_available_session=max(
+            PRODUCTION_REPLACEMENT_AVAILABLE,
+            change_available_session,
+        ),
+        entries=(
+            I4LateSourceLedgerEntry(
+                entry_sequence=1,
+                session_date=PRODUCTION_SESSIONS[0],
+                parent_snapshot_artifact=parent_pin,
+                corrected_snapshot_artifact=corrected_pin,
+                change_available_session=change_available_session,
+            ),
+        ),
+    )
+    ledger_pin = ledger.exact_pin(path=f"sources/i4/{label}-ledger.json")
+    artifacts[ledger_pin.path] = ledger.canonical_bytes()
+    return SimpleNamespace(
+        kwargs={
+            **case.kwargs,
+            "late_source_ledger": ledger,
+            "late_source_ledger_artifact": ledger_pin,
+            "artifact_reader": artifacts.__getitem__,
+        },
+        artifacts=artifacts,
+        parent_pin=parent_pin,
+        corrected_pin=corrected_pin,
+        ledger=ledger,
+        ledger_pin=ledger_pin,
+    )
+
+
+def _trusted_correction_parent_case() -> SimpleNamespace:
+    case = _production_case()
+    artifacts = dict(case.artifacts)
+    predecessor_pin = case.kwargs["parent_manifest_pin"]
+    replacements = tuple(
+        PartitionReplacement(
+            replace(
+                receipt,
+                receipt=_artifact(
+                    f"trusted-parent-prior-{receipt.partition_key}",
+                    path=f"silver/i4/trusted-parent-prior/{receipt.partition_key}.parquet",
+                ),
+            ),
+            receipt,
+        )
+        for receipt in case.parent_manifest.added_partition_receipts
+    )
+    change_set = logical_change_set_digest(
+        added_partition_receipts=(),
+        partition_replacements=replacements,
+        added_row_version_receipts=(),
+        superseded_row_version_ids=(),
+    )
+    source_binding = _digest("trusted-correction-parent-source-binding")
+    gate_scope = correction_scope_digest(
+        parent_release_id=predecessor_pin.release_id,
+        change_set_digest=change_set,
+    )
+    policy_id = case.checkpoint.identity_policy_bundle.identity_policy_bundle_id
+    event = I4ApprovalEvent(
+        authorized_action=CorrectionAuthorizedAction.PUBLISH_EXACT_CORRECTION,
+        parent_release_id=predecessor_pin.release_id,
+        expected_change_set_digest=change_set,
+        source_binding_digest=source_binding,
+        schema_digest=case.parent_manifest.schema_digest,
+        transform_semantics_digest=case.parent_manifest.transform_semantics_digest,
+        calendar_digest=case.parent_manifest.calendar_digest,
+        identity_policy_before_id=policy_id,
+        identity_policy_after_id=policy_id,
+        scope_digest=gate_scope,
+        approver_id="joe",
+        event_available_session=APPROVAL_AVAILABLE,
+    )
+    event_pin = event.exact_pin(path="approvals/i4/trusted-parent-event.json")
+    body = CorrectionAuthorization(
+        authorized_action=CorrectionAuthorizedAction.PUBLISH_EXACT_CORRECTION,
+        literal_version=CORRECTION_AUTHORIZATION_LITERAL_VERSION,
+        parent_release_id=predecessor_pin.release_id,
+        expected_change_set_digest=change_set,
+        source_binding_digest=source_binding,
+        schema_digest=case.parent_manifest.schema_digest,
+        transform_semantics_digest=case.parent_manifest.transform_semantics_digest,
+        calendar_digest=case.parent_manifest.calendar_digest,
+        identity_policy_before_id=policy_id,
+        identity_policy_after_id=policy_id,
+        scope_digest=gate_scope,
+        approval_event_id=event.approval_event_id,
+        approval_event_sha256=event_pin.sha256,
+        approver_id="joe",
+        approval_available_session=APPROVAL_AVAILABLE,
+        evidence_pins=(
+            GateEvidencePin(
+                artifact=_gate_artifact(
+                    "trusted-parent-evidence",
+                    path="approvals/i4/trusted-parent-evidence.json",
+                ),
+                available_session=APPROVAL_AVAILABLE,
+            ),
+        ),
+    )
+    authorization = PinnedCorrectionAuthorization.freeze(
+        body,
+        path="approvals/i4/trusted-parent-authorization.json",
+    )
+    approval_ledger = I4ApprovalLedgerRelease(
+        release_sequence=1,
+        previous_ledger_release_id=None,
+        release_available_session=APPROVAL_AVAILABLE,
+        entries=(
+            I4ApprovalLedgerEntry(
+                ledger_index=1,
+                authorization_id=body.authorization_id,
+                authorization_artifact=authorization.artifact,
+                approval_event_id=event.approval_event_id,
+                event_artifact=event_pin,
+                recorded_available_session=APPROVAL_AVAILABLE,
+            ),
+        ),
+    )
+    approval_ledger_pin = approval_ledger.exact_pin(path="approvals/i4/trusted-parent-ledger.json")
+    artifacts[authorization.artifact.path] = _canonical_bytes(body.to_dict())
+    artifacts[event_pin.path] = event.canonical_bytes()
+    artifacts[approval_ledger_pin.path] = approval_ledger.canonical_bytes()
+    attestation = attest_i4_approval_event_exact(
+        authorization=authorization,
+        event=event,
+        event_artifact=event_pin,
+        ledger=approval_ledger,
+        ledger_artifact=approval_ledger_pin,
+        availability_cutoff_session=case.parent_manifest.availability_cutoff_session,
+        artifact_reader=artifacts.__getitem__,
+    )
+
+    seed_receipt = case.kwargs["parent_run_receipt"]
+    qa_receipt = replace(
+        seed_receipt.qa_receipt,
+        source_binding_digest=source_binding,
+        change_set_digest=change_set,
+    )
+    checkpoint_receipt = replace(
+        seed_receipt.checkpoint,
+        parent_release_id=predecessor_pin.release_id,
+    )
+    run_receipt = replace(
+        seed_receipt,
+        actual_input_set_digest=source_binding,
+        output_set_digest=change_set,
+        qa_receipt=qa_receipt,
+        checkpoint=checkpoint_receipt,
+    )
+    manifest = replace(
+        case.parent_manifest,
+        release_type=ReleaseType.CORRECTION,
+        parent_release_pin=predecessor_pin,
+        source_binding_digest=source_binding,
+        added_partition_receipts=(),
+        partition_replacements=replacements,
+        correction_authorization_id=body.authorization_id,
+        qa_receipt_id=qa_receipt.qa_receipt_id,
+        run_receipt_pin=control_object_pin(
+            run_receipt,
+            path="controls/i4/trusted-parent-run-receipt.json",
+        ),
+    )
+    manifest_pin = manifest.exact_pin(manifest_path="manifests/i4/trusted-correction-parent.json")
+    artifacts[manifest_pin.manifest_path] = manifest.canonical_bytes()
+    artifacts[manifest.run_receipt_pin.artifact.path] = _canonical_bytes(run_receipt.to_dict())
+    return SimpleNamespace(
+        base=case,
+        artifacts=artifacts,
+        manifest=manifest,
+        manifest_pin=manifest_pin,
+        run_receipt=run_receipt,
+        authorization=authorization,
+        attestation=attestation,
     )
 
 
@@ -1406,6 +2390,19 @@ def test_production_factory_derives_scope_boundary_and_preserves_cross_market_ro
     assert capability.exact_scope.alias_stable_boundary_session == PRODUCTION_SESSIONS[-1]
     assert len(capability.partition_replacements) == len(PRODUCTION_SESSIONS)
     assert capability.registry_changes[0].successor == case.successor
+    assert capability.correction_cause is I4ProductionCorrectionCause.REGISTRY_CHANGE
+    assert capability.late_source_ledger_release_id is None
+    assert capability.added_row_version_receipts == (case.alias_row_receipt,)
+    assert capability.superseded_row_version_ids == (
+        case.alias_row_receipt.predecessor_row_version_id,
+    )
+    assert capability.alias_state_ledger_release_id == (case.alias_state_ledger.ledger_release_id)
+    assert case.alias_state_ledger.entries[0].parent_open_alias != (
+        case.alias_state_ledger.entries[0].corrected_open_alias
+    )
+    assert case.alias_state_ledger.entries[-1].parent_open_alias == (
+        case.alias_state_ledger.entries[-1].corrected_open_alias
+    )
     with pytest.raises(I4CorrectionError, match="sealed exact-derivation factory"):
         ProductionI4CorrectionCapability(
             parent_manifest_pin=capability.parent_manifest_pin,
@@ -1416,7 +2413,11 @@ def test_production_factory_derives_scope_boundary_and_preserves_cross_market_ro
             added_row_version_receipts=capability.added_row_version_receipts,
             superseded_row_version_ids=capability.superseded_row_version_ids,
             registry_changes=capability.registry_changes,
+            correction_cause=capability.correction_cause,
             registry_ledger_release_id=capability.registry_ledger_release_id,
+            late_source_ledger_release_id=capability.late_source_ledger_release_id,
+            alias_state_ledger_release_id=capability.alias_state_ledger_release_id,
+            unaffected_partition_receipts_digest=(capability.unaffected_partition_receipts_digest),
             authorization_id=capability.authorization_id,
             approval_attestation=capability.approval_attestation,
             source_binding_digest=capability.source_binding_digest,
@@ -1425,6 +2426,592 @@ def test_production_factory_derives_scope_boundary_and_preserves_cross_market_ro
             identity_policy_after_id=capability.identity_policy_after_id,
             _seal=object(),
         )
+
+
+def test_production_alias_requires_exactly_one_ticker_alias_receipt() -> None:
+    case = _production_case()
+
+    with pytest.raises(I4CorrectionError, match="exactly one ticker_alias"):
+        mint_production_i4_correction_capability(
+            **{
+                **case.kwargs,
+                "added_row_version_receipts": (),
+                "superseded_row_version_ids": (),
+            }
+        )
+
+    alias = case.alias_row_receipt
+    extra_predecessor = _digest("extra-asset-predecessor")
+    extra_proof = RowSemanticProofReceipt(
+        table_name="asset_master",
+        stable_row_key=_digest("extra-asset-stable-key"),
+        row_version_id=_digest("extra-asset-version"),
+        predecessor_row_version_id=extra_predecessor,
+        operation=RowVersionOperation.REVIEWED_CORRECTION,
+        row_payload_digest=_digest("extra-asset-payload"),
+        predecessor_payload_digest=_digest("extra-asset-predecessor-payload"),
+        validator_semantics_digest=_digest("extra-asset-validator"),
+        artifact=case.alias_proof_pin,
+    )
+    extra = RowVersionReceipt(
+        table_name="asset_master",
+        stable_row_key=extra_proof.stable_row_key,
+        row_version_id=extra_proof.row_version_id,
+        predecessor_row_version_id=extra_predecessor,
+        operation=RowVersionOperation.REVIEWED_CORRECTION,
+        availability_session=PRODUCTION_REPLACEMENT_AVAILABLE,
+        index_artifact=case.alias_row_pin,
+        row_locator="row_index=0",
+        row_payload_digest=extra_proof.row_payload_digest,
+        semantic_proof=extra_proof,
+    )
+    receipts = tuple(sorted((extra, alias), key=lambda item: item.key))
+    superseded = tuple(sorted((extra_predecessor, alias.predecessor_row_version_id)))
+    with pytest.raises(I4CorrectionError, match="exactly one ticker_alias"):
+        mint_production_i4_correction_capability(
+            **{
+                **case.kwargs,
+                "added_row_version_receipts": receipts,
+                "superseded_row_version_ids": superseded,
+            }
+        )
+
+
+def test_production_alias_rejects_new_root_and_untrusted_predecessor() -> None:
+    case = _production_case()
+    receipt = case.alias_row_receipt
+    new_root_proof = replace(
+        receipt.semantic_proof,
+        predecessor_row_version_id=None,
+        predecessor_payload_digest=None,
+        operation=RowVersionOperation.NEW_ROOT,
+    )
+    new_root = replace(
+        receipt,
+        predecessor_row_version_id=None,
+        operation=RowVersionOperation.NEW_ROOT,
+        semantic_proof=new_root_proof,
+    )
+    with pytest.raises(I4CorrectionError, match="rejects NEW_ROOT"):
+        mint_production_i4_correction_capability(
+            **{
+                **case.kwargs,
+                "added_row_version_receipts": (new_root,),
+                "superseded_row_version_ids": (),
+            }
+        )
+
+    forged_predecessor = _digest("untrusted-alias-predecessor")
+    forged_proof = replace(
+        receipt.semantic_proof,
+        predecessor_row_version_id=forged_predecessor,
+        predecessor_payload_digest=_digest("untrusted-alias-predecessor-payload"),
+    )
+    forged = replace(
+        receipt,
+        predecessor_row_version_id=forged_predecessor,
+        semantic_proof=forged_proof,
+    )
+    with pytest.raises(I4CorrectionError, match="authenticated parent terminal"):
+        mint_production_i4_correction_capability(
+            **{
+                **case.kwargs,
+                "added_row_version_receipts": (forged,),
+                "superseded_row_version_ids": (forged_predecessor,),
+            }
+        )
+
+
+def test_production_alias_replays_exact_proof_locator_and_physical_row() -> None:
+    case = _production_case()
+    receipt = case.alias_row_receipt
+
+    artifacts = dict(case.artifacts)
+    artifacts[case.alias_proof_pin.path] += b"forged"
+    with pytest.raises(I4CorrectionError, match="stored artifact bytes differ"):
+        mint_production_i4_correction_capability(
+            **{**case.kwargs, "artifact_reader": artifacts.__getitem__}
+        )
+
+    with pytest.raises(I4CorrectionError, match="exactly row_index=0"):
+        mint_production_i4_correction_capability(
+            **{
+                **case.kwargs,
+                "added_row_version_receipts": (replace(receipt, row_locator="row_index=1"),),
+            }
+        )
+
+    appended_content = _table_parquet_bytes(
+        "ticker_alias",
+        (case.alias_row, case.alias_row),
+    )
+    appended_pin = _bytes_pin(
+        "silver/i4/ticker-alias/appended-unreceipted-row.parquet",
+        appended_content,
+    )
+    appended_artifacts = {
+        **case.artifacts,
+        appended_pin.path: appended_content,
+    }
+    with pytest.raises(I4CorrectionError, match="exactly row_index=0"):
+        mint_production_i4_correction_capability(
+            **{
+                **case.kwargs,
+                "added_row_version_receipts": (replace(receipt, index_artifact=appended_pin),),
+                "artifact_reader": appended_artifacts.__getitem__,
+            }
+        )
+
+    forged_row = dict(case.alias_row)
+    forged_row["canonical_composite_figi"] = CANONICAL
+    row_content = _table_parquet_bytes("ticker_alias", (forged_row,))
+    row_pin = _bytes_pin("silver/i4/ticker-alias/forged-state-row.parquet", row_content)
+    payload_digest = stable_digest(_jsonable(forged_row))
+    proof_seed = replace(
+        receipt.semantic_proof,
+        row_payload_digest=payload_digest,
+    )
+    proof_content = _row_semantic_proof_content(proof_seed)
+    proof_pin = _bytes_pin("proofs/i4/forged-state-row.json", proof_content)
+    proof = replace(proof_seed, artifact=proof_pin)
+    forged_receipt = replace(
+        receipt,
+        index_artifact=row_pin,
+        row_payload_digest=payload_digest,
+        semantic_proof=proof,
+    )
+    forged_artifacts = {
+        **case.artifacts,
+        row_pin.path: row_content,
+        proof_pin.path: proof_content,
+    }
+    with pytest.raises(I4CorrectionError, match="canonical_composite_figi"):
+        mint_production_i4_correction_capability(
+            **{
+                **case.kwargs,
+                "added_row_version_receipts": (forged_receipt,),
+                "artifact_reader": forged_artifacts.__getitem__,
+            }
+        )
+
+
+def test_production_alias_state_resolution_must_match_replacement_projection() -> None:
+    case = _production_case()
+    state = case.alias_state_ledger.entries[0].corrected_open_alias
+    first = case.kwargs["replacement_partition_receipts"][0]
+    rows = pq.read_table(pa.BufferReader(case.artifacts[first.receipt.path])).to_pylist()
+    projection = i4_correction._projection_from_native_row(
+        next(row for row in rows if row["ticker"] == "AAPL")
+    )
+    forged_resolution = replace(
+        state.resolution,
+        segment=state.segment,
+        decision_lineage_ids=(_digest("forged-alias-state-lineage"),),
+    )
+    forged_state = OpenAliasState(segment=state.segment, resolution=forged_resolution)
+
+    with pytest.raises(I4CorrectionError, match="replacement decision lineage"):
+        i4_correction._validate_corrected_alias_projection(forged_state, projection)
+
+
+def test_production_alias_nonprojection_evidence_is_module_derived() -> None:
+    case = _production_case()
+    attacks = (
+        (
+            "policy bundle",
+            {"identity_policy_bundle_id": _digest("forged-alias-policy-bundle")},
+        ),
+        (
+            "source-record-set digest",
+            {"source_record_set_digest": _digest("forged-alias-source-record-set")},
+        ),
+        (
+            "evidence availability",
+            {"evidence_available_session": date(2026, 8, 5)},
+        ),
+    )
+    for message, changes in attacks:
+        forged = _forge_alias_nonprojection_evidence(
+            case,
+            resolution_changes=changes,
+            label=message.replace(" ", "-"),
+        )
+        with pytest.raises(I4CorrectionError, match=message):
+            mint_production_i4_correction_capability(**forged.kwargs)
+
+
+def test_joint_forgery_cannot_turn_replacement_evidence_into_authority() -> None:
+    case = _production_case()
+    forged_policy_id = _digest("joint-forged-target-policy")
+    forged_evidence_available = date(2026, 8, 5)
+    forged = _forge_alias_nonprojection_evidence(
+        case,
+        resolution_changes={
+            "identity_policy_bundle_id": forged_policy_id,
+            "source_record_set_digest": _digest("joint-forged-source-record-set"),
+            "evidence_available_session": forged_evidence_available,
+        },
+        replacement_raw_changes={
+            "identity_policy_bundle_id": forged_policy_id,
+            "identity_evidence_available_session": forged_evidence_available,
+        },
+        label="joint-authorized-evidence-forgery",
+    )
+    kwargs = _reauthorize_production_case(
+        case,
+        artifacts=forged.artifacts,
+        replacement_receipts=forged.replacement_receipts,
+        target_policy=case.target_policy,
+        target_bundle_pin=case.target_bundle_pin,
+        alias_state_ledger=forged.alias_state_ledger,
+        alias_state_ledger_pin=forged.alias_state_ledger_pin,
+        registry_ledger=case.registry_ledger,
+        registry_ledger_pin=case.registry_ledger_pin,
+        late_source_ledger=None,
+        late_source_ledger_pin=None,
+        label="joint-authorized-evidence-forgery",
+        added_row_version_receipts=(forged.row_receipt,),
+        superseded_row_version_ids=case.kwargs["superseded_row_version_ids"],
+    )
+
+    with pytest.raises(I4CorrectionError, match="replacement identity policy bundle"):
+        mint_production_i4_correction_capability(**kwargs)
+
+
+def test_evidence_only_joint_forgery_hits_evidence_gate_after_reauthorization() -> None:
+    case = _production_case()
+    forged_evidence_available = date(2026, 8, 5)
+    forged = _forge_alias_nonprojection_evidence(
+        case,
+        resolution_changes={
+            "evidence_available_session": forged_evidence_available,
+        },
+        replacement_raw_changes={
+            "identity_evidence_available_session": forged_evidence_available,
+        },
+        label="evidence-only-authorized-forgery",
+    )
+    kwargs = _reauthorize_production_case(
+        case,
+        artifacts=forged.artifacts,
+        replacement_receipts=forged.replacement_receipts,
+        target_policy=case.target_policy,
+        target_bundle_pin=case.target_bundle_pin,
+        alias_state_ledger=forged.alias_state_ledger,
+        alias_state_ledger_pin=forged.alias_state_ledger_pin,
+        registry_ledger=case.registry_ledger,
+        registry_ledger_pin=case.registry_ledger_pin,
+        late_source_ledger=None,
+        late_source_ledger_pin=None,
+        label="evidence-only-authorized-forgery",
+        added_row_version_receipts=(forged.row_receipt,),
+        superseded_row_version_ids=case.kwargs["superseded_row_version_ids"],
+    )
+
+    with pytest.raises(I4CorrectionError, match="replacement evidence availability"):
+        mint_production_i4_correction_capability(**kwargs)
+
+
+def test_production_alias_closes_superseded_and_replacement_reference_sets() -> None:
+    case = _production_case()
+    with pytest.raises(I4CorrectionError, match="superseded IDs differ"):
+        mint_production_i4_correction_capability(
+            **{
+                **case.kwargs,
+                "superseded_row_version_ids": (_digest("wrong-superseded-version"),),
+            }
+        )
+
+    artifacts = dict(case.artifacts)
+    first = case.kwargs["replacement_partition_receipts"][0]
+    rows = tuple(pq.read_table(pa.BufferReader(artifacts[first.receipt.path])).to_pylist())
+    for row in rows:
+        if row["ticker"] == "AAPL":
+            row["asset_master_version_id"] = _digest("unreceipted-asset-version")
+    content = _parquet_bytes(rows)
+    pin = _bytes_pin("silver/i4/replacement/unreceipted-ref.parquet", content)
+    artifacts[pin.path] = content
+    forged_partition = replace(
+        first,
+        receipt=pin,
+        row_version_references=_row_version_references(rows),
+    )
+    with pytest.raises(I4CorrectionError, match="new row-version references"):
+        mint_production_i4_correction_capability(
+            **{
+                **case.kwargs,
+                "replacement_partition_receipts": (
+                    forged_partition,
+                    *case.kwargs["replacement_partition_receipts"][1:],
+                ),
+                "artifact_reader": artifacts.__getitem__,
+            }
+        )
+
+
+def test_correction_parent_requires_and_accepts_exact_prior_gate_evidence() -> None:
+    case = _trusted_correction_parent_case()
+    common = {
+        "parent_manifest": case.manifest,
+        "parent_manifest_pin": case.manifest_pin,
+        "parent_run_receipt": case.run_receipt,
+        "checkpoint": case.base.checkpoint,
+        "parent_checkpoint_artifact": case.base.kwargs["parent_checkpoint_artifact"],
+        "artifact_reader": case.artifacts.__getitem__,
+    }
+
+    with pytest.raises(I4CorrectionError, match="requires its exact authorization"):
+        i4_correction._authenticate_production_parent(
+            **common,
+            parent_correction_authorization=None,
+            parent_correction_approval_attestation=None,
+            cache=i4_correction._ExactReadCache(),
+        )
+
+    i4_correction._authenticate_production_parent(
+        **common,
+        parent_correction_authorization=case.authorization,
+        parent_correction_approval_attestation=case.attestation,
+        cache=i4_correction._ExactReadCache(),
+    )
+
+
+def test_i4_evidence_packages_are_genesis_only() -> None:
+    case = _production_case()
+    late = _late_source_case()
+    releases = (
+        (case.alias_state_ledger, "alias-state evidence"),
+        (late.late_source_ledger, "late-source evidence"),
+        (case.registry_ledger, "registry evidence"),
+        (case.kwargs["approval_ledger"], "approval evidence"),
+    )
+    for release, label in releases:
+        for sequence, previous in (
+            (2, None),
+            (True, None),
+            (1.0, None),
+            (1, _digest(f"{label}-forged-previous")),
+        ):
+            with pytest.raises(I4CorrectionError, match=f"{label}.*genesis-only"):
+                replace(
+                    release,
+                    release_sequence=sequence,
+                    previous_ledger_release_id=previous,
+                )
+
+
+def test_production_factory_reads_only_authenticated_bounded_parent_sessions() -> None:
+    case = _production_case()
+    read_paths: list[str] = []
+
+    def reader(path: str) -> bytes:
+        read_paths.append(path)
+        return case.artifacts[path]
+
+    capability = mint_production_i4_correction_capability(
+        **{**case.kwargs, "artifact_reader": reader}
+    )
+
+    untouched_path = "silver/i4/parent/2026-07-06.parquet"
+    assert untouched_path not in read_paths
+    assert {
+        f"silver/i4/parent/{session.isoformat()}.parquet" for session in PRODUCTION_SESSIONS
+    }.issubset(read_paths)
+    assert capability.unaffected_partition_receipts_digest == stable_digest(
+        {
+            "parent_checkpoint_id": case.checkpoint.checkpoint_id,
+            "unchanged_partition_frontier": [case.checkpoint.resolved_partition_map[0].to_dict()],
+        }
+    )
+
+
+def test_production_factory_rejects_alias_state_not_bound_to_partition_ids() -> None:
+    case = _production_case()
+    first = case.alias_state_ledger.entries[0]
+    forged_ledger = replace(
+        case.alias_state_ledger,
+        entries=(
+            replace(first, corrected_open_alias=first.parent_open_alias),
+            *case.alias_state_ledger.entries[1:],
+        ),
+    )
+    forged_pin = forged_ledger.exact_pin(path="aliases/i4/forged-state-ledger.json")
+    artifacts = {**case.artifacts, forged_pin.path: forged_ledger.canonical_bytes()}
+
+    with pytest.raises(I4CorrectionError, match="partition row-version IDs"):
+        mint_production_i4_correction_capability(
+            **{
+                **case.kwargs,
+                "alias_state_ledger": forged_ledger,
+                "alias_state_ledger_artifact": forged_pin,
+                "artifact_reader": artifacts.__getitem__,
+            }
+        )
+
+
+def test_production_factory_requests_exact_group_expansion_when_real_alias_never_converges() -> (
+    None
+):
+    case = _production_case()
+    artifacts = dict(case.artifacts)
+    final_entry = case.alias_state_ledger.entries[-1]
+    divergent_resolution = replace(
+        final_entry.parent_open_alias.resolution,
+        segment=final_entry.parent_open_alias.segment,
+        source_record_set_digest=_digest("never-converged-source-record-set"),
+        predecessor_alias_resolution_version_id=(
+            final_entry.parent_open_alias.resolution.alias_resolution_version_id
+        ),
+    )
+    divergent_state = OpenAliasState(
+        segment=final_entry.parent_open_alias.segment,
+        resolution=divergent_resolution,
+    )
+    final_receipt = case.kwargs["replacement_partition_receipts"][-1]
+    final_rows = tuple(
+        pq.read_table(pa.BufferReader(artifacts[final_receipt.receipt.path])).to_pylist()
+    )
+    for row in final_rows:
+        if row["ticker"] == "AAPL":
+            row["alias_resolution_version_id"] = (
+                divergent_state.resolution.alias_resolution_version_id
+            )
+    divergent_content = _parquet_bytes(final_rows)
+    divergent_pin = _bytes_pin(
+        "silver/i4/replacement/never-converged.parquet",
+        divergent_content,
+    )
+    artifacts[divergent_pin.path] = divergent_content
+    divergent_receipt = replace(
+        final_receipt,
+        receipt=divergent_pin,
+        row_version_references=_row_version_references(final_rows),
+    )
+    replacement_receipts = (
+        *case.kwargs["replacement_partition_receipts"][:-1],
+        divergent_receipt,
+    )
+    alias_ledger = replace(
+        case.alias_state_ledger,
+        entries=(
+            *case.alias_state_ledger.entries[:-1],
+            replace(final_entry, corrected_open_alias=divergent_state),
+        ),
+    )
+    alias_pin = alias_ledger.exact_pin(path="aliases/i4/never-converged-ledger.json")
+    artifacts[alias_pin.path] = alias_ledger.canonical_bytes()
+    kwargs = _reauthorize_production_case(
+        case,
+        artifacts=artifacts,
+        replacement_receipts=replacement_receipts,
+        target_policy=case.target_policy,
+        target_bundle_pin=case.target_bundle_pin,
+        alias_state_ledger=alias_ledger,
+        alias_state_ledger_pin=alias_pin,
+        registry_ledger=case.registry_ledger,
+        registry_ledger_pin=case.registry_ledger_pin,
+        late_source_ledger=None,
+        late_source_ledger_pin=None,
+        label="never-converged",
+    )
+
+    with pytest.raises(ExactGroupExpansionRequired, match="no supplied session"):
+        mint_production_i4_correction_capability(**kwargs)
+
+
+def test_production_factory_rejects_caller_late_source_snapshot_happy_path() -> None:
+    case = _late_source_case()
+
+    with pytest.raises(I4CorrectionError, match="S4HistoricalSourceCorrectionReceipt"):
+        mint_production_i4_correction_capability(**case.kwargs)
+
+
+@pytest.mark.parametrize("snapshot_side", ("parent", "corrected"))
+def test_late_source_rejects_tampered_old_or_new_exact_pin(snapshot_side: str) -> None:
+    case = _late_source_case()
+    artifacts = dict(case.artifacts)
+    pin = case.parent_snapshot_pin if snapshot_side == "parent" else case.corrected_snapshot_pin
+    artifacts[pin.path] += b"tamper"
+
+    with pytest.raises(I4CorrectionError, match="S4HistoricalSourceCorrectionReceipt"):
+        mint_production_i4_correction_capability(
+            **{**case.kwargs, "artifact_reader": artifacts.__getitem__}
+        )
+
+
+def test_late_source_rejects_snapshot_availability_after_change() -> None:
+    case = _late_source_case()
+    forged = _replace_late_source_evidence(
+        case,
+        parent_snapshot=case.parent_snapshot,
+        corrected_snapshot=replace(
+            case.corrected_snapshot,
+            source_available_session=date(2026, 8, 8),
+        ),
+        label="late-availability",
+    )
+
+    with pytest.raises(I4CorrectionError, match="S4HistoricalSourceCorrectionReceipt"):
+        mint_production_i4_correction_capability(**forged.kwargs)
+
+
+def test_late_source_rejects_multi_group_diff() -> None:
+    case = _late_source_case()
+    corrected_rows = tuple(
+        replace(row, source_record_id=_digest("late-source-second-changed-group"))
+        if row.ticker == "MSFT"
+        else row
+        for row in case.corrected_snapshot.rows
+    )
+    forged = _replace_late_source_evidence(
+        case,
+        parent_snapshot=case.parent_snapshot,
+        corrected_snapshot=replace(case.corrected_snapshot, rows=corrected_rows),
+        label="late-multi-group",
+    )
+
+    with pytest.raises(I4CorrectionError, match="S4HistoricalSourceCorrectionReceipt"):
+        mint_production_i4_correction_capability(**forged.kwargs)
+
+
+def test_late_source_rejects_foreign_locale_scope() -> None:
+    case = _late_source_case()
+
+    def foreign(rows: tuple[SourceIdentityKey, ...]) -> tuple[SourceIdentityKey, ...]:
+        return tuple(
+            replace(row, provider_locale="ca") if row.ticker == "AAPL" else row for row in rows
+        )
+
+    forged = _replace_late_source_evidence(
+        case,
+        parent_snapshot=replace(case.parent_snapshot, rows=foreign(case.parent_snapshot.rows)),
+        corrected_snapshot=replace(
+            case.corrected_snapshot,
+            rows=foreign(case.corrected_snapshot.rows),
+        ),
+        label="late-foreign-locale",
+    )
+
+    with pytest.raises(I4CorrectionError, match="S4HistoricalSourceCorrectionReceipt"):
+        mint_production_i4_correction_capability(**forged.kwargs)
+
+
+def test_late_source_rejects_empty_exact_diff() -> None:
+    case = _late_source_case()
+    no_change = replace(
+        case.parent_snapshot,
+        source_release_id=_digest("late-source-empty-successor-release"),
+        source_available_session=PRODUCTION_REPLACEMENT_AVAILABLE,
+    )
+    forged = _replace_late_source_evidence(
+        case,
+        parent_snapshot=case.parent_snapshot,
+        corrected_snapshot=no_change,
+        label="late-empty-diff",
+    )
+
+    with pytest.raises(I4CorrectionError, match="S4HistoricalSourceCorrectionReceipt"):
+        mint_production_i4_correction_capability(**forged.kwargs)
 
 
 def test_production_factory_has_no_caller_attested_scope_or_boundary_flags() -> None:
@@ -1497,7 +3084,7 @@ def test_production_factory_rejects_partition_bytes_behind_a_forged_digest_claim
 
 def test_production_factory_rejects_withdrawal_forged_over_unledgered_successor() -> None:
     case = _production_case()
-    with pytest.raises(I4CorrectionError, match="append-only reason artifact"):
+    with pytest.raises(I4CorrectionError, match="exact reviewed reason artifact"):
         replace(
             case.registry_entry,
             operation=RegistryChangeOperation.WITHDRAWAL,
@@ -1520,8 +3107,8 @@ def test_production_factory_rejects_withdrawal_forged_over_unledgered_successor(
         change_decision_artifact=withdrawal_pin,
     )
     withdrawal_ledger = I4RegistryChangeLedgerRelease(
-        release_sequence=2,
-        previous_ledger_release_id=case.registry_ledger.ledger_release_id,
+        release_sequence=1,
+        previous_ledger_release_id=None,
         release_available_session=PRODUCTION_APPROVAL_AVAILABLE,
         entries=(withdrawal_entry,),
     )

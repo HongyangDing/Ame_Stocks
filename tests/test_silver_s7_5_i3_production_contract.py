@@ -71,6 +71,7 @@ from ame_stocks_api.silver.incremental_i3_production_contract import (
 from ame_stocks_api.silver.incremental_i3_production_semantics import (
     I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST,
     production_compact_base_initial_segment_id,
+    production_delta_append_segment_id,
     production_native_v2_migration_id,
 )
 
@@ -375,6 +376,187 @@ def _malformed_compact_base_outputs(
     else:  # pragma: no cover - test helper guard
         raise AssertionError(f"unknown compact-base mutation: {mutation}")
     return (malformed, *outputs[1:])
+
+
+def _delta_append_outputs() -> tuple[
+    I3ProductionRunSpec,
+    I3ProductionOutputSet,
+    tuple[I3ProductionTableOutput, ...],
+]:
+    parent_spec = _run_spec()
+    assert parent_spec.i2_base_frontier is not None
+    parent_spec = replace(
+        parent_spec,
+        terminal_session=date(2026, 7, 9),
+        i2_base_frontier=replace(
+            parent_spec.i2_base_frontier,
+            terminal_session=date(2026, 7, 9),
+        ),
+    )
+    parent_outputs = list(_compact_base_outputs(parent_spec))
+    parent_dataset = I3ProductionDatasetIndex(
+        table_name="universe_daily",
+        terminal_session=date(2026, 7, 9),
+        partitions=(_partition(date(2026, 7, 8)), _partition(date(2026, 7, 9))),
+    )
+    parent_outputs[-1] = I3ProductionTableOutput(
+        storage=I3ProductionOutputStorage.DATASET_INDEX,
+        manifest_output=replace(
+            parent_outputs[-1].manifest_output,
+            session_date=parent_dataset.terminal_session,
+            row_count=parent_dataset.row_count,
+            artifact=parent_dataset.exact_pin(
+                path="silver/identity/s7-5-native-v2-staging/universe_daily/parent-index.json"
+            ),
+        ),
+        dataset_index=parent_dataset,
+    )
+    parent_output_set = replace(_output_set(), table_outputs=tuple(parent_outputs))
+    run_spec = _delta_run_spec()
+    child_outputs: list[I3ProductionTableOutput] = []
+    for parent_output in parent_outputs[:-1]:
+        parent_rowset = parent_output.rowset_index
+        assert parent_rowset is not None
+        contract = I3_V2_CONTRACTS[parent_output.table_name]
+        artifact = _pin(
+            "silver/identity/s7-5-native-v2-staging/"
+            f"{parent_output.table_name}/session_date={TERMINAL.isoformat()}/delta.parquet"
+        )
+        segment = I3ProductionSegmentPin(
+            table_name=parent_output.table_name,
+            segment_id=production_delta_append_segment_id(
+                table_name=parent_output.table_name,
+                parent_rowset_id=parent_rowset.rowset_index_id,
+                parent_segment_ids=tuple(item.segment_id for item in parent_rowset.segments),
+                artifact=artifact,
+                terminal_session=run_spec.terminal_session,
+                availability_session=run_spec.run_available_session,
+                native_v2_migration_id=run_spec.native_v2_migration_id,
+            ),
+            artifact=artifact,
+            row_count=1,
+            contract_id=contract.contract_id,
+            schema_digest=contract.schema_digest,
+            availability_session=run_spec.run_available_session,
+        )
+        rowset = I3ProductionRowsetIndex(
+            table_name=parent_output.table_name,
+            terminal_session=run_spec.terminal_session,
+            segments=(*parent_rowset.segments, segment),
+        )
+        child_outputs.append(
+            I3ProductionTableOutput(
+                storage=I3ProductionOutputStorage.ROWSET_INDEX,
+                manifest_output=replace(
+                    parent_output.manifest_output,
+                    session_date=run_spec.terminal_session,
+                    row_count=rowset.row_count,
+                    artifact=rowset.exact_pin(
+                        path=(
+                            "silver/identity/s7-5-native-v2-staging/"
+                            f"{parent_output.table_name}/delta-index.json"
+                        )
+                    ),
+                ),
+                rowset_index=rowset,
+            )
+        )
+    child_dataset = I3ProductionDatasetIndex(
+        table_name="universe_daily",
+        terminal_session=run_spec.terminal_session,
+        partitions=(*parent_dataset.partitions, _partition(run_spec.terminal_session)),
+    )
+    child_outputs.append(
+        I3ProductionTableOutput(
+            storage=I3ProductionOutputStorage.DATASET_INDEX,
+            manifest_output=replace(
+                parent_outputs[-1].manifest_output,
+                session_date=run_spec.terminal_session,
+                row_count=child_dataset.row_count,
+                artifact=child_dataset.exact_pin(
+                    path="silver/identity/s7-5-native-v2-staging/universe_daily/delta-index.json"
+                ),
+            ),
+            dataset_index=child_dataset,
+        )
+    )
+    return run_spec, parent_output_set, tuple(child_outputs)
+
+
+def _mutate_delta_outputs(
+    outputs: tuple[I3ProductionTableOutput, ...],
+    mutation: str,
+) -> tuple[I3ProductionTableOutput, ...]:
+    mutated = list(outputs)
+    if mutation.startswith("rowset_"):
+        output = mutated[0]
+        rowset = output.rowset_index
+        assert rowset is not None
+        segments = list(rowset.segments)
+        if mutation == "rowset_prefix":
+            segments[0] = replace(segments[0], segment_id=_digest("tampered-parent-prefix"))
+        elif mutation == "rowset_extra_suffix":
+            segments.append(
+                replace(
+                    segments[-1],
+                    segment_id=_digest("extra-delta-segment"),
+                    artifact=_pin(
+                        "silver/identity/s7-5-native-v2-staging/"
+                        "asset_master/session_date=2026-07-10/extra.parquet"
+                    ),
+                    row_count=0,
+                )
+            )
+        elif mutation == "rowset_segment_id":
+            segments[-1] = replace(segments[-1], segment_id=_digest("wrong-delta-segment"))
+        else:  # pragma: no cover - test helper guard
+            raise AssertionError(f"unknown rowset mutation: {mutation}")
+        changed = replace(rowset, segments=tuple(segments))
+        mutated[0] = replace(
+            output,
+            manifest_output=replace(
+                output.manifest_output,
+                row_count=changed.row_count,
+                artifact=changed.exact_pin(path=output.manifest_output.artifact.path),
+            ),
+            rowset_index=changed,
+        )
+    else:
+        output = mutated[-1]
+        dataset = output.dataset_index
+        assert dataset is not None
+        partitions = list(dataset.partitions)
+        if mutation == "universe_prefix":
+            partitions[0] = replace(
+                partitions[0],
+                partition_receipt_id=_digest("tampered-universe-prefix"),
+                artifact=_pin(
+                    "silver/identity/s7-5-native-v2-staging/universe_daily/"
+                    "session_date=2026-07-08/tampered.parquet"
+                ),
+            )
+            terminal = dataset.terminal_session
+        elif mutation == "universe_extra_suffix":
+            partitions.append(_partition(date(2026, 7, 11)))
+            terminal = date(2026, 7, 11)
+        else:  # pragma: no cover - test helper guard
+            raise AssertionError(f"unknown universe mutation: {mutation}")
+        changed = I3ProductionDatasetIndex(
+            table_name="universe_daily",
+            terminal_session=terminal,
+            partitions=tuple(partitions),
+        )
+        mutated[-1] = replace(
+            output,
+            manifest_output=replace(
+                output.manifest_output,
+                session_date=terminal,
+                row_count=changed.row_count,
+                artifact=changed.exact_pin(path=output.manifest_output.artifact.path),
+            ),
+            dataset_index=changed,
+        )
+    return tuple(mutated)
 
 
 def _success_controls() -> tuple[
@@ -731,6 +913,104 @@ def test_compact_base_initial_rowsets_are_module_owned(
             run_spec,
             _malformed_compact_base_outputs(outputs, mutation),
         )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ("rowset_prefix", "exact parent prefix and one suffix"),
+        ("rowset_extra_suffix", "exact parent prefix and one suffix"),
+        ("rowset_segment_id", "module-owned identity"),
+        ("universe_prefix", "exact parent prefix and target-session suffix"),
+        ("universe_extra_suffix", "exact parent prefix and target-session suffix"),
+    ),
+)
+def test_delta_outputs_require_exact_parent_prefix_and_one_module_owned_suffix(
+    mutation: str,
+    message: str,
+) -> None:
+    run_spec, parent_output_set, outputs = _delta_append_outputs()
+    production.validate_production_delta_append_outputs(run_spec, outputs, parent_output_set)
+    with pytest.raises(I3ProductionContractError, match=message):
+        production.validate_production_delta_append_outputs(
+            run_spec,
+            _mutate_delta_outputs(outputs, mutation),
+            parent_output_set,
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ("rowset_prefix", "exact parent prefix and one suffix"),
+        ("rowset_extra_suffix", "exact parent prefix and one suffix"),
+        ("rowset_segment_id", "module-owned identity"),
+        ("universe_prefix", "exact parent prefix and target-session suffix"),
+        ("universe_extra_suffix", "exact parent prefix and target-session suffix"),
+    ),
+)
+def test_durable_delta_loader_rejects_append_tampering_before_parquet_reads(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+    message: str,
+) -> None:
+    run_spec, parent_output_set, outputs = _delta_append_outputs()
+    output_set = replace(
+        _output_set(),
+        table_outputs=_mutate_delta_outputs(outputs, mutation),
+    )
+    run_spec_path = (
+        f"manifests/silver/identity/s7-5-native-v2-staging/durable-delta-{mutation}/run-spec.json"
+    )
+    run_spec_pin = run_spec.exact_pin(path=run_spec_path)
+    _, receipt_template, completion_template = _success_controls()
+    receipt = replace(
+        receipt_template,
+        run_spec_id=run_spec.run_spec_id,
+        run_spec_artifact=run_spec_pin,
+        output_set=output_set,
+    )
+    receipt_path = (
+        "manifests/silver/identity/s7-5-native-v2-staging/"
+        f"durable-delta-{mutation}/run-receipt.json"
+    )
+    receipt_pin = receipt.exact_pin(path=receipt_path)
+    completion = replace(
+        completion_template,
+        run_spec_id=run_spec.run_spec_id,
+        receipt_id=receipt.receipt_id,
+        receipt_artifact=receipt_pin,
+        output_set_id=output_set.output_set_id,
+    )
+    completion_path = (
+        f"manifests/silver/identity/s7-5-native-v2-staging/durable-delta-{mutation}/completion.json"
+    )
+    completion_pin = completion.exact_pin(path=completion_path)
+    controls = {
+        completion_pin.path: completion.canonical_bytes(),
+        receipt_pin.path: receipt.canonical_bytes(),
+        run_spec_pin.path: run_spec.canonical_bytes(),
+    }
+    read_paths: list[str] = []
+
+    def artifact_reader(_root: Path, relative: str) -> bytes:
+        read_paths.append(relative)
+        if relative.endswith(".parquet"):
+            raise AssertionError("durable DELTA loader read Parquet before append rejection")
+        return controls[relative]
+
+    parent = SimpleNamespace(receipt=SimpleNamespace(output_set=parent_output_set))
+    monkeypatch.setattr(production, "_read_root_bytes", artifact_reader)
+    monkeypatch.setattr(
+        production,
+        "_verify_production_parent_exact",
+        lambda _root, _run_spec: parent,
+    )
+    with pytest.raises(I3ProductionContractError, match=message):
+        production.load_i3_production_staging_exact(tmp_path, completion_pin)
+    assert read_paths == [completion_pin.path, receipt_pin.path, run_spec_pin.path]
+    assert not any(path.endswith(".parquet") for path in read_paths)
 
 
 @pytest.mark.parametrize(

@@ -123,7 +123,7 @@ def test_base_config_exposes_only_exact_inputs_availability_and_caps(tmp_path: P
 
 def test_transform_semantics_golden_binds_compact_base_initial_rowset_segment() -> None:
     assert I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST == (
-        "973732372b1d624cdb4d5a3d680080026d2f24cda829724740a4e6ce1741807a"
+        "71e7f67e5fc33350167853a127e5710307f4fd9710bf28c2ae5cad84d383d5fb"
     )
     assert (
         I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD["materialization_rules"]["initial_rowset_segment"]

@@ -81,8 +81,14 @@ I4_APPROVAL_EVENT_RULE_VERSION = "s7_5_i4_exact_approval_event_v1"
 I4_APPROVAL_LEDGER_RULE_VERSION = "s7_5_i4_approval_ledger_release_v1"
 I4_REGISTRY_LEDGER_RULE_VERSION = "s7_5_i4_registry_change_ledger_v1"
 I4_WITHDRAWAL_DECISION_RULE_VERSION = "s7_5_i4_registry_withdrawal_decision_v1"
-I4_PRODUCTION_DERIVATION_RULE_VERSION = "s7_5_i4_production_exact_derivation_v1"
-I4_PRODUCTION_SOURCE_BINDING_RULE_VERSION = "s7_5_i4_production_source_binding_v1"
+I4_ALIAS_STATE_LEDGER_RULE_VERSION = "s7_5_i4_alias_state_ledger_v1"
+I4_LATE_SOURCE_SNAPSHOT_RULE_VERSION = "s7_5_i4_late_source_snapshot_v1"
+I4_LATE_SOURCE_LEDGER_RULE_VERSION = "s7_5_i4_late_source_change_ledger_v1"
+I4_PRODUCTION_DERIVATION_RULE_VERSION = "s7_5_i4_production_exact_derivation_v2"
+I4_PRODUCTION_SOURCE_BINDING_RULE_VERSION = "s7_5_i4_production_source_binding_v2"
+I4_TICKER_ALIAS_CORRECTION_VALIDATOR_RULE_VERSION = "s7_5_i4_ticker_alias_reviewed_correction_v1"
+_ROW_SEMANTIC_PROOF_ARTIFACT_TYPE = "s7_5_i3_production_row_semantic_proof"
+_ROW_SEMANTIC_PROOF_RULE_VERSION = "s7_5_i3_production_row_semantic_proof_v1"
 
 ExactArtifactReader = Callable[[str], bytes]
 
@@ -131,6 +137,13 @@ class RegistryChangeOperation(StrEnum):
 
     SUCCESSOR = "successor"
     WITHDRAWAL = "withdrawal"
+
+
+class I4ProductionCorrectionCause(StrEnum):
+    """Closed production correction evidence branch."""
+
+    REGISTRY_CHANGE = "registry_change"
+    LATE_SOURCE = "late_source"
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,6 +249,41 @@ class SourceIdentityKey:
             "source_record_id": self.source_record_id,
             "ticker": self.ticker,
         }
+
+    @classmethod
+    def from_dict(cls, value: object) -> SourceIdentityKey:
+        if not isinstance(value, Mapping):
+            raise I4CorrectionError("source identity row must be an object")
+        expected = {
+            "active_on_date",
+            "observed_composite_country",
+            "observed_composite_figi",
+            "observed_share_class_figi",
+            "provider_id",
+            "provider_locale",
+            "provider_market",
+            "session_date",
+            "source_record_id",
+            "ticker",
+        }
+        if set(value) != expected:
+            raise I4CorrectionError("source identity row fields differ from the closed contract")
+        try:
+            session = date.fromisoformat(str(value["session_date"]))
+        except ValueError as exc:
+            raise I4CorrectionError("source identity session is invalid") from exc
+        return cls(
+            provider_id=str(value["provider_id"]),
+            provider_market=str(value["provider_market"]),
+            provider_locale=str(value["provider_locale"]),
+            ticker=str(value["ticker"]),
+            session_date=session,
+            source_record_id=str(value["source_record_id"]),
+            observed_composite_figi=_none_or_text(value["observed_composite_figi"]),
+            observed_composite_country=_none_or_text(value["observed_composite_country"]),
+            observed_share_class_figi=_none_or_text(value["observed_share_class_figi"]),
+            active_on_date=value["active_on_date"],
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -483,8 +531,317 @@ class AliasBoundaryProof:
 
 
 @dataclass(frozen=True, slots=True)
+class I4AliasStateLedgerEntry:
+    """Exact parent/corrected alias states for one reviewed session.
+
+    Production never accepts a caller supplied ``complete`` or ``exhausted``
+    flag.  The factory reads this entry from an exact ledger, binds both full
+    states to the old/new partition row-version IDs, and derives convergence.
+    """
+
+    entry_sequence: int
+    group: ExactIdentityGroup
+    session_date: date
+    parent_open_alias: OpenAliasState
+    corrected_open_alias: OpenAliasState
+
+    def __post_init__(self) -> None:
+        if type(self.entry_sequence) is not int or self.entry_sequence <= 0:
+            raise I4CorrectionError("alias-state ledger entry sequence must be positive")
+        if not isinstance(self.group, ExactIdentityGroup):
+            raise I4CorrectionError("alias-state ledger group is invalid")
+        _session(self.session_date, "alias-state ledger session")
+        for state, label in (
+            (self.parent_open_alias, "parent"),
+            (self.corrected_open_alias, "corrected"),
+        ):
+            if not isinstance(state, OpenAliasState):
+                raise I4CorrectionError(f"alias-state ledger {label} state is invalid")
+            segment = state.segment
+            if (
+                segment.provider_id != self.group.provider_id
+                or segment.provider_market != self.group.provider_market
+                or segment.provider_locale != self.group.provider_locale
+                or segment.ticker != self.group.ticker
+            ):
+                raise I4CorrectionError("alias-state ledger crossed its exact group")
+            if segment.valid_from_session > self.session_date or (
+                state.resolution.valid_through_session is not None
+                and state.resolution.valid_through_session < self.session_date
+            ):
+                raise I4CorrectionError("alias-state ledger state does not cover its session")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "corrected_open_alias": self.corrected_open_alias.to_dict(),
+            "entry_sequence": self.entry_sequence,
+            "group": self.group.to_dict(),
+            "parent_open_alias": self.parent_open_alias.to_dict(),
+            "session_date": self.session_date.isoformat(),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class I4AliasStateLedgerRelease:
+    """One genesis-only alias-frontier evidence package for S7.5 I4.
+
+    S7.5 deliberately has no multi-release alias-ledger chain.  The retained
+    sequence/previous fields are frozen to their genesis values so a caller
+    cannot imply append-only history that this module does not verify.
+    """
+
+    release_sequence: int
+    previous_ledger_release_id: str | None
+    release_available_session: date
+    entries: tuple[I4AliasStateLedgerEntry, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.release_sequence) is not int
+            or self.release_sequence != 1
+            or self.previous_ledger_release_id is not None
+        ):
+            raise I4CorrectionError("alias-state evidence must be a genesis-only package")
+        _session(self.release_available_session, "alias-state ledger release availability")
+        if (
+            type(self.entries) is not tuple
+            or not self.entries
+            or any(not isinstance(item, I4AliasStateLedgerEntry) for item in self.entries)
+        ):
+            raise I4CorrectionError("alias-state ledger release entries are invalid")
+        sequences = tuple(item.entry_sequence for item in self.entries)
+        sessions = tuple(item.session_date for item in self.entries)
+        groups = {item.group for item in self.entries}
+        if sequences != tuple(sorted(set(sequences))):
+            raise I4CorrectionError("alias-state ledger entry sequences must be sorted and unique")
+        if sessions != tuple(sorted(set(sessions))):
+            raise I4CorrectionError("alias-state ledger sessions must be sorted and unique")
+        if len(groups) != 1:
+            raise I4CorrectionError("alias-state ledger crossed exact groups")
+
+    @property
+    def ledger_release_id(self) -> str:
+        return stable_digest(self.logical_payload())
+
+    def logical_payload(self) -> dict[str, object]:
+        return {
+            "entries": [item.to_dict() for item in self.entries],
+            "previous_ledger_release_id": self.previous_ledger_release_id,
+            "release_available_session": self.release_available_session.isoformat(),
+            "release_sequence": self.release_sequence,
+            "rule_version": I4_ALIAS_STATE_LEDGER_RULE_VERSION,
+        }
+
+    def to_dict(self) -> dict[str, object]:
+        return {"ledger_release_id": self.ledger_release_id, **self.logical_payload()}
+
+    def canonical_bytes(self) -> bytes:
+        return _canonical_json_bytes(self.to_dict())
+
+    def exact_pin(self, *, path: str) -> ArtifactPin:
+        content = self.canonical_bytes()
+        return ArtifactPin(
+            path=path,
+            sha256=hashlib.sha256(content).hexdigest(),
+            bytes=len(content),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class I4LateSourceSnapshot:
+    """One immutable, full selected-source projection for a source session."""
+
+    source_release_id: str
+    session_date: date
+    source_available_session: date
+    rows: tuple[SourceIdentityKey, ...]
+
+    def __post_init__(self) -> None:
+        _digest(self.source_release_id, "late-source release ID")
+        _session(self.session_date, "late-source snapshot session")
+        _session(self.source_available_session, "late-source snapshot availability")
+        if self.source_available_session < self.session_date:
+            raise I4CorrectionError("late-source snapshot predates its source session")
+        if type(self.rows) is not tuple or any(
+            not isinstance(item, SourceIdentityKey) for item in self.rows
+        ):
+            raise I4CorrectionError("late-source snapshot rows are invalid")
+        if any(item.session_date != self.session_date for item in self.rows):
+            raise I4CorrectionError("late-source snapshot crossed its session")
+        keys = tuple(
+            (
+                item.provider_id,
+                item.provider_market,
+                item.provider_locale,
+                item.ticker,
+                item.source_record_id,
+            )
+            for item in self.rows
+        )
+        if keys != tuple(sorted(set(keys))):
+            raise I4CorrectionError("late-source snapshot rows must be sorted and unique")
+
+    @property
+    def snapshot_id(self) -> str:
+        return stable_digest(self.logical_payload())
+
+    def logical_payload(self) -> dict[str, object]:
+        return {
+            "rows": [item.to_dict() for item in self.rows],
+            "rule_version": I4_LATE_SOURCE_SNAPSHOT_RULE_VERSION,
+            "session_date": self.session_date.isoformat(),
+            "source_available_session": self.source_available_session.isoformat(),
+            "source_release_id": self.source_release_id,
+        }
+
+    def to_dict(self) -> dict[str, object]:
+        return {"snapshot_id": self.snapshot_id, **self.logical_payload()}
+
+    def canonical_bytes(self) -> bytes:
+        return _canonical_json_bytes(self.to_dict())
+
+    def exact_pin(self, *, path: str) -> ArtifactPin:
+        content = self.canonical_bytes()
+        return ArtifactPin(
+            path=path,
+            sha256=hashlib.sha256(content).hexdigest(),
+            bytes=len(content),
+        )
+
+    @classmethod
+    def from_dict(cls, value: object) -> I4LateSourceSnapshot:
+        if not isinstance(value, Mapping):
+            raise I4CorrectionError("late-source snapshot must be an object")
+        expected = {
+            "rows",
+            "rule_version",
+            "session_date",
+            "snapshot_id",
+            "source_available_session",
+            "source_release_id",
+        }
+        if set(value) != expected or value["rule_version"] != I4_LATE_SOURCE_SNAPSHOT_RULE_VERSION:
+            raise I4CorrectionError("late-source snapshot fields or rule version differ")
+        rows_value = value["rows"]
+        if not isinstance(rows_value, list):
+            raise I4CorrectionError("late-source snapshot rows must be an array")
+        try:
+            snapshot = cls(
+                source_release_id=str(value["source_release_id"]),
+                session_date=date.fromisoformat(str(value["session_date"])),
+                source_available_session=date.fromisoformat(str(value["source_available_session"])),
+                rows=tuple(SourceIdentityKey.from_dict(item) for item in rows_value),
+            )
+        except ValueError as exc:
+            raise I4CorrectionError("late-source snapshot dates are invalid") from exc
+        if value["snapshot_id"] != snapshot.snapshot_id:
+            raise I4CorrectionError("late-source snapshot ID does not reproduce")
+        return snapshot
+
+
+@dataclass(frozen=True, slots=True)
+class I4LateSourceLedgerEntry:
+    """Exact old/new source snapshot pair for one late-source session."""
+
+    entry_sequence: int
+    session_date: date
+    parent_snapshot_artifact: ArtifactPin
+    corrected_snapshot_artifact: ArtifactPin
+    change_available_session: date
+
+    def __post_init__(self) -> None:
+        if type(self.entry_sequence) is not int or self.entry_sequence <= 0:
+            raise I4CorrectionError("late-source ledger entry sequence must be positive")
+        _session(self.session_date, "late-source ledger session")
+        _session(self.change_available_session, "late-source change availability")
+        if any(
+            not isinstance(item, ArtifactPin)
+            for item in (self.parent_snapshot_artifact, self.corrected_snapshot_artifact)
+        ):
+            raise I4CorrectionError("late-source snapshot pins are invalid")
+        if self.parent_snapshot_artifact == self.corrected_snapshot_artifact:
+            raise I4CorrectionError("late-source change requires distinct old/new receipts")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "change_available_session": self.change_available_session.isoformat(),
+            "corrected_snapshot_artifact": self.corrected_snapshot_artifact.to_dict(),
+            "entry_sequence": self.entry_sequence,
+            "parent_snapshot_artifact": self.parent_snapshot_artifact.to_dict(),
+            "session_date": self.session_date.isoformat(),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class I4LateSourceChangeLedgerRelease:
+    """Non-authoritative genesis-only caller snapshot package.
+
+    These bytes exist only so red-team tests can prove they never grant a
+    production capability.  A future late-source runner requires a real
+    ``S4HistoricalSourceCorrectionReceipt`` owned by S4.
+    """
+
+    release_sequence: int
+    previous_ledger_release_id: str | None
+    release_available_session: date
+    entries: tuple[I4LateSourceLedgerEntry, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.release_sequence) is not int
+            or self.release_sequence != 1
+            or self.previous_ledger_release_id is not None
+        ):
+            raise I4CorrectionError("late-source evidence must be a genesis-only package")
+        _session(self.release_available_session, "late-source ledger release availability")
+        if (
+            type(self.entries) is not tuple
+            or not self.entries
+            or any(not isinstance(item, I4LateSourceLedgerEntry) for item in self.entries)
+        ):
+            raise I4CorrectionError("late-source ledger release entries are invalid")
+        sequences = tuple(item.entry_sequence for item in self.entries)
+        sessions = tuple(item.session_date for item in self.entries)
+        if sequences != tuple(sorted(set(sequences))):
+            raise I4CorrectionError("late-source ledger sequences must be sorted and unique")
+        if sessions != tuple(sorted(set(sessions))):
+            raise I4CorrectionError("late-source ledger sessions must be sorted and unique")
+        if any(
+            item.change_available_session > self.release_available_session for item in self.entries
+        ):
+            raise I4CorrectionError("late-source change availability exceeds ledger release")
+
+    @property
+    def ledger_release_id(self) -> str:
+        return stable_digest(self.logical_payload())
+
+    def logical_payload(self) -> dict[str, object]:
+        return {
+            "entries": [item.to_dict() for item in self.entries],
+            "previous_ledger_release_id": self.previous_ledger_release_id,
+            "release_available_session": self.release_available_session.isoformat(),
+            "release_sequence": self.release_sequence,
+            "rule_version": I4_LATE_SOURCE_LEDGER_RULE_VERSION,
+        }
+
+    def to_dict(self) -> dict[str, object]:
+        return {"ledger_release_id": self.ledger_release_id, **self.logical_payload()}
+
+    def canonical_bytes(self) -> bytes:
+        return _canonical_json_bytes(self.to_dict())
+
+    def exact_pin(self, *, path: str) -> ArtifactPin:
+        content = self.canonical_bytes()
+        return ArtifactPin(
+            path=path,
+            sha256=hashlib.sha256(content).hexdigest(),
+            bytes=len(content),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class RegistryChange:
-    """One append-only registry successor or an explicit withdrawal."""
+    """One externally authenticated registry successor or explicit withdrawal."""
 
     operation: RegistryChangeOperation
     predecessor: RegistryDecision
@@ -563,7 +920,7 @@ class RegistryChange:
 
 @dataclass(frozen=True, slots=True)
 class I4RegistryLedgerEntry:
-    """One exact append-only successor or withdrawal decision.
+    """One exact externally authenticated successor or withdrawal decision.
 
     A withdrawal is a positive ledger fact.  It has its own decision ID,
     decision artifact, target registry release, and immutable reason artifact;
@@ -615,7 +972,7 @@ class I4RegistryLedgerEntry:
         if self.operation is RegistryChangeOperation.WITHDRAWAL:
             if self.withdrawal_reason_code is None or self.withdrawal_reason_artifact is None:
                 raise I4CorrectionError(
-                    "registry withdrawal requires an append-only reason artifact"
+                    "registry withdrawal requires an exact reviewed reason artifact"
                 )
             _token(self.withdrawal_reason_code, "registry withdrawal reason code")
             if not isinstance(self.withdrawal_reason_artifact, ArtifactPin):
@@ -674,7 +1031,7 @@ class I4RegistryLedgerEntry:
 
 @dataclass(frozen=True, slots=True)
 class I4RegistryChangeLedgerRelease:
-    """Canonical release of append-only registry-change decisions."""
+    """One genesis-only package of externally authenticated registry decisions."""
 
     release_sequence: int
     previous_ledger_release_id: str | None
@@ -682,9 +1039,12 @@ class I4RegistryChangeLedgerRelease:
     entries: tuple[I4RegistryLedgerEntry, ...]
 
     def __post_init__(self) -> None:
-        if type(self.release_sequence) is not int or self.release_sequence <= 0:
-            raise I4CorrectionError("registry ledger release sequence must be positive")
-        _optional_digest(self.previous_ledger_release_id, "previous registry ledger release ID")
+        if (
+            type(self.release_sequence) is not int
+            or self.release_sequence != 1
+            or self.previous_ledger_release_id is not None
+        ):
+            raise I4CorrectionError("registry evidence must be a genesis-only package")
         _session(self.release_available_session, "registry ledger release availability")
         if (
             type(self.entries) is not tuple
@@ -807,7 +1167,7 @@ class I4ApprovalEvent:
 
 @dataclass(frozen=True, slots=True)
 class I4ApprovalLedgerEntry:
-    """One append-only ledger row binding authorization and event bytes."""
+    """One exact evidence row binding authorization and event bytes."""
 
     ledger_index: int
     authorization_id: str
@@ -840,7 +1200,7 @@ class I4ApprovalLedgerEntry:
 
 @dataclass(frozen=True, slots=True)
 class I4ApprovalLedgerRelease:
-    """Canonical append-only approval-ledger release."""
+    """One genesis-only exact approval evidence package for S7.5 I4."""
 
     release_sequence: int
     previous_ledger_release_id: str | None
@@ -848,9 +1208,12 @@ class I4ApprovalLedgerRelease:
     entries: tuple[I4ApprovalLedgerEntry, ...]
 
     def __post_init__(self) -> None:
-        if type(self.release_sequence) is not int or self.release_sequence <= 0:
-            raise I4CorrectionError("approval ledger release sequence must be positive")
-        _optional_digest(self.previous_ledger_release_id, "previous approval ledger release ID")
+        if (
+            type(self.release_sequence) is not int
+            or self.release_sequence != 1
+            or self.previous_ledger_release_id is not None
+        ):
+            raise I4CorrectionError("approval evidence must be a genesis-only package")
         _session(self.release_available_session, "approval ledger release availability")
         if (
             type(self.entries) is not tuple
@@ -897,7 +1260,7 @@ class I4ApprovalLedgerRelease:
 
 @dataclass(frozen=True, slots=True, init=False)
 class I4ApprovalEventAttestation:
-    """Sealed proof that exact event and append-only ledger bytes were read."""
+    """Sealed proof that exact event and genesis evidence-package bytes were read."""
 
     authorization_id: str
     approval_event_id: str
@@ -1182,7 +1545,7 @@ class ProductionI4CorrectionCapability:
     that a candidate correction has one authenticated parent, one complete
     exact-group scope, one first reproducible stable boundary, exact old/new
     partition receipts, explicit registry ledger changes, and an approval event
-    present in an exact append-only ledger release.
+    present in one exact genesis-only approval evidence package.
     """
 
     parent_manifest_pin: ManifestPin
@@ -1193,7 +1556,11 @@ class ProductionI4CorrectionCapability:
     added_row_version_receipts: tuple[RowVersionReceipt, ...]
     superseded_row_version_ids: tuple[str, ...]
     registry_changes: tuple[RegistryChange, ...]
-    registry_ledger_release_id: str
+    correction_cause: I4ProductionCorrectionCause
+    registry_ledger_release_id: str | None
+    late_source_ledger_release_id: str | None
+    alias_state_ledger_release_id: str
+    unaffected_partition_receipts_digest: str
     authorization_id: str
     approval_attestation: I4ApprovalEventAttestation
     source_binding_digest: str
@@ -1213,7 +1580,11 @@ class ProductionI4CorrectionCapability:
         added_row_version_receipts: tuple[RowVersionReceipt, ...],
         superseded_row_version_ids: tuple[str, ...],
         registry_changes: tuple[RegistryChange, ...],
-        registry_ledger_release_id: str,
+        correction_cause: I4ProductionCorrectionCause,
+        registry_ledger_release_id: str | None,
+        late_source_ledger_release_id: str | None,
+        alias_state_ledger_release_id: str,
+        unaffected_partition_receipts_digest: str,
         authorization_id: str,
         approval_attestation: I4ApprovalEventAttestation,
         source_binding_digest: str,
@@ -1242,7 +1613,9 @@ class ProductionI4CorrectionCapability:
             ],
             "approval_attestation": self.approval_attestation.to_dict(),
             "authorization_id": self.authorization_id,
+            "alias_state_ledger_release_id": self.alias_state_ledger_release_id,
             "change_set_digest": self.change_set_digest,
+            "correction_cause": self.correction_cause.value,
             "exact_scope": self.exact_scope.to_dict(),
             "identity_policy_after_id": self.identity_policy_after_id,
             "identity_policy_before_id": self.identity_policy_before_id,
@@ -1252,9 +1625,11 @@ class ProductionI4CorrectionCapability:
             "partition_replacements": [item.to_dict() for item in self.partition_replacements],
             "registry_changes": [item.to_dict() for item in self.registry_changes],
             "registry_ledger_release_id": self.registry_ledger_release_id,
+            "late_source_ledger_release_id": self.late_source_ledger_release_id,
             "rule_version": I4_PRODUCTION_DERIVATION_RULE_VERSION,
             "source_binding_digest": self.source_binding_digest,
             "superseded_row_version_ids": list(self.superseded_row_version_ids),
+            "unaffected_partition_receipts_digest": (self.unaffected_partition_receipts_digest),
         }
 
     def to_dict(self) -> dict[str, object]:
@@ -1384,7 +1759,9 @@ def production_i4_source_binding_digest(
     replacement_partition_receipts: tuple[PartitionReceipt, ...],
     prior_policy_bundle_artifact: ArtifactPin,
     target_policy_bundle_artifact: ArtifactPin,
-    registry_ledger_artifact: ArtifactPin,
+    alias_state_ledger_artifact: ArtifactPin,
+    registry_ledger_artifact: ArtifactPin | None = None,
+    late_source_ledger_artifact: ArtifactPin | None = None,
     added_row_version_receipts: tuple[RowVersionReceipt, ...] = (),
 ) -> str:
     """Reproduce the fixed production-I4 input binding from exact pins.
@@ -1396,15 +1773,25 @@ def production_i4_source_binding_digest(
 
     if not isinstance(parent_manifest_pin, ManifestPin):
         raise I4CorrectionError("production source binding requires a parent manifest pin")
-    fixed = (
+    fixed_required = (
         parent_run_receipt_artifact,
         parent_checkpoint_artifact,
         prior_policy_bundle_artifact,
         target_policy_bundle_artifact,
-        registry_ledger_artifact,
+        alias_state_ledger_artifact,
     )
-    if any(not isinstance(item, ArtifactPin) for item in fixed):
+    if any(not isinstance(item, ArtifactPin) for item in fixed_required):
         raise I4CorrectionError("production source binding contains an invalid exact pin")
+    if not isinstance(registry_ledger_artifact, ArtifactPin):
+        raise I4CorrectionError(
+            "production source binding requires exact registry correction evidence"
+        )
+    if late_source_ledger_artifact is not None:
+        raise I4CorrectionError(
+            "late-source production correction requires a future "
+            "S4HistoricalSourceCorrectionReceipt"
+        )
+    optional_evidence = (registry_ledger_artifact,)
     if type(parent_partition_artifacts) is not tuple or any(
         not isinstance(item, ArtifactPin) for item in parent_partition_artifacts
     ):
@@ -1429,15 +1816,19 @@ def production_i4_source_binding_digest(
     )
     pins = (
         manifest_artifact,
-        *fixed,
+        *fixed_required,
+        *optional_evidence,
         *parent_partition_artifacts,
         *(item.receipt for item in replacement_partition_receipts),
         *row_pins,
     )
-    ordered = tuple(sorted(pins, key=lambda item: item.path))
-    paths = tuple(item.path for item in ordered)
-    if len(paths) != len(set(paths)):
-        raise I4CorrectionError("production I4 source pins reuse an artifact path")
+    by_path: dict[str, ArtifactPin] = {}
+    for pin in pins:
+        prior = by_path.get(pin.path)
+        if prior is not None and prior != pin:
+            raise I4CorrectionError("production I4 source pins conflict on an artifact path")
+        by_path[pin.path] = pin
+    ordered = tuple(by_path[path] for path in sorted(by_path))
     return stable_digest(
         {
             "input_pins": [item.to_dict() for item in ordered],
@@ -1563,8 +1954,12 @@ def mint_production_i4_correction_capability(
     prior_policy_snapshot: IdentityPolicySnapshot,
     target_policy_snapshot: IdentityPolicySnapshot,
     target_policy_bundle_artifact: ArtifactPin,
-    registry_ledger: I4RegistryChangeLedgerRelease,
-    registry_ledger_artifact: ArtifactPin,
+    registry_ledger: I4RegistryChangeLedgerRelease | None,
+    registry_ledger_artifact: ArtifactPin | None,
+    late_source_ledger: I4LateSourceChangeLedgerRelease | None,
+    late_source_ledger_artifact: ArtifactPin | None,
+    alias_state_ledger: I4AliasStateLedgerRelease,
+    alias_state_ledger_artifact: ArtifactPin,
     added_row_version_receipts: tuple[RowVersionReceipt, ...],
     superseded_row_version_ids: tuple[str, ...],
     authorization: PinnedCorrectionAuthorization,
@@ -1574,6 +1969,8 @@ def mint_production_i4_correction_capability(
     approval_ledger_artifact: GateArtifactPin,
     availability_cutoff_session: date,
     artifact_reader: ExactArtifactReader,
+    parent_correction_authorization: PinnedCorrectionAuthorization | None = None,
+    parent_correction_approval_attestation: I4ApprovalEventAttestation | None = None,
 ) -> ProductionI4CorrectionCapability:
     """Mint the only production I4 capability from authenticated exact bytes.
 
@@ -1590,26 +1987,35 @@ def mint_production_i4_correction_capability(
         parent_run_receipt=parent_run_receipt,
         checkpoint=checkpoint,
         parent_checkpoint_artifact=parent_checkpoint_artifact,
+        parent_correction_authorization=parent_correction_authorization,
+        parent_correction_approval_attestation=parent_correction_approval_attestation,
         artifact_reader=artifact_reader,
         cache=cache,
     )
+    late_source_branch = late_source_ledger is not None or late_source_ledger_artifact is not None
+    if late_source_branch:
+        raise I4CorrectionError(
+            "caller source snapshots are not production facts; late-source correction "
+            "requires a future S4HistoricalSourceCorrectionReceipt"
+        )
+    if not isinstance(registry_ledger, I4RegistryChangeLedgerRelease) or not isinstance(
+        registry_ledger_artifact, ArtifactPin
+    ):
+        raise I4CorrectionError("registry correction evidence pair is incomplete")
     prior_policy, target_policy = _authenticate_production_policies(
         checkpoint=checkpoint,
         prior_policy_snapshot=prior_policy_snapshot,
         target_policy_snapshot=target_policy_snapshot,
         target_policy_bundle_artifact=target_policy_bundle_artifact,
         availability_cutoff_session=cutoff,
+        require_distinct_target=True,
         artifact_reader=artifact_reader,
         cache=cache,
     )
-    parent_decoded = _read_parent_partitions_exact(
-        checkpoint,
-        artifact_reader=artifact_reader,
-        cache=cache,
-    )
-    _validate_parent_manifest_partition_receipts(parent_manifest, parent_decoded)
-    replacement_decoded = _read_replacement_partitions_exact(
-        replacement_partition_receipts,
+    alias_ledger = _read_alias_state_ledger_exact(
+        ledger=alias_state_ledger,
+        artifact=alias_state_ledger_artifact,
+        availability_cutoff_session=cutoff,
         artifact_reader=artifact_reader,
         cache=cache,
     )
@@ -1622,13 +2028,33 @@ def mint_production_i4_correction_capability(
         artifact_reader=artifact_reader,
         cache=cache,
     )
+    impact = _derive_registry_impact(changes)
+    replacement_sessions = _bounded_replacement_sessions(
+        checkpoint=checkpoint,
+        replacement_partition_receipts=replacement_partition_receipts,
+        impact=impact,
+    )
+    parent_decoded = _read_parent_partitions_exact(
+        checkpoint,
+        sessions=replacement_sessions,
+        artifact_reader=artifact_reader,
+        cache=cache,
+    )
+    _validate_parent_manifest_partition_receipts(parent_manifest, parent_decoded)
+    replacement_decoded = _read_replacement_partitions_exact(
+        replacement_partition_receipts,
+        artifact_reader=artifact_reader,
+        cache=cache,
+    )
     scope = _derive_production_scope(
         checkpoint=checkpoint,
         parent_partitions=parent_decoded,
         replacement_partitions=replacement_decoded,
+        impact=impact,
         registry_changes=changes,
         prior_policy_snapshot=prior_policy,
         target_policy_snapshot=target_policy,
+        alias_state_ledger=alias_ledger,
         authorization=authorization,
         availability_cutoff_session=cutoff,
     )
@@ -1642,6 +2068,7 @@ def mint_production_i4_correction_capability(
         scope=scope,
         parent_partitions=parent_decoded,
         replacement_partitions=replacement_decoded,
+        allow_scoped_source_change=False,
     )
     replacements = _validate_partition_images(
         checkpoint,
@@ -1656,12 +2083,22 @@ def mint_production_i4_correction_capability(
         ),
         validated_changes,
         target_policy,
+        late_source_changes=(),
     )
-    row_receipts, superseded = _validate_row_versions(
-        added_row_version_receipts,
-        superseded_row_version_ids,
+    row_receipts, superseded = _validate_production_alias_row_version(
+        checkpoint=checkpoint,
+        scope=scope,
+        parent_partitions=parent_decoded,
+        replacement_partitions=replacement_decoded,
+        alias_state_ledger=alias_ledger,
+        registry_changes=validated_changes,
+        target_policy_snapshot=target_policy,
+        receipts=added_row_version_receipts,
+        superseded_ids=superseded_row_version_ids,
         availability_cutoff_session=cutoff,
         authorization_available_session=(authorization.authorization.approval_available_session),
+        artifact_reader=artifact_reader,
+        cache=cache,
     )
     change_set = logical_change_set_digest(
         added_partition_receipts=(),
@@ -1674,12 +2111,16 @@ def mint_production_i4_correction_capability(
         parent_run_receipt_artifact=parent_manifest.run_receipt_pin.artifact,
         parent_checkpoint_artifact=parent_checkpoint_artifact,
         parent_partition_artifacts=tuple(
-            item.artifact for item in checkpoint.resolved_partition_map
+            item.artifact
+            for item in checkpoint.resolved_partition_map
+            if item.session_date in replacement_sessions
         ),
         replacement_partition_receipts=replacement_partition_receipts,
         prior_policy_bundle_artifact=checkpoint.identity_policy_bundle_artifact,
         target_policy_bundle_artifact=target_policy_bundle_artifact,
+        alias_state_ledger_artifact=alias_state_ledger_artifact,
         registry_ledger_artifact=registry_ledger_artifact,
+        late_source_ledger_artifact=late_source_ledger_artifact,
         added_row_version_receipts=row_receipts,
     )
     gate_scope = correction_scope_digest(
@@ -1723,7 +2164,16 @@ def mint_production_i4_correction_capability(
         added_row_version_receipts=row_receipts,
         superseded_row_version_ids=superseded,
         registry_changes=validated_changes,
-        registry_ledger_release_id=registry_ledger.ledger_release_id,
+        correction_cause=impact.cause,
+        registry_ledger_release_id=(
+            registry_ledger.ledger_release_id if registry_ledger is not None else None
+        ),
+        late_source_ledger_release_id=None,
+        alias_state_ledger_release_id=alias_ledger.ledger_release_id,
+        unaffected_partition_receipts_digest=_unaffected_partition_receipts_digest(
+            checkpoint,
+            replacement_sessions,
+        ),
         authorization_id=authorization.authorization.authorization_id,
         approval_attestation=attestation,
         source_binding_digest=source_binding,
@@ -1923,6 +2373,22 @@ class _DecodedPartition:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class _LateSourceSessionChange:
+    session_date: date
+    parent_snapshot: I4LateSourceSnapshot
+    corrected_snapshot: I4LateSourceSnapshot
+
+
+@dataclass(frozen=True, slots=True)
+class _ProductionImpact:
+    cause: I4ProductionCorrectionCause
+    group: ExactIdentityGroup
+    affected_sessions: tuple[date, ...]
+    registry_source_scope: tuple[RegistrySourceScopeRow, ...] = ()
+    late_source_changes: tuple[_LateSourceSessionChange, ...] = ()
+
+
 class _ExactReadCache:
     """One-call exact reader that rejects path aliasing across different pins."""
 
@@ -1958,6 +2424,8 @@ def _authenticate_production_parent(
     parent_run_receipt: RunReceipt,
     checkpoint: I3CheckpointState,
     parent_checkpoint_artifact: ArtifactPin,
+    parent_correction_authorization: PinnedCorrectionAuthorization | None,
+    parent_correction_approval_attestation: I4ApprovalEventAttestation | None,
     artifact_reader: ExactArtifactReader,
     cache: _ExactReadCache,
 ) -> None:
@@ -1965,8 +2433,25 @@ def _authenticate_production_parent(
         parent_manifest_pin, ManifestPin
     ):
         raise I4CorrectionError("production correction parent manifest is invalid")
-    if parent_manifest.release_type not in {ReleaseType.BASE, ReleaseType.DELTA}:
-        raise I4CorrectionError("production I4 parent must be a clean base or delta release")
+    if parent_manifest.release_type not in {
+        ReleaseType.BASE,
+        ReleaseType.DELTA,
+        ReleaseType.CORRECTION,
+    }:
+        raise I4CorrectionError("production I4 parent release type is invalid")
+    is_correction_parent = parent_manifest.release_type is ReleaseType.CORRECTION
+    if is_correction_parent != (
+        parent_correction_authorization is not None
+        and parent_correction_approval_attestation is not None
+    ):
+        raise I4CorrectionError(
+            "correction parent requires its exact authorization and approval attestation"
+        )
+    if not is_correction_parent and (
+        parent_correction_authorization is not None
+        or parent_correction_approval_attestation is not None
+    ):
+        raise I4CorrectionError("clean parent cannot carry correction-parent approval evidence")
     manifest_pin = ArtifactPin(
         path=parent_manifest_pin.manifest_path,
         sha256=parent_manifest_pin.manifest_sha256,
@@ -1995,6 +2480,53 @@ def _authenticate_production_parent(
         added_row_version_receipts=parent_manifest.added_row_version_receipts,
         superseded_row_version_ids=parent_manifest.superseded_row_version_ids,
     )
+    if is_correction_parent:
+        assert parent_correction_authorization is not None
+        assert parent_correction_approval_attestation is not None
+        if parent_manifest.parent_release_pin is None:  # constructor proves; defensive
+            raise I4CorrectionError("correction parent lost its exact predecessor pin")
+        parent_authorization_artifact = ArtifactPin(
+            path=parent_correction_authorization.artifact.path,
+            sha256=parent_correction_authorization.artifact.sha256,
+            bytes=parent_correction_authorization.artifact.bytes,
+        )
+        authorization_bytes = cache.read(parent_authorization_artifact, artifact_reader)
+        if authorization_bytes != _canonical_json_bytes(
+            parent_correction_authorization.authorization.to_dict()
+        ):
+            raise I4CorrectionError("correction-parent authorization bytes do not reproduce")
+        if parent_manifest.correction_authorization_id != (
+            parent_correction_authorization.authorization.authorization_id
+        ):
+            raise I4CorrectionError("correction parent manifest binds another authorization")
+        parent_gate_scope = correction_scope_digest(
+            parent_release_id=parent_manifest.parent_release_pin.release_id,
+            change_set_digest=parent_change_set,
+        )
+        try:
+            validate_correction_authorization(
+                parent_correction_authorization,
+                parent_release_id=parent_manifest.parent_release_pin.release_id,
+                change_set_digest=parent_change_set,
+                source_binding_digest=parent_manifest.source_binding_digest,
+                schema_digest=parent_manifest.schema_digest,
+                transform_semantics_digest=parent_manifest.transform_semantics_digest,
+                calendar_digest=parent_manifest.calendar_digest,
+                identity_policy_before_id=(
+                    parent_correction_authorization.authorization.identity_policy_before_id
+                ),
+                identity_policy_after_id=parent_manifest.identity_policy_bundle_id,
+                scope_digest=parent_gate_scope,
+                availability_cutoff_session=parent_manifest.availability_cutoff_session,
+            )
+            parent_correction_approval_attestation.validate(
+                parent_correction_authorization,
+                availability_cutoff_session=parent_manifest.availability_cutoff_session,
+            )
+        except (IncrementalGateError, ValueError) as exc:
+            raise I4CorrectionError(
+                "correction parent approval evidence does not reproduce"
+            ) from exc
     qa_receipt = parent_run_receipt.qa_receipt
     if (
         parent_run_receipt.actual_input_set_digest != parent_manifest.source_binding_digest
@@ -2109,6 +2641,7 @@ def _authenticate_production_policies(
     target_policy_snapshot: IdentityPolicySnapshot,
     target_policy_bundle_artifact: ArtifactPin,
     availability_cutoff_session: date,
+    require_distinct_target: bool,
     artifact_reader: ExactArtifactReader,
     cache: _ExactReadCache,
 ) -> tuple[IdentityPolicySnapshot, IdentityPolicySnapshot]:
@@ -2126,10 +2659,12 @@ def _authenticate_production_policies(
         raise I4CorrectionError("production I4 requires production-loaded policy snapshots")
     if prior.policy_bundle != checkpoint.identity_policy_bundle:
         raise I4CorrectionError("prior production policy differs from the parent checkpoint")
-    if prior.policy_bundle.identity_policy_bundle_id == (
+    if require_distinct_target and prior.policy_bundle.identity_policy_bundle_id == (
         target.policy_bundle.identity_policy_bundle_id
     ):
         raise I4CorrectionError("registry correction requires a distinct target policy")
+    if not require_distinct_target and prior.to_dict() != target.to_dict():
+        raise I4CorrectionError("late-source-only correction cannot change identity policy")
     prior_content = cache.read(checkpoint.identity_policy_bundle_artifact, artifact_reader)
     if prior_content != prior.policy_bundle.canonical_bytes():
         raise I4CorrectionError("prior policy bundle exact bytes differ")
@@ -2152,12 +2687,16 @@ def _validate_parent_manifest_partition_receipts(
     parent_manifest: IncrementalReleaseManifest,
     parent_partitions: tuple[_DecodedPartition, ...],
 ) -> None:
-    """Reproduce every parent-release partition receipt from physical bytes."""
+    """Reproduce parent-manifest receipts only for the bounded read window."""
 
     decoded_by_session = {item.session_date: item.image.receipt for item in parent_partitions}
-    for receipt in parent_manifest.added_partition_receipts:
+    manifest_receipts = parent_manifest.added_partition_receipts + tuple(
+        item.replacement_receipt for item in parent_manifest.partition_replacements
+    )
+    for receipt in manifest_receipts:
         session = date.fromisoformat(receipt.partition_key)
-        if decoded_by_session.get(session) != receipt:
+        decoded = decoded_by_session.get(session)
+        if decoded is not None and decoded != receipt:
             raise I4CorrectionError(
                 "parent manifest partition receipt differs from actual native-v2 bytes"
             )
@@ -2166,11 +2705,18 @@ def _validate_parent_manifest_partition_receipts(
 def _read_parent_partitions_exact(
     checkpoint: I3CheckpointState,
     *,
+    sessions: tuple[date, ...],
     artifact_reader: ExactArtifactReader,
     cache: _ExactReadCache,
 ) -> tuple[_DecodedPartition, ...]:
+    if sessions != tuple(sorted(set(sessions))) or not sessions:
+        raise I4CorrectionError("bounded parent partition sessions must be sorted and unique")
+    frontier_by_session = {item.session_date: item for item in checkpoint.resolved_partition_map}
     decoded: list[_DecodedPartition] = []
-    for frontier in checkpoint.resolved_partition_map:
+    for session in sessions:
+        frontier = frontier_by_session.get(session)
+        if frontier is None:
+            raise I4CorrectionError("bounded correction session is absent from parent checkpoint")
         content = cache.read(frontier.artifact, artifact_reader)
         decoded.append(
             _decode_native_v2_partition(
@@ -2214,6 +2760,181 @@ def _read_replacement_partitions_exact(
             )
         )
     return tuple(result)
+
+
+def _derive_registry_impact(
+    changes: tuple[RegistryChange, ...],
+) -> _ProductionImpact:
+    if not changes:
+        raise I4CorrectionError("production registry correction has no authenticated change")
+    groups = {change.group() for change in changes}
+    if len(groups) != 1:
+        raise I4CorrectionError("registry ledger changes crossed exact provider/ticker groups")
+    source_scope = _expected_registry_source_scope(changes)
+    sessions = tuple(sorted({item.session_date for item in source_scope}))
+    if not sessions:
+        raise I4CorrectionError("registry decisions have no authenticated source-scope sessions")
+    return _ProductionImpact(
+        cause=I4ProductionCorrectionCause.REGISTRY_CHANGE,
+        group=next(iter(groups)),
+        affected_sessions=sessions,
+        registry_source_scope=source_scope,
+    )
+
+
+def _read_alias_state_ledger_exact(
+    *,
+    ledger: I4AliasStateLedgerRelease,
+    artifact: ArtifactPin,
+    availability_cutoff_session: date,
+    artifact_reader: ExactArtifactReader,
+    cache: _ExactReadCache,
+) -> I4AliasStateLedgerRelease:
+    if not isinstance(ledger, I4AliasStateLedgerRelease) or not isinstance(artifact, ArtifactPin):
+        raise I4CorrectionError("alias-state ledger exact inputs are invalid")
+    content = cache.read(artifact, artifact_reader)
+    if content != ledger.canonical_bytes():
+        raise I4CorrectionError("alias-state ledger stored bytes do not reproduce")
+    if ledger.release_available_session > availability_cutoff_session:
+        raise I4CorrectionError("alias-state ledger was unavailable at correction cutoff")
+    return ledger
+
+
+def _read_late_source_change_exact(
+    *,
+    ledger: I4LateSourceChangeLedgerRelease,
+    artifact: ArtifactPin,
+    availability_cutoff_session: date,
+    artifact_reader: ExactArtifactReader,
+    cache: _ExactReadCache,
+) -> tuple[I4LateSourceChangeLedgerRelease, _ProductionImpact]:
+    if not isinstance(ledger, I4LateSourceChangeLedgerRelease) or not isinstance(
+        artifact, ArtifactPin
+    ):
+        raise I4CorrectionError("late-source ledger exact inputs are invalid")
+    content = cache.read(artifact, artifact_reader)
+    if content != ledger.canonical_bytes():
+        raise I4CorrectionError("late-source ledger stored bytes do not reproduce")
+    if ledger.release_available_session > availability_cutoff_session:
+        raise I4CorrectionError("late-source ledger was unavailable at correction cutoff")
+
+    changes: list[_LateSourceSessionChange] = []
+    changed_groups: set[tuple[str, str, str, str]] = set()
+    for entry in ledger.entries:
+        if entry.change_available_session > availability_cutoff_session:
+            raise I4CorrectionError("late-source change was unavailable at correction cutoff")
+        snapshots: list[I4LateSourceSnapshot] = []
+        for pin in (entry.parent_snapshot_artifact, entry.corrected_snapshot_artifact):
+            snapshot_content = cache.read(pin, artifact_reader)
+            try:
+                parsed = I4LateSourceSnapshot.from_dict(
+                    json.loads(snapshot_content.decode("utf-8"))
+                )
+            except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                raise I4CorrectionError("late-source snapshot bytes are invalid") from exc
+            if snapshot_content != parsed.canonical_bytes():
+                raise I4CorrectionError("late-source snapshot is not canonical exact bytes")
+            if parsed.session_date != entry.session_date:
+                raise I4CorrectionError("late-source snapshot crossed its ledger session")
+            if parsed.source_available_session > entry.change_available_session:
+                raise I4CorrectionError("late-source snapshot availability exceeds its change")
+            snapshots.append(parsed)
+        parent, corrected = snapshots
+        if parent.source_release_id == corrected.source_release_id:
+            raise I4CorrectionError("late-source change reused one source release ID")
+        parent_by_group = _source_rows_by_group(parent.rows)
+        corrected_by_group = _source_rows_by_group(corrected.rows)
+        entry_changed = {
+            key
+            for key in set(parent_by_group) | set(corrected_by_group)
+            if tuple(item.to_dict() for item in parent_by_group.get(key, ()))
+            != tuple(item.to_dict() for item in corrected_by_group.get(key, ()))
+        }
+        if not entry_changed:
+            raise I4CorrectionError("late-source ledger entry has no exact source diff")
+        changed_groups.update(entry_changed)
+        changes.append(
+            _LateSourceSessionChange(
+                session_date=entry.session_date,
+                parent_snapshot=parent,
+                corrected_snapshot=corrected,
+            )
+        )
+    if len(changed_groups) != 1:
+        raise I4CorrectionError("late-source evidence crossed exact provider/ticker groups")
+    provider_id, provider_market, provider_locale, ticker = next(iter(changed_groups))
+    group = ExactIdentityGroup(
+        provider_id=provider_id,
+        provider_market=provider_market,
+        provider_locale=provider_locale,
+        ticker=ticker,
+    )
+    sessions = tuple(item.session_date for item in changes)
+    return ledger, _ProductionImpact(
+        cause=I4ProductionCorrectionCause.LATE_SOURCE,
+        group=group,
+        affected_sessions=sessions,
+        late_source_changes=tuple(changes),
+    )
+
+
+def _source_rows_by_group(
+    rows: tuple[SourceIdentityKey, ...],
+) -> dict[tuple[str, str, str, str], tuple[SourceIdentityKey, ...]]:
+    grouped: dict[tuple[str, str, str, str], list[SourceIdentityKey]] = {}
+    for row in rows:
+        key = (row.provider_id, row.provider_market, row.provider_locale, row.ticker)
+        grouped.setdefault(key, []).append(row)
+    return {key: tuple(value) for key, value in grouped.items()}
+
+
+def _bounded_replacement_sessions(
+    *,
+    checkpoint: I3CheckpointState,
+    replacement_partition_receipts: tuple[PartitionReceipt, ...],
+    impact: _ProductionImpact,
+) -> tuple[date, ...]:
+    if (
+        type(replacement_partition_receipts) is not tuple
+        or not replacement_partition_receipts
+        or any(not isinstance(item, PartitionReceipt) for item in replacement_partition_receipts)
+    ):
+        raise I4CorrectionError("production correction requires replacement receipts")
+    sessions = tuple(
+        date.fromisoformat(item.partition_key) for item in replacement_partition_receipts
+    )
+    if sessions != tuple(sorted(set(sessions))):
+        raise I4CorrectionError("replacement receipts must be sorted and unique")
+    calendar = tuple(item.session_date for item in checkpoint.resolved_partition_map)
+    earliest = min(impact.affected_sessions)
+    try:
+        earliest_index = calendar.index(earliest)
+    except ValueError as exc:
+        raise I4CorrectionError("earliest affected session is absent from checkpoint") from exc
+    if sessions != calendar[earliest_index : earliest_index + len(sessions)]:
+        raise I4CorrectionError(
+            "replacement receipts must be contiguous from authenticated earliest session"
+        )
+    if not set(impact.affected_sessions).issubset(sessions):
+        raise I4CorrectionError("replacement receipts omit an authenticated affected session")
+    return sessions
+
+
+def _unaffected_partition_receipts_digest(
+    checkpoint: I3CheckpointState,
+    replaced_sessions: tuple[date, ...],
+) -> str:
+    replaced = set(replaced_sessions)
+    return stable_digest(
+        {
+            "parent_checkpoint_id": checkpoint.checkpoint_id,
+            "unchanged_partition_frontier": [
+                item.to_dict()
+                for item in checkpoint.resolved_partition_map
+                if item.session_date not in replaced
+            ],
+        }
+    )
 
 
 def _decode_native_v2_partition(
@@ -2463,18 +3184,17 @@ def _derive_production_scope(
     checkpoint: I3CheckpointState,
     parent_partitions: tuple[_DecodedPartition, ...],
     replacement_partitions: tuple[_DecodedPartition, ...],
+    impact: _ProductionImpact,
     registry_changes: tuple[RegistryChange, ...],
     prior_policy_snapshot: IdentityPolicySnapshot,
     target_policy_snapshot: IdentityPolicySnapshot,
+    alias_state_ledger: I4AliasStateLedgerRelease,
     authorization: PinnedCorrectionAuthorization,
     availability_cutoff_session: date,
 ) -> BoundedCorrectionScope:
-    if not registry_changes:
-        raise I4CorrectionError("production correction ledger contains no registry change")
-    groups = {change.group() for change in registry_changes}
-    if len(groups) != 1:
-        raise I4CorrectionError("registry ledger changes crossed exact provider/ticker groups")
-    group = next(iter(groups))
+    if not isinstance(impact, _ProductionImpact):
+        raise I4CorrectionError("production correction impact is invalid")
+    group = impact.group
     parent_rows = {
         row.row_key: row for partition in parent_partitions for row in partition.image.rows
     }
@@ -2483,44 +3203,76 @@ def _derive_production_scope(
         for partition in parent_partitions
         for row in partition.raw_rows
     }
-    expected_scope_rows = _expected_registry_source_scope(registry_changes)
-    expected_keys = {(item.session_date, item.source_record_id) for item in expected_scope_rows}
-    if len(expected_keys) != len(expected_scope_rows):
-        raise I4CorrectionError("registry ledger repeats an exact source-scope row")
-    missing = expected_keys - set(parent_rows)
-    if missing:
-        raise I4CorrectionError(
-            "authenticated parent partitions omitted a registry source-scope row"
-        )
-    for expected in expected_scope_rows:
-        observed = parent_rows[(expected.session_date, expected.source_record_id)].source
-        raw = parent_raw_rows[(expected.session_date, expected.source_record_id)]
-        if (
-            observed.provider_id != expected.provider_id
-            or observed.provider_market != expected.provider_market
-            or observed.provider_locale != expected.provider_locale
-            or observed.ticker != expected.ticker
-            or observed.observed_composite_figi != expected.observed_composite_figi
-            or observed.observed_share_class_figi != expected.observed_share_class_figi
-            or expected.source_dataset != "universe_source_daily"
-            or raw.get("source_s4_release_set_id") != expected.source_s4_release_set_id
-            or raw.get("primary_exchange_mic") != expected.primary_exchange_mic
-        ):
+    parent_by_session = {item.session_date: item for item in parent_partitions}
+    replacement_by_session = {item.session_date: item for item in replacement_partitions}
+    if impact.cause is I4ProductionCorrectionCause.REGISTRY_CHANGE:
+        expected_scope_rows = impact.registry_source_scope
+        expected_keys = {(item.session_date, item.source_record_id) for item in expected_scope_rows}
+        if len(expected_keys) != len(expected_scope_rows):
+            raise I4CorrectionError("registry ledger repeats an exact source-scope row")
+        missing = expected_keys - set(parent_rows)
+        if missing:
             raise I4CorrectionError(
-                "registry exact source scope differs from actual parent partition bytes"
+                "authenticated parent partitions omitted a registry source-scope row"
             )
-    direct_rows = tuple(
-        sorted(
-            (parent_rows[key].source for key in expected_keys),
-            key=lambda row: row.row_key,
+        for expected in expected_scope_rows:
+            observed = parent_rows[(expected.session_date, expected.source_record_id)].source
+            raw = parent_raw_rows[(expected.session_date, expected.source_record_id)]
+            if (
+                observed.provider_id != expected.provider_id
+                or observed.provider_market != expected.provider_market
+                or observed.provider_locale != expected.provider_locale
+                or observed.ticker != expected.ticker
+                or observed.observed_composite_figi != expected.observed_composite_figi
+                or observed.observed_share_class_figi != expected.observed_share_class_figi
+                or expected.source_dataset != "universe_source_daily"
+                or raw.get("source_s4_release_set_id") != expected.source_s4_release_set_id
+                or raw.get("primary_exchange_mic") != expected.primary_exchange_mic
+            ):
+                raise I4CorrectionError(
+                    "registry exact source scope differs from actual parent partition bytes"
+                )
+        direct_rows = tuple(
+            sorted(
+                (parent_rows[key].source for key in expected_keys),
+                key=lambda row: row.row_key,
+            )
         )
-    )
+    else:
+        direct: list[SourceIdentityKey] = []
+        for change in impact.late_source_changes:
+            parent = parent_by_session.get(change.session_date)
+            corrected = replacement_by_session.get(change.session_date)
+            if parent is None or corrected is None:
+                raise I4CorrectionError("late-source affected session is absent from bounded bytes")
+            parent_snapshot_rows = tuple(
+                row for row in change.parent_snapshot.rows if group.matches(row)
+            )
+            corrected_snapshot_rows = tuple(
+                row for row in change.corrected_snapshot.rows if group.matches(row)
+            )
+            parent_partition_rows = tuple(
+                row.source for row in parent.image.rows if group.matches(row.source)
+            )
+            corrected_partition_rows = tuple(
+                row.source for row in corrected.image.rows if group.matches(row.source)
+            )
+            if parent_snapshot_rows != parent_partition_rows or (
+                corrected_snapshot_rows != corrected_partition_rows
+            ):
+                raise I4CorrectionError(
+                    "late-source exact snapshots differ from old/new partition lineage"
+                )
+            if len(corrected_snapshot_rows) != 1:
+                raise I4CorrectionError(
+                    "bounded late-source correction requires one corrected selected source row"
+                )
+            direct.extend(corrected_snapshot_rows)
+        direct_rows = tuple(sorted(direct, key=lambda row: row.row_key))
     if any(not group.matches(row) for row in direct_rows):
         raise I4CorrectionError("derived directly affected rows crossed exact group")
     earliest = min(row.session_date for row in direct_rows)
     calendar = tuple(item.session_date for item in checkpoint.resolved_partition_map)
-    parent_by_session = {item.session_date: item for item in parent_partitions}
-    replacement_by_session = {item.session_date: item for item in replacement_partitions}
     replacement_sessions = tuple(replacement_by_session)
     try:
         earliest_index = calendar.index(earliest)
@@ -2537,21 +3289,26 @@ def _derive_production_scope(
             session_date=session,
             source_rows=tuple(
                 row.source
-                for row in parent_by_session[session].image.rows
+                for row in (
+                    replacement_by_session[session].image.rows
+                    if impact.cause is I4ProductionCorrectionCause.LATE_SOURCE
+                    else parent_by_session[session].image.rows
+                )
                 if group.matches(row.source)
             ),
         )
         for session in replacement_sessions
     )
     proofs = _derive_alias_boundary_proofs(
+        checkpoint=checkpoint,
         group=group,
         earliest_index=earliest_index,
         calendar=calendar,
         slots=slots,
         parent_by_session=parent_by_session,
         replacement_by_session=replacement_by_session,
-        prior_policy_snapshot=prior_policy_snapshot,
-        target_policy_snapshot=target_policy_snapshot,
+        registry_changes=registry_changes,
+        alias_state_ledger=alias_state_ledger,
     )
     boundary, selected_slots = select_first_stable_alias_boundary(
         group=group,
@@ -2609,22 +3366,60 @@ def _expected_registry_source_scope(
 
 def _derive_alias_boundary_proofs(
     *,
+    checkpoint: I3CheckpointState,
     group: ExactIdentityGroup,
     earliest_index: int,
     calendar: tuple[date, ...],
     slots: tuple[ExactGroupSessionSlot, ...],
     parent_by_session: Mapping[date, _DecodedPartition],
     replacement_by_session: Mapping[date, _DecodedPartition],
-    prior_policy_snapshot: IdentityPolicySnapshot,
-    target_policy_snapshot: IdentityPolicySnapshot,
+    registry_changes: tuple[RegistryChange, ...],
+    alias_state_ledger: I4AliasStateLedgerRelease,
 ) -> tuple[AliasBoundaryProof, ...]:
+    entries = {item.session_date: item for item in alias_state_ledger.entries}
+    slot_sessions = tuple(item.session_date for item in slots)
+    history_complete = tuple(entries) == slot_sessions and all(
+        item.group == group for item in alias_state_ledger.entries
+    )
+    if not history_complete:
+        raise I4CorrectionError(
+            "alias-state ledger must cover every and only bounded replacement session"
+        )
+    if slot_sessions[-1] == checkpoint.last_session:
+        checkpoint_states = tuple(
+            item
+            for item in checkpoint.open_aliases
+            if (
+                item.segment.provider_id == group.provider_id
+                and item.segment.provider_market == group.provider_market
+                and item.segment.provider_locale == group.provider_locale
+                and item.segment.ticker == group.ticker
+            )
+        )
+        if len(checkpoint_states) != 1 or (
+            entries[slot_sessions[-1]].parent_open_alias != checkpoint_states[0]
+        ):
+            raise I4CorrectionError(
+                "terminal parent alias-state evidence differs from exact checkpoint frontier"
+            )
     proofs: list[AliasBoundaryProof] = []
     for offset, slot in enumerate(slots):
         calendar_index = earliest_index + offset
         session = slot.session_date
-        parent_state = _group_session_projection_digest(parent_by_session[session], group)
-        corrected_state = _group_session_projection_digest(replacement_by_session[session], group)
-        lookback_sessions = calendar[max(0, calendar_index - 2) : calendar_index + 1]
+        entry = entries[session]
+        _bind_alias_state_to_partition(
+            entry.parent_open_alias,
+            parent_by_session[session],
+            group,
+            label="parent",
+        )
+        _bind_alias_state_to_partition(
+            entry.corrected_open_alias,
+            replacement_by_session[session],
+            group,
+            label="corrected",
+        )
+        lookback_sessions = calendar[max(earliest_index, calendar_index - 2) : calendar_index + 1]
         parent_lookback = stable_digest(
             {
                 "group": group.to_dict(),
@@ -2650,31 +3445,60 @@ def _derive_alias_boundary_proofs(
         parent_future = _future_policy_effect_digest(
             group,
             future_sessions,
-            parent_by_session,
-            prior_policy_snapshot,
+            registry_changes,
+            corrected=False,
         )
         corrected_future = _future_policy_effect_digest(
             group,
             future_sessions,
-            parent_by_session,
-            target_policy_snapshot,
+            registry_changes,
+            corrected=True,
+        )
+        state_equal = _alias_state_digest(entry.parent_open_alias) == _alias_state_digest(
+            entry.corrected_open_alias
+        )
+        effect_exhausted = (
+            state_equal
+            and parent_lookback == corrected_lookback
+            and parent_future == corrected_future
         )
         proofs.append(
             AliasBoundaryProof(
                 group=group,
                 session_date=session,
                 source_slot_digest=slot.slot_digest,
-                parent_open_alias=None,
-                corrected_open_alias=None,
+                parent_open_alias=entry.parent_open_alias,
+                corrected_open_alias=entry.corrected_open_alias,
                 parent_fixed_lookback_digest=parent_lookback,
                 corrected_fixed_lookback_digest=corrected_lookback,
                 parent_future_registry_effect_digest=parent_future,
                 corrected_future_registry_effect_digest=corrected_future,
-                exact_group_history_complete=True,
-                correction_effect_exhausted=(parent_state == corrected_state),
+                exact_group_history_complete=history_complete,
+                correction_effect_exhausted=effect_exhausted,
             )
         )
     return tuple(proofs)
+
+
+def _bind_alias_state_to_partition(
+    state: OpenAliasState,
+    partition: _DecodedPartition,
+    group: ExactIdentityGroup,
+    *,
+    label: str,
+) -> None:
+    projections = tuple(item for item in partition.image.rows if group.matches(item.source))
+    if not projections:
+        raise I4CorrectionError(f"{label} alias-state evidence has no exact-group partition row")
+    expected = (
+        state.segment.alias_segment_id,
+        state.resolution.alias_resolution_version_id,
+    )
+    observed = {(item.alias_segment_id, item.alias_resolution_version_id) for item in projections}
+    if observed != {expected}:
+        raise I4CorrectionError(
+            f"{label} alias-state evidence differs from partition row-version IDs"
+        )
 
 
 def _group_session_projection_payload(
@@ -2708,23 +3532,24 @@ def _group_session_projection_digest(
 def _future_policy_effect_digest(
     group: ExactIdentityGroup,
     sessions: tuple[date, ...],
-    partitions: Mapping[date, _DecodedPartition],
-    policy: IdentityPolicySnapshot,
+    changes: tuple[RegistryChange, ...],
+    *,
+    corrected: bool,
 ) -> str:
     effects = []
-    for session in sessions:
-        for projection in partitions[session].image.rows:
-            if not group.matches(projection.source):
-                continue
-            observation = _i3_observation_from_source(projection.source)
-            effects.append(
-                {
-                    "decisions": [
-                        item.to_dict() for item in policy.matching_decisions(observation)
-                    ],
-                    "source": projection.source.to_dict(),
-                }
-            )
+    future = set(sessions)
+    for change in changes:
+        decision = change.successor if corrected else change.predecessor
+        if decision is None:
+            continue
+        for row in decision.source_scope:
+            if row.session_date in future:
+                effects.append(
+                    {
+                        "decision": decision.to_dict(),
+                        "source_scope_row": row.to_dict(),
+                    }
+                )
     return stable_digest(
         {
             "effects": effects,
@@ -2739,6 +3564,7 @@ def _validate_exact_unaffected_projection(
     scope: BoundedCorrectionScope,
     parent_partitions: tuple[_DecodedPartition, ...],
     replacement_partitions: tuple[_DecodedPartition, ...],
+    allow_scoped_source_change: bool = False,
 ) -> None:
     parent_by_session = {item.session_date: item for item in parent_partitions}
     for replacement in replacement_partitions:
@@ -2747,7 +3573,17 @@ def _validate_exact_unaffected_projection(
             raise I4CorrectionError("replacement session is absent from authenticated parent")
         old_by_key = {item.row_key: item for item in parent.image.rows}
         new_by_key = {item.row_key: item for item in replacement.image.rows}
-        if set(old_by_key) != set(new_by_key):
+        old_unaffected = {
+            key: item for key, item in old_by_key.items() if not scope.group.matches(item.source)
+        }
+        new_unaffected = {
+            key: item for key, item in new_by_key.items() if not scope.group.matches(item.source)
+        }
+        if old_unaffected != new_unaffected:
+            raise I4CorrectionError(
+                "replacement changed an exact unaffected canonical row projection"
+            )
+        if not allow_scoped_source_change and set(old_by_key) != set(new_by_key):
             raise I4CorrectionError("replacement changed exact source-row membership")
         for key, old in old_by_key.items():
             if scope.group.matches(old.source):
@@ -2838,6 +3674,7 @@ def _validate_partition_images(
     replacement_images: tuple[SessionPartitionImage, ...],
     registry_changes: tuple[RegistryChange, ...],
     target_policy_snapshot: IdentityPolicySnapshot,
+    late_source_changes: tuple[_LateSourceSessionChange, ...] = (),
 ) -> tuple[PartitionReplacement, ...]:
     for value, label in (
         (parent_images, "parent partition images"),
@@ -2864,6 +3701,7 @@ def _validate_partition_images(
         scope,
         registry_changes,
     )
+    late_by_session = {item.session_date: item for item in late_source_changes}
     for parent, replacement in zip(parent_images, replacement_images, strict=True):
         frontier = checkpoint_by_session.get(parent.session_date)
         if frontier is None:
@@ -2877,6 +3715,42 @@ def _validate_partition_images(
             raise I4CorrectionError("replacement partition predates correction authorization")
         parent_by_key = {row.row_key: row for row in parent.rows}
         replacement_by_key = {row.row_key: row for row in replacement.rows}
+        if parent.session_date in late_by_session:
+            old_group = tuple(row for row in parent.rows if scope.group.matches(row.source))
+            new_group = tuple(row for row in replacement.rows if scope.group.matches(row.source))
+            if len(old_group) != 1 or len(new_group) != 1:
+                raise I4CorrectionError(
+                    "bounded late-source replacement requires one old/new exact-group row"
+                )
+            old, new = old_group[0], new_group[0]
+            if old.issuer_payload() != new.issuer_payload():
+                raise I4CorrectionError("late-source correction exceeded issuer authority")
+            if old.source.provider_locale != "us" or new.source.provider_locale != "us":
+                raise I4CorrectionError("late-source correction crossed into a foreign locale")
+            old_unaffected = {
+                key: row
+                for key, row in parent_by_key.items()
+                if not scope.group.matches(row.source)
+            }
+            new_unaffected = {
+                key: row
+                for key, row in replacement_by_key.items()
+                if not scope.group.matches(row.source)
+            }
+            if old_unaffected != new_unaffected:
+                raise I4CorrectionError(
+                    "late-source replacement changed an unrelated canonical projection"
+                )
+            try:
+                replacements.append(
+                    PartitionReplacement(
+                        replaced_receipt=parent.receipt,
+                        replacement_receipt=replacement.receipt,
+                    )
+                )
+            except ValueError as exc:
+                raise I4CorrectionError("whole-session partition replacement is invalid") from exc
+            continue
         if set(parent_by_key) != set(replacement_by_key):
             raise I4CorrectionError("whole-session replacement changed source membership")
         for key, old in parent_by_key.items():
@@ -3041,6 +3915,553 @@ def _validate_direct_row_ledger_projection(
                 )
         elif new.canonical_share_class_figi != successor.canonical_share_class_figi:
             raise I4CorrectionError("replacement Share Class differs from registry successor")
+
+
+def _validate_production_alias_row_version(
+    *,
+    checkpoint: I3CheckpointState,
+    scope: BoundedCorrectionScope,
+    parent_partitions: tuple[_DecodedPartition, ...],
+    replacement_partitions: tuple[_DecodedPartition, ...],
+    alias_state_ledger: I4AliasStateLedgerRelease,
+    registry_changes: tuple[RegistryChange, ...],
+    target_policy_snapshot: IdentityPolicySnapshot,
+    receipts: tuple[RowVersionReceipt, ...],
+    superseded_ids: tuple[str, ...],
+    availability_cutoff_session: date,
+    authorization_available_session: date,
+    artifact_reader: ExactArtifactReader,
+    cache: _ExactReadCache,
+) -> tuple[tuple[RowVersionReceipt, ...], tuple[str, ...]]:
+    """Replay the one S7.5 reviewed alias correction from exact physical bytes.
+
+    This is deliberately narrower than the I3 production row dispatcher.  I4
+    accepts exactly one reviewed ``ticker_alias`` successor, rooted in the
+    authenticated parent terminal.  It does not grant NEW_ROOT, tombstone,
+    other-table, or multi-version-chain authority.
+    """
+
+    if type(receipts) is tuple and any(
+        isinstance(item, RowVersionReceipt) and item.operation is RowVersionOperation.NEW_ROOT
+        for item in receipts
+    ):
+        raise I4CorrectionError("I4 alias correction rejects NEW_ROOT")
+    checked, superseded = _validate_row_versions(
+        receipts,
+        superseded_ids,
+        availability_cutoff_session=availability_cutoff_session,
+        authorization_available_session=authorization_available_session,
+    )
+    changed_entries = tuple(
+        item
+        for item in alias_state_ledger.entries
+        if item.parent_open_alias != item.corrected_open_alias
+    )
+    if len(changed_entries) != 1:
+        raise I4CorrectionError(
+            "registry correction requires exactly one changed alias-state entry"
+        )
+    if len(checked) != 1:
+        raise I4CorrectionError("changed alias requires exactly one ticker_alias row receipt")
+    receipt = checked[0]
+    if receipt.table_name != "ticker_alias":
+        raise I4CorrectionError("I4 production correction permits only ticker_alias receipt")
+    if receipt.operation is not RowVersionOperation.REVIEWED_CORRECTION:
+        raise I4CorrectionError("I4 alias correction requires REVIEWED_CORRECTION")
+
+    entry = changed_entries[0]
+    parent_state = entry.parent_open_alias
+    corrected_state = entry.corrected_open_alias
+    if parent_state.segment != corrected_state.segment:
+        raise I4CorrectionError("reviewed alias correction rewrote immutable alias segment")
+    if corrected_state.resolution.is_tombstone:
+        raise I4CorrectionError("reviewed alias correction cannot mint a tombstone")
+    if corrected_state.resolution.predecessor_alias_resolution_version_id is None:
+        raise I4CorrectionError("reviewed alias correction lacks an exact predecessor")
+
+    parent_terminal = tuple(
+        item
+        for item in checkpoint.terminal_row_versions
+        if item.table_name == "ticker_alias"
+        and item.stable_row_key == corrected_state.segment.alias_segment_id
+    )
+    parent_frontier = tuple(
+        item
+        for item in checkpoint.open_aliases
+        if item.segment.alias_segment_id == corrected_state.segment.alias_segment_id
+    )
+    if len(parent_terminal) != 1 or len(parent_frontier) != 1:
+        raise I4CorrectionError("changed alias lacks one authenticated parent terminal/frontier")
+    terminal = parent_terminal[0]
+    frontier = parent_frontier[0]
+    if terminal.row_version_id != frontier.resolution.alias_resolution_version_id:
+        raise I4CorrectionError(
+            "authenticated parent alias terminal differs from its open frontier"
+        )
+    if (
+        receipt.stable_row_key != corrected_state.segment.alias_segment_id
+        or receipt.row_version_id != corrected_state.resolution.alias_resolution_version_id
+        or receipt.predecessor_row_version_id != terminal.row_version_id
+        or corrected_state.resolution.predecessor_alias_resolution_version_id
+        != terminal.row_version_id
+        or receipt.semantic_proof.predecessor_payload_digest != terminal.row_payload_digest
+    ):
+        raise I4CorrectionError(
+            "alias receipt predecessor differs from authenticated parent terminal"
+        )
+
+    replacement = next(
+        (item for item in replacement_partitions if item.session_date == entry.session_date),
+        None,
+    )
+    if replacement is None:
+        raise I4CorrectionError("changed alias session lacks a replacement partition")
+    matching = tuple(
+        (projection, raw)
+        for projection, raw in zip(
+            replacement.image.rows,
+            replacement.raw_rows,
+            strict=True,
+        )
+        if scope.group.matches(projection.source)
+    )
+    if len(matching) != 1:
+        raise I4CorrectionError("changed alias session lacks one exact replacement projection")
+    projection, replacement_raw = matching[0]
+    _validate_corrected_alias_projection(corrected_state, projection)
+    _validate_corrected_alias_evidence(
+        entry=entry,
+        state=corrected_state,
+        scope=scope,
+        parent_partitions=parent_partitions,
+        replacement_partitions=replacement_partitions,
+        registry_changes=registry_changes,
+        target_policy_snapshot=target_policy_snapshot,
+    )
+
+    proof_body = {
+        "artifact_type": _ROW_SEMANTIC_PROOF_ARTIFACT_TYPE,
+        "operation": receipt.operation.value,
+        "predecessor_payload_digest": receipt.semantic_proof.predecessor_payload_digest,
+        "predecessor_row_version_id": receipt.predecessor_row_version_id,
+        "row_payload_digest": receipt.row_payload_digest,
+        "row_version_id": receipt.row_version_id,
+        "rule_version": _ROW_SEMANTIC_PROOF_RULE_VERSION,
+        "stable_row_key": receipt.stable_row_key,
+        "table_name": receipt.table_name,
+        "validator_semantics_digest": receipt.semantic_proof.validator_semantics_digest,
+    }
+    expected_proof = {"proof_id": stable_digest(proof_body), **proof_body}
+    if cache.read(receipt.semantic_proof.artifact, artifact_reader) != _canonical_json_bytes(
+        expected_proof
+    ):
+        raise I4CorrectionError("alias row semantic-proof bytes do not reproduce")
+    expected_validator = stable_digest(
+        {
+            "operation": RowVersionOperation.REVIEWED_CORRECTION.value,
+            "rule_version": I4_TICKER_ALIAS_CORRECTION_VALIDATOR_RULE_VERSION,
+            "schema_digest": I3_V2_CONTRACTS["ticker_alias"].schema_digest,
+            "table_name": "ticker_alias",
+        }
+    )
+    if receipt.semantic_proof.validator_semantics_digest != expected_validator:
+        raise I4CorrectionError("alias proof names an unrecognized validator semantics")
+
+    content = cache.read(receipt.index_artifact, artifact_reader)
+    try:
+        parquet = pq.ParquetFile(pa.BufferReader(content))
+        table = parquet.read()
+    except (OSError, pa.ArrowException) as exc:
+        raise I4CorrectionError("alias receipt artifact is not readable Parquet") from exc
+    if not table.schema.equals(I3_V2_CONTRACTS["ticker_alias"].arrow_schema):
+        raise I4CorrectionError("alias receipt Parquet schema differs from native-v2")
+    row_index = _canonical_row_locator_index(receipt.row_locator)
+    if table.num_rows != 1 or row_index != 0:
+        raise I4CorrectionError("single-receipt alias artifact must contain exactly row_index=0")
+    row = table.slice(row_index, 1).to_pylist()[0]
+    if (
+        str(row.get("alias_segment_id")) != receipt.stable_row_key
+        or row.get("alias_resolution_version_id") != receipt.row_version_id
+        or row.get("predecessor_alias_resolution_version_id") != receipt.predecessor_row_version_id
+        or row.get("alias_version_available_session") != receipt.availability_session
+        or stable_digest(_jsonable(row)) != receipt.row_payload_digest
+    ):
+        raise I4CorrectionError("alias receipt differs from its exact physical Parquet row")
+    _validate_alias_physical_row(
+        row,
+        state=corrected_state,
+        projection=projection,
+        replacement_raw=replacement_raw,
+        receipt=receipt,
+    )
+
+    parent_refs = {
+        (reference.table_name, reference.row_version_id)
+        for partition in parent_partitions
+        for reference in partition.image.receipt.row_version_references
+    }
+    replacement_refs = {
+        (reference.table_name, reference.row_version_id)
+        for partition in replacement_partitions
+        for reference in partition.image.receipt.row_version_references
+    }
+    receipt_refs = {(item.table_name, item.row_version_id) for item in checked}
+    if replacement_refs - parent_refs != receipt_refs:
+        raise I4CorrectionError("replacement new row-version references differ from exact receipts")
+    return checked, superseded
+
+
+def _validate_corrected_alias_projection(
+    state: OpenAliasState,
+    projection: CanonicalIdentityProjection,
+) -> None:
+    resolution = state.resolution
+    segment = state.segment
+    legacy_method = {
+        "direct_observed": "source_composite_figi_exact",
+        "approved_genuine_transition": "approved_identity_adjudication",
+        "approved_provider_contamination_override": "approved_identity_adjudication",
+        "approved_cross_market_provider_contamination_override": (
+            "approved_cross_market_adjudication"
+        ),
+        "approved_provider_composite_override": "approved_provider_composite_override",
+    }.get(resolution.resolution_method.value)
+    legacy_status = {
+        "resolved": "resolved_strong",
+        "unresolved": "unresolved",
+        "tombstoned": "tombstoned",
+    }[resolution.resolution_status.value]
+    expected = (
+        (projection.source.provider_id, segment.provider_id, "provider ID"),
+        (projection.source.provider_market, segment.provider_market, "provider market"),
+        (projection.source.provider_locale, segment.provider_locale, "provider locale"),
+        (projection.source.ticker, segment.ticker, "ticker"),
+        (
+            projection.source.observed_composite_figi,
+            segment.observed_composite_figi,
+            "observed Composite",
+        ),
+        (
+            projection.source.observed_share_class_figi,
+            segment.observed_share_class_figi,
+            "observed Share Class",
+        ),
+        (projection.canonical_asset_id, resolution.canonical_asset_id, "canonical asset"),
+        (
+            projection.canonical_composite_figi,
+            resolution.canonical_composite_figi,
+            "canonical Composite",
+        ),
+        (
+            projection.canonical_share_class_id,
+            resolution.canonical_share_class_id,
+            "canonical Share Class ID",
+        ),
+        (
+            projection.canonical_share_class_figi,
+            resolution.canonical_share_class_figi,
+            "canonical Share Class",
+        ),
+        (
+            projection.canonical_issuer_id,
+            resolution.canonical_issuer_id,
+            "canonical issuer",
+        ),
+        (
+            projection.canonical_cik_normalized,
+            resolution.canonical_cik_normalized,
+            "canonical CIK",
+        ),
+        (projection.resolution_method, legacy_method, "resolution method"),
+        (projection.resolution_status, legacy_status, "resolution status"),
+        (projection.disposition, resolution.disposition.value, "disposition"),
+        (
+            projection.share_class_resolution_method,
+            resolution.share_class_resolution_method.value,
+            "Share Class method",
+        ),
+        (
+            projection.decision_lineage_ids,
+            resolution.decision_lineage_ids,
+            "decision lineage",
+        ),
+        (
+            projection.share_class_decision_lineage_ids,
+            resolution.share_class_decision_lineage_ids,
+            "Share Class lineage",
+        ),
+        (projection.alias_segment_id, segment.alias_segment_id, "alias segment ID"),
+        (
+            projection.alias_resolution_version_id,
+            resolution.alias_resolution_version_id,
+            "alias resolution version ID",
+        ),
+    )
+    if legacy_method is None:
+        raise I4CorrectionError("corrected alias uses an unsupported production method")
+    for observed, required, label in expected:
+        if observed != required:
+            raise I4CorrectionError(f"corrected OpenAliasState differs from replacement {label}")
+    if projection.backtest_identity_eligible is not (
+        resolution.resolution_status.value == "resolved" and not resolution.is_tombstone
+    ):
+        raise I4CorrectionError("corrected OpenAliasState differs from replacement eligibility")
+
+
+def _validate_corrected_alias_evidence(
+    *,
+    entry: I4AliasStateLedgerEntry,
+    state: OpenAliasState,
+    scope: BoundedCorrectionScope,
+    parent_partitions: tuple[_DecodedPartition, ...],
+    replacement_partitions: tuple[_DecodedPartition, ...],
+    registry_changes: tuple[RegistryChange, ...],
+    target_policy_snapshot: IdentityPolicySnapshot,
+) -> None:
+    """Resolve non-projection alias facts from already authenticated inputs.
+
+    The alias-state ledger is only a locator.  Policy identity/cutoffs come
+    from the sealed target snapshot, while source-set and the old evidence
+    timeline come from authenticated bounded parent rows plus the decision
+    scope.  Replacement policy/evidence fields are outputs to verify, never
+    facts to trust.
+    """
+
+    if not isinstance(target_policy_snapshot, IdentityPolicySnapshot):
+        raise I4CorrectionError("alias evidence resolver lacks authenticated target policy")
+    expected_scope = _expected_registry_source_scope(registry_changes)
+    direct_keys = tuple(item.row_key for item in scope.direct_source_rows)
+    expected_keys = tuple((item.session_date, item.source_record_id) for item in expected_scope)
+    if direct_keys != expected_keys:
+        raise I4CorrectionError(
+            "alias evidence resolver differs from authenticated decision source scope"
+        )
+    parent_by_session = {item.session_date: item for item in parent_partitions}
+    replacement_by_session = {item.session_date: item for item in replacement_partitions}
+    selected_parent_raw: list[Mapping[str, object]] = []
+    selected_replacement_raw: list[Mapping[str, object]] = []
+    for source in scope.direct_source_rows:
+        parent_partition = parent_by_session.get(source.session_date)
+        partition = replacement_by_session.get(source.session_date)
+        parent_raw = (
+            None if parent_partition is None else parent_partition.raw_by_key.get(source.row_key)
+        )
+        replacement_raw = None if partition is None else partition.raw_by_key.get(source.row_key)
+        if parent_raw is None or replacement_raw is None:
+            raise I4CorrectionError("alias evidence resolver lacks an exact bounded source record")
+        if (
+            parent_raw.get("selected_source_record_id") != source.source_record_id
+            or replacement_raw.get("selected_source_record_id") != source.source_record_id
+            or parent_raw.get("ticker") != scope.group.ticker
+            or replacement_raw.get("ticker") != scope.group.ticker
+        ):
+            raise I4CorrectionError(
+                "alias evidence resolver source differs from authenticated scope"
+            )
+        selected_parent_raw.append(parent_raw)
+        selected_replacement_raw.append(replacement_raw)
+    source_record_ids = tuple(
+        sorted({str(item["selected_source_record_id"]) for item in selected_parent_raw})
+    )
+    if len(source_record_ids) != len(selected_parent_raw):
+        raise I4CorrectionError("alias evidence resolver repeated a bounded source record")
+    expected_source_digest = stable_digest(
+        {
+            "source_record_ids": list(source_record_ids),
+        }
+    )
+    parent_raw_evidence = tuple(
+        _session(
+            item.get("identity_evidence_available_session"),
+            "authenticated parent source evidence availability",
+        )
+        for item in selected_parent_raw
+    )
+    lineage_ids = (
+        state.resolution.decision_lineage_ids + state.resolution.share_class_decision_lineage_ids
+    )
+    target_by_id = {item.decision_id: item for item in target_policy_snapshot.decisions}
+    try:
+        lineage_decisions = tuple(target_by_id[item] for item in lineage_ids)
+    except KeyError as exc:
+        raise I4CorrectionError(
+            "corrected alias lineage is absent from authenticated target policy"
+        ) from exc
+    scoped_source_ids = set(source_record_ids)
+    if any(
+        not set(decision.source_record_ids).issubset(scoped_source_ids)
+        for decision in lineage_decisions
+    ):
+        raise I4CorrectionError(
+            "corrected alias lineage crossed authenticated decision source scope"
+        )
+    release_by_id = {
+        item.release_id: item for item in target_policy_snapshot.policy_bundle.registry_releases
+    }
+    release_by_kind = {
+        item.registry_kind: item for item in target_policy_snapshot.policy_bundle.registry_releases
+    }
+    target_release_ids = {decision.registry_release_id for decision in lineage_decisions} | {
+        change.successor.registry_release_id
+        for change in registry_changes
+        if change.successor is not None
+    }
+    try:
+        target_release_availability = tuple(
+            release_by_id[item].release_available_session for item in sorted(target_release_ids)
+        )
+        changed_registry_release_availability = tuple(
+            release_by_kind[change.predecessor.registry_kind].release_available_session
+            for change in registry_changes
+        )
+    except KeyError as exc:
+        raise I4CorrectionError(
+            "required registry release is absent from authenticated target bundle"
+        ) from exc
+    evidence_candidates = (
+        *parent_raw_evidence,
+        *(item.decision_available_session for item in lineage_decisions),
+        *(item.change_available_session for item in registry_changes),
+        *target_release_availability,
+        *changed_registry_release_availability,
+    )
+    if not evidence_candidates:  # pragma: no cover - registry correction proves rows
+        raise I4CorrectionError("alias evidence resolver has no exact evidence")
+    expected_evidence_available = max(evidence_candidates)
+    bundle = target_policy_snapshot.policy_bundle
+    expected_resolution_available = max(
+        bundle.bundle_available_session,
+        expected_evidence_available,
+    )
+    if expected_resolution_available > bundle.policy_cutoff_session:
+        raise I4CorrectionError(
+            "authenticated target policy cutoff cannot admit corrected alias evidence"
+        )
+    for raw in selected_replacement_raw:
+        if raw.get("identity_policy_bundle_id") != bundle.identity_policy_bundle_id:
+            raise I4CorrectionError(
+                "replacement identity policy bundle differs from authenticated target"
+            )
+        if raw.get("identity_evidence_available_session") != expected_evidence_available:
+            raise I4CorrectionError("replacement evidence availability was not module-derived")
+    resolution = state.resolution
+    expected = (
+        (
+            resolution.identity_policy_bundle_id,
+            bundle.identity_policy_bundle_id,
+            "policy bundle",
+        ),
+        (
+            resolution.identity_cutoff_session,
+            bundle.policy_cutoff_session,
+            "identity cutoff",
+        ),
+        (
+            resolution.evidence_cutoff_session,
+            bundle.policy_cutoff_session,
+            "evidence cutoff",
+        ),
+        (
+            resolution.resolution_available_session,
+            expected_resolution_available,
+            "resolution availability",
+        ),
+        (
+            resolution.evidence_available_session,
+            expected_evidence_available,
+            "evidence availability",
+        ),
+        (
+            resolution.source_record_set_digest,
+            expected_source_digest,
+            "source-record-set digest",
+        ),
+        (
+            resolution.valid_through_session,
+            entry.session_date,
+            "valid-through session",
+        ),
+    )
+    for observed, required, label in expected:
+        if observed != required:
+            raise I4CorrectionError(
+                f"corrected alias {label} was not derived from authenticated evidence"
+            )
+
+
+def _validate_alias_physical_row(
+    row: Mapping[str, object],
+    *,
+    state: OpenAliasState,
+    projection: CanonicalIdentityProjection,
+    replacement_raw: Mapping[str, object],
+    receipt: RowVersionReceipt,
+) -> None:
+    segment = state.segment
+    resolution = state.resolution
+    expected = {
+        "alias_is_tombstone": resolution.is_tombstone,
+        "alias_resolution_method": projection.resolution_method,
+        "alias_resolution_status": projection.resolution_status,
+        "alias_resolution_version_id": resolution.alias_resolution_version_id,
+        "alias_segment_id": segment.alias_segment_id,
+        "alias_tombstone_reason_code": resolution.tombstone_reason_code,
+        "alias_version_available_session": receipt.availability_session,
+        "asset_id": resolution.canonical_asset_id,
+        "backtest_identity_eligible": projection.backtest_identity_eligible,
+        "canonical_cik_normalized": resolution.canonical_cik_normalized,
+        "canonical_composite_figi": resolution.canonical_composite_figi,
+        "canonical_share_class_figi": resolution.canonical_share_class_figi,
+        "decision_lineage_ids": list(resolution.decision_lineage_ids),
+        "evidence_cutoff_session": resolution.evidence_cutoff_session,
+        "first_source_record_id": segment.segment_origin_source_record_id,
+        "identity_disposition": resolution.disposition.value,
+        "identity_policy_bundle_id": resolution.identity_policy_bundle_id,
+        "issuer_id": resolution.canonical_issuer_id,
+        "last_source_record_id": replacement_raw.get("selected_source_record_id"),
+        "observed_cik_normalized": segment.observed_cik_normalized,
+        "observed_composite_figi": segment.observed_composite_figi,
+        "observed_share_class_figi": segment.observed_share_class_figi,
+        "predecessor_alias_resolution_version_id": (
+            resolution.predecessor_alias_resolution_version_id
+        ),
+        "provider_id": segment.provider_id,
+        "provider_locale": segment.provider_locale,
+        "provider_market": segment.provider_market,
+        "resolution_available_session": resolution.resolution_available_session,
+        "segment_origin_source_record_id": segment.segment_origin_source_record_id,
+        "share_class_decision_lineage_ids": list(resolution.share_class_decision_lineage_ids),
+        "share_class_id": resolution.canonical_share_class_id,
+        "source_record_set_digest": resolution.source_record_set_digest,
+        "ticker": segment.ticker,
+        "valid_from_session": segment.valid_from_session,
+        "valid_through_session": resolution.valid_through_session,
+    }
+    for field, required in expected.items():
+        if row.get(field) != required:
+            raise I4CorrectionError(
+                f"physical ticker_alias row differs from OpenAliasState field {field}"
+            )
+
+
+def _canonical_row_locator_index(value: str) -> int:
+    prefix = "row_index="
+    if not value.startswith(prefix):
+        raise I4CorrectionError("alias row locator is not canonical")
+    raw = value[len(prefix) :]
+    if not raw.isdigit() or (raw != "0" and raw.startswith("0")):
+        raise I4CorrectionError("alias row locator is not canonical")
+    return int(raw)
+
+
+def _jsonable(value: object) -> object:
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, Mapping):
+        return {str(key): _jsonable(item) for key, item in sorted(value.items())}
+    if isinstance(value, (tuple, list)):
+        return [_jsonable(item) for item in value]
+    return value
 
 
 def _validate_row_versions(

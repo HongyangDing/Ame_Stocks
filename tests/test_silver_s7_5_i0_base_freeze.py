@@ -11,15 +11,10 @@ import pytest
 from ame_stocks_api.artifacts import stable_digest
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_PATH = (
-    ROOT / "docs/silver/contracts/control/s7_5_i0_base_freeze.schema-v1.json"
-)
+SCHEMA_PATH = ROOT / "docs/silver/contracts/control/s7_5_i0_base_freeze.schema-v1.json"
 FREEZE_ID = "da74c44f426310bcc6519c11751bc87352884c1be88caedb73d817bcf3a62f79"
 MANIFEST_PATH = (
-    ROOT
-    / "docs/silver/decisions/s7_5/i0"
-    / f"base_freeze_id={FREEZE_ID}"
-    / "manifest.json"
+    ROOT / "docs/silver/decisions/s7_5/i0" / f"base_freeze_id={FREEZE_ID}" / "manifest.json"
 )
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -62,9 +57,7 @@ def _all_data_file_pins(payload: dict[str, object]) -> list[dict[str, object]]:
         profile["manifest"],
     ]
     pins.extend(member["manifest"] for member in payload["members"])
-    pins.extend(
-        registry["manifest"] for registry in payload["registry_bundle"]["registry_pins"]
-    )
+    pins.extend(registry["manifest"] for registry in payload["registry_bundle"]["registry_pins"])
     assert all(isinstance(pin, dict) for pin in pins)
     return pins
 
@@ -175,9 +168,7 @@ def test_i0_freeze_pins_the_published_chain_and_semantic_oracles() -> None:
         }
         for row in registry_pins
     ]
-    assert stable_digest(source_projection) == payload["registry_bundle"][
-        "registry_pins_digest"
-    ]
+    assert stable_digest(source_projection) == payload["registry_bundle"]["registry_pins_digest"]
 
 
 def test_i0_repository_pins_fixtures_and_measurements_are_frozen() -> None:
@@ -242,8 +233,6 @@ def test_i0_remote_manifest_pins_and_cross_links_are_still_exact() -> None:
     assert qa["critical_failure_count"] == 0
     assert source["session_count"] == qa["session_count"] == 2513
     assert source["row_count"] == qa["source_membership_rows"] == 69_376_329
-    assert {
-        member["table_name"]: member["release_id"] for member in release["members"]
-    } == {
+    assert {member["table_name"]: member["release_id"] for member in release["members"]} == {
         member["table_name"]: member["release_id"] for member in payload["members"]
     }
