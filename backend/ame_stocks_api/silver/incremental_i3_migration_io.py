@@ -32,7 +32,7 @@ import shutil
 import sys
 import time
 import weakref
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path, PurePosixPath
@@ -107,6 +107,8 @@ from ame_stocks_api.silver.incremental_i3_production_contract import (
     LoadedI3ProductionStaging,
 )
 from ame_stocks_api.silver.incremental_i3_production_semantics import (
+    I3_COMPACT_BASE_AGGREGATE_SESSION_BATCH_CAP,
+    I3_COMPACT_BASE_BOUNDED_AGGREGATION_RULE_VERSION,
     I3_COMPACT_BASE_INITIAL_SEGMENT_RULE_VERSION,
     I3_COMPACT_BASE_INPUT_BINDING_RULE_VERSION,
     production_compact_base_initial_segment_id,
@@ -114,6 +116,9 @@ from ame_stocks_api.silver.incremental_i3_production_semantics import (
 
 COMPACT_BASE_SOURCE_RULE_VERSION: Final = "s7_5_i3_compact_base_source_v1"
 COMPACT_BASE_INPUT_BINDING_RULE_VERSION: Final = I3_COMPACT_BASE_INPUT_BINDING_RULE_VERSION
+COMPACT_BASE_BOUNDED_AGGREGATION_RULE_VERSION: Final = (
+    I3_COMPACT_BASE_BOUNDED_AGGREGATION_RULE_VERSION
+)
 COMPACT_BASE_PARTITION_RECEIPT_RULE_VERSION: Final = "s7_5_i3_compact_base_partition_receipt_v1"
 COMPACT_BASE_S4_TERMINAL_RECEIPT_RULE_VERSION: Final = "s7_5_i3_compact_base_s4_terminal_receipt_v1"
 COMPACT_BASE_UNRESOLVED_SEED_RULE_VERSION: Final = "s7_5_i3_compact_base_unresolved_seed_v1"
@@ -733,22 +738,22 @@ def prepare_compact_base(
 
     universe_paths = [str(paths[item]) for item in legacy.pins_for("universe_daily")]
     s4_universe_paths = [str(paths[item]) for item in s4.universe_source_partitions]
-    asset_projection_by_id = _asset_aggregate_projections(
-        universe_paths,
-        legacy_release_set_id=legacy.release_set_id,
-        legacy_partition_set_digest=legacy.complete_partition_pin_digest,
-    )
-    issuer_projection_by_id = _issuer_aggregate_projections(
+
+    def observe_aggregate_resources() -> None:
+        nonlocal minimum_disk
+        minimum_disk = min(minimum_disk, _check_live_resources(root, run_spec))
+
+    (
+        asset_projection_by_id,
+        issuer_projection_by_id,
+        unresolved_subjects,
+    ) = _bounded_base_state_projections(
         universe_paths,
         s4_universe_paths,
         legacy_release_set_id=legacy.release_set_id,
         legacy_partition_set_digest=legacy.complete_partition_pin_digest,
-    )
-    unresolved_subjects = _unresolved_tail_states(
-        universe_paths,
-        legacy_release_set_id=legacy.release_set_id,
-        legacy_partition_set_digest=legacy.complete_partition_pin_digest,
         state_available_session=run_spec.run_available_session,
+        batch_observer=observe_aggregate_resources,
     )
     minimum_disk = min(minimum_disk, _check_live_resources(root, run_spec))
 
@@ -1532,17 +1537,74 @@ def _s4_frontier_artifact_projection(item: I3MigrationParquetPin) -> dict[str, o
     ).to_dict()
 
 
-def _asset_aggregate_projections(
+_ASSET_AGGREGATE_FIELDS: Final = (
+    "observed_tickers",
+    "observed_composite_figis",
+    "observed_share_class_figis",
+    "observed_issuer_ids",
+    "canonical_share_class_figis",
+    "identity_adjudication_ids",
+    "genuine_transition_identity_adjudication_ids",
+    "provider_contamination_identity_adjudication_ids",
+    "cross_market_adjudication_ids",
+    "provider_composite_override_ids",
+    "share_class_adjudication_ids",
+    "asset_transition_ids",
+)
+
+
+def _bounded_base_state_projections(
     universe_paths: Sequence[str],
+    s4_universe_paths: Sequence[str],
     *,
     legacy_release_set_id: str,
     legacy_partition_set_digest: str,
-) -> dict[str, LegacyAssetAggregateProjection]:
-    scan = _scan_explicit_parquet(universe_paths)
-    eligible = scan.filter(pl.col("asset_id").is_not_null())
-    scalar = (
-        eligible.group_by("asset_id")
-        .agg(
+    state_available_session: date,
+    batch_observer: Callable[[], None] | None = None,
+) -> tuple[
+    dict[str, LegacyAssetAggregateProjection],
+    dict[str, LegacyIssuerAggregateProjection],
+    tuple[UnresolvedSubjectState, ...],
+]:
+    """Build global BASE state with a fixed, session-bounded memory envelope.
+
+    Polars' list ``unique`` aggregation retains all 69M source values when it is
+    applied to the complete history in one plan.  The production contract fixes
+    a small session batch, merges only the distinct per-batch sets, and probes
+    resources after every batch.  Logical outputs remain identical to the prior
+    whole-history aggregation, while peak memory is independent of history size.
+    """
+
+    if not universe_paths or not s4_universe_paths:
+        raise I3MigrationIOError("bounded base aggregation inputs cannot be empty")
+    if I3_COMPACT_BASE_AGGREGATE_SESSION_BATCH_CAP <= 0:
+        raise I3MigrationIOError("bounded base aggregation batch cap is invalid")
+
+    asset_sets: dict[str, dict[str, set[str]]] = {}
+    issuer_sets: dict[str, dict[str, set[str]]] = {}
+    last_resolved: dict[str, date] = {}
+    base_columns = (
+        "asset_id",
+        "asset_transition_ids",
+        "backtest_identity_eligible",
+        "canonical_cik_normalized",
+        "canonical_share_class_figi",
+        "composite_registry_collision",
+        "cross_market_adjudication_id",
+        "identity_adjudication_id",
+        "identity_disposition",
+        "issuer_id",
+        "observed_composite_figi",
+        "observed_share_class_figi",
+        "provider_composite_override_id",
+        "session_date",
+        "share_class_adjudication_id",
+        "ticker",
+    )
+    for batch in _path_batches(universe_paths):
+        frame = _scan_explicit_parquet(batch).select(*base_columns).collect(engine="streaming")
+        eligible = frame.filter(pl.col("asset_id").is_not_null())
+        grouped_assets = eligible.group_by("asset_id").agg(
             pl.col("ticker").drop_nulls().unique().sort().alias("observed_tickers"),
             pl.col("observed_composite_figi")
             .drop_nulls()
@@ -1593,19 +1655,162 @@ def _asset_aggregate_projections(
             .sort()
             .alias("share_class_adjudication_ids"),
         )
-        .sort("asset_id")
+        for row in grouped_assets.iter_rows(named=True):
+            asset_id = str(row["asset_id"])
+            bucket = asset_sets.setdefault(
+                asset_id, {field_name: set() for field_name in _ASSET_AGGREGATE_FIELDS}
+            )
+            for field_name in _ASSET_AGGREGATE_FIELDS[:-1]:
+                bucket[field_name].update(_strings(row[field_name]))
+
+        transitions = (
+            eligible.select("asset_id", "asset_transition_ids")
+            .explode("asset_transition_ids", empty_as_null=True)
+            .filter(pl.col("asset_transition_ids").is_not_null())
+            .group_by("asset_id")
+            .agg(pl.col("asset_transition_ids").unique().sort())
+        )
+        for row in transitions.iter_rows(named=True):
+            asset_id = str(row["asset_id"])
+            bucket = asset_sets.setdefault(
+                asset_id, {field_name: set() for field_name in _ASSET_AGGREGATE_FIELDS}
+            )
+            bucket["asset_transition_ids"].update(_strings(row["asset_transition_ids"]))
+
+        trusted = frame.filter(
+            pl.col("issuer_id").is_not_null()
+            & pl.col("backtest_identity_eligible")
+            & (pl.col("identity_disposition") != "confirmed_provider_contamination")
+            & pl.col("cross_market_adjudication_id").is_null()
+        )
+        grouped_issuers = trusted.group_by("issuer_id", "canonical_cik_normalized").agg(
+            pl.col("asset_id").drop_nulls().unique().sort().alias("observed_asset_ids"),
+            pl.col("ticker").drop_nulls().unique().sort().alias("observed_tickers"),
+        )
+        for row in grouped_issuers.iter_rows(named=True):
+            issuer_id = str(row["issuer_id"])
+            canonical_cik = row["canonical_cik_normalized"]
+            if not isinstance(canonical_cik, str) or not canonical_cik:
+                raise I3MigrationIOError("trusted issuer aggregate lacks a canonical CIK")
+            bucket = issuer_sets.setdefault(
+                issuer_id,
+                {
+                    "canonical_ciks": set(),
+                    "observed_asset_ids": set(),
+                    "observed_tickers": set(),
+                },
+            )
+            bucket["canonical_ciks"].add(canonical_cik)
+            bucket["observed_asset_ids"].update(_strings(row["observed_asset_ids"]))
+            bucket["observed_tickers"].update(_strings(row["observed_tickers"]))
+
+        unresolved = (~pl.col("backtest_identity_eligible")) | pl.col(
+            "composite_registry_collision"
+        )
+        resolved = (
+            frame.filter(~unresolved)
+            .group_by("ticker")
+            .agg(pl.col("session_date").max().alias("last_resolved_session"))
+        )
+        for row in resolved.iter_rows(named=True):
+            ticker = str(row["ticker"])
+            session = row["last_resolved_session"]
+            if type(session) is not date:
+                raise I3MigrationIOError("resolved boundary aggregate emitted a non-date")
+            prior = last_resolved.get(ticker)
+            if prior is None or session > prior:
+                last_resolved[ticker] = session
+        if batch_observer is not None:
+            batch_observer()
+
+    reference_names: dict[str, set[str]] = {}
+    for batch in _path_batches(s4_universe_paths):
+        names = (
+            _scan_explicit_parquet(batch)
+            .select("cik", "name")
+            .filter(
+                pl.col("cik").is_not_null()
+                & pl.col("cik").str.contains(r"^[0-9]{1,10}$")
+                & pl.col("name").is_not_null()
+                & (pl.col("name").str.strip_chars() != "")
+            )
+            .with_columns(
+                pl.col("cik").str.pad_start(10, "0").alias("canonical_cik_normalized"),
+                pl.col("name").str.strip_chars().alias("reference_name"),
+            )
+            .group_by("canonical_cik_normalized")
+            .agg(pl.col("reference_name").drop_nulls().unique().sort().alias("reference_names"))
+            .collect(engine="streaming")
+        )
+        for row in names.iter_rows(named=True):
+            canonical_cik = str(row["canonical_cik_normalized"])
+            reference_names.setdefault(canonical_cik, set()).update(
+                _strings(row["reference_names"])
+            )
+        if batch_observer is not None:
+            batch_observer()
+
+    last_resolved_frame = pl.DataFrame(
+        {
+            "ticker": list(last_resolved),
+            "last_resolved_session": list(last_resolved.values()),
+        },
+        schema={"ticker": pl.String, "last_resolved_session": pl.Date},
     )
-    transitions = (
-        eligible.select("asset_id", "asset_transition_ids")
-        .explode("asset_transition_ids", empty_as_null=True)
-        .filter(pl.col("asset_transition_ids").is_not_null())
-        .group_by("asset_id")
-        .agg(pl.col("asset_transition_ids").unique().sort().alias("asset_transition_ids"))
-    )
-    frame = scalar.join(transitions, on="asset_id", how="left").collect(engine="streaming")
-    result: dict[str, LegacyAssetAggregateProjection] = {}
-    for row in frame.iter_rows(named=True):
-        asset_id = str(row["asset_id"])
+    unresolved_tails: dict[str, dict[str, object]] = {}
+    for batch in _path_batches(universe_paths):
+        scan = _scan_explicit_parquet(batch).select(
+            "ticker",
+            "session_date",
+            "backtest_identity_eligible",
+            "composite_registry_collision",
+            "identity_disposition",
+        )
+        unresolved = (~pl.col("backtest_identity_eligible")) | pl.col(
+            "composite_registry_collision"
+        )
+        tails = (
+            scan.filter(unresolved)
+            .join(last_resolved_frame.lazy(), on="ticker", how="left")
+            .filter(
+                pl.col("last_resolved_session").is_null()
+                | (pl.col("session_date") > pl.col("last_resolved_session"))
+            )
+            .with_columns(
+                pl.when(pl.col("composite_registry_collision"))
+                .then(pl.lit("registry_collision"))
+                .otherwise(pl.col("identity_disposition"))
+                .alias("raw_reason")
+            )
+            .group_by("ticker")
+            .agg(
+                pl.col("session_date").min().alias("first_observed_session"),
+                pl.col("session_date").max().alias("last_observed_session"),
+                pl.col("raw_reason").drop_nulls().unique().sort().alias("raw_reasons"),
+            )
+            .collect(engine="streaming")
+        )
+        for row in tails.iter_rows(named=True):
+            ticker = str(row["ticker"])
+            first = row["first_observed_session"]
+            last = row["last_observed_session"]
+            if type(first) is not date or type(last) is not date:
+                raise I3MigrationIOError("unresolved tail emitted a non-date boundary")
+            bucket = unresolved_tails.setdefault(
+                ticker, {"first": first, "last": last, "reasons": set()}
+            )
+            bucket["first"] = min(bucket["first"], first)  # type: ignore[type-var]
+            bucket["last"] = max(bucket["last"], last)  # type: ignore[type-var]
+            reasons = bucket["reasons"]
+            if not isinstance(reasons, set):
+                raise I3MigrationIOError("unresolved reason accumulator is invalid")
+            reasons.update(_strings(row["raw_reasons"]))
+        if batch_observer is not None:
+            batch_observer()
+
+    asset_result: dict[str, LegacyAssetAggregateProjection] = {}
+    for asset_id in sorted(asset_sets):
+        values = asset_sets[asset_id]
         seed = stable_digest(
             {
                 "legacy_partition_set_digest": legacy_partition_set_digest,
@@ -1614,69 +1819,34 @@ def _asset_aggregate_projections(
                 "stable_row_key": asset_id,
             }
         )
-        result[asset_id] = LegacyAssetAggregateProjection(
-            observed_tickers=_strings(row["observed_tickers"]),
-            observed_composite_figis=_strings(row["observed_composite_figis"]),
-            observed_share_class_figis=_strings(row["observed_share_class_figis"]),
-            observed_issuer_ids=_strings(row["observed_issuer_ids"]),
-            canonical_share_class_figis=_strings(row["canonical_share_class_figis"]),
-            identity_adjudication_ids=_strings(row["identity_adjudication_ids"]),
-            genuine_transition_identity_adjudication_ids=_strings(
-                row["genuine_transition_identity_adjudication_ids"]
+        asset_result[asset_id] = LegacyAssetAggregateProjection(
+            observed_tickers=tuple(sorted(values["observed_tickers"])),
+            observed_composite_figis=tuple(sorted(values["observed_composite_figis"])),
+            observed_share_class_figis=tuple(sorted(values["observed_share_class_figis"])),
+            observed_issuer_ids=tuple(sorted(values["observed_issuer_ids"])),
+            canonical_share_class_figis=tuple(sorted(values["canonical_share_class_figis"])),
+            identity_adjudication_ids=tuple(sorted(values["identity_adjudication_ids"])),
+            genuine_transition_identity_adjudication_ids=tuple(
+                sorted(values["genuine_transition_identity_adjudication_ids"])
             ),
-            provider_contamination_identity_adjudication_ids=_strings(
-                row["provider_contamination_identity_adjudication_ids"]
+            provider_contamination_identity_adjudication_ids=tuple(
+                sorted(values["provider_contamination_identity_adjudication_ids"])
             ),
-            cross_market_adjudication_ids=_strings(row["cross_market_adjudication_ids"]),
-            provider_composite_override_ids=_strings(row["provider_composite_override_ids"]),
-            share_class_adjudication_ids=_strings(row["share_class_adjudication_ids"]),
-            asset_transition_ids=_strings(row["asset_transition_ids"]),
+            cross_market_adjudication_ids=tuple(sorted(values["cross_market_adjudication_ids"])),
+            provider_composite_override_ids=tuple(
+                sorted(values["provider_composite_override_ids"])
+            ),
+            share_class_adjudication_ids=tuple(sorted(values["share_class_adjudication_ids"])),
+            asset_transition_ids=tuple(sorted(values["asset_transition_ids"])),
             source_record_seed_digest=seed,
         )
-    return result
 
-
-def _issuer_aggregate_projections(
-    universe_paths: Sequence[str],
-    s4_universe_paths: Sequence[str],
-    *,
-    legacy_release_set_id: str,
-    legacy_partition_set_digest: str,
-) -> dict[str, LegacyIssuerAggregateProjection]:
-    universe = _scan_explicit_parquet(universe_paths)
-    trusted = universe.filter(
-        pl.col("issuer_id").is_not_null()
-        & pl.col("backtest_identity_eligible")
-        & (pl.col("identity_disposition") != "confirmed_provider_contamination")
-        & pl.col("cross_market_adjudication_id").is_null()
-    )
-    issuer_sets = trusted.group_by("issuer_id", "canonical_cik_normalized").agg(
-        pl.col("asset_id").drop_nulls().unique().sort().alias("observed_asset_ids"),
-        pl.col("ticker").drop_nulls().unique().sort().alias("observed_tickers"),
-    )
-    s4 = _scan_explicit_parquet(s4_universe_paths)
-    names = (
-        s4.filter(
-            pl.col("cik").is_not_null()
-            & pl.col("cik").str.contains(r"^[0-9]{1,10}$")
-            & pl.col("name").is_not_null()
-            & (pl.col("name").str.strip_chars() != "")
-        )
-        .with_columns(
-            pl.col("cik").str.pad_start(10, "0").alias("canonical_cik_normalized"),
-            pl.col("name").str.strip_chars().alias("reference_name"),
-        )
-        .group_by("canonical_cik_normalized")
-        .agg(pl.col("reference_name").drop_nulls().unique().sort().alias("reference_names"))
-    )
-    frame = (
-        issuer_sets.join(names, on="canonical_cik_normalized", how="left")
-        .sort("issuer_id")
-        .collect(engine="streaming")
-    )
-    result: dict[str, LegacyIssuerAggregateProjection] = {}
-    for row in frame.iter_rows(named=True):
-        issuer_id = str(row["issuer_id"])
+    issuer_result: dict[str, LegacyIssuerAggregateProjection] = {}
+    for issuer_id in sorted(issuer_sets):
+        values = issuer_sets[issuer_id]
+        canonical_ciks = tuple(sorted(values["canonical_ciks"]))
+        if len(canonical_ciks) != 1:
+            raise I3MigrationIOError("one issuer maps to multiple canonical CIKs")
         seed = stable_digest(
             {
                 "legacy_partition_set_digest": legacy_partition_set_digest,
@@ -1685,66 +1855,23 @@ def _issuer_aggregate_projections(
                 "stable_row_key": issuer_id,
             }
         )
-        result[issuer_id] = LegacyIssuerAggregateProjection(
-            observed_asset_ids=_strings(row["observed_asset_ids"]),
-            observed_tickers=_strings(row["observed_tickers"]),
-            reference_names=_strings(row["reference_names"]),
+        issuer_result[issuer_id] = LegacyIssuerAggregateProjection(
+            observed_asset_ids=tuple(sorted(values["observed_asset_ids"])),
+            observed_tickers=tuple(sorted(values["observed_tickers"])),
+            reference_names=tuple(sorted(reference_names.get(canonical_ciks[0], set()))),
             sic_codes=(),
             source_record_seed_digest=seed,
         )
-    return result
 
-
-def _unresolved_tail_states(
-    universe_paths: Sequence[str],
-    *,
-    legacy_release_set_id: str,
-    legacy_partition_set_digest: str,
-    state_available_session: date,
-) -> tuple[UnresolvedSubjectState, ...]:
-    scan = _scan_explicit_parquet(universe_paths).select(
-        "ticker",
-        "session_date",
-        "backtest_identity_eligible",
-        "composite_registry_collision",
-        "identity_disposition",
-    )
-    unresolved = (~pl.col("backtest_identity_eligible")) | pl.col("composite_registry_collision")
-    last_resolved = (
-        scan.filter(~unresolved)
-        .group_by("ticker")
-        .agg(pl.col("session_date").max().alias("last_resolved_session"))
-    )
-    tails = (
-        scan.filter(unresolved)
-        .join(last_resolved, on="ticker", how="left")
-        .filter(
-            pl.col("last_resolved_session").is_null()
-            | (pl.col("session_date") > pl.col("last_resolved_session"))
-        )
-        .with_columns(
-            pl.when(pl.col("composite_registry_collision"))
-            .then(pl.lit("registry_collision"))
-            .otherwise(pl.col("identity_disposition"))
-            .alias("raw_reason")
-        )
-        .group_by("ticker")
-        .agg(
-            pl.col("session_date").min().alias("first_observed_session"),
-            pl.col("session_date").max().alias("last_observed_session"),
-            pl.col("raw_reason").drop_nulls().unique().sort().alias("raw_reasons"),
-        )
-        .sort("ticker")
-        .collect(engine="streaming")
-    )
-    states = []
-    for row in tails.iter_rows(named=True):
-        ticker = str(row["ticker"])
-        first = row["first_observed_session"]
-        last = row["last_observed_session"]
-        if type(first) is not date or type(last) is not date:
-            raise I3MigrationIOError("unresolved tail emitted a non-date boundary")
-        reasons = tuple(sorted({_reason_code(str(value)) for value in row["raw_reasons"]}))
+    unresolved_states = []
+    for ticker in sorted(unresolved_tails):
+        values = unresolved_tails[ticker]
+        first = values["first"]
+        last = values["last"]
+        reasons_value = values["reasons"]
+        if type(first) is not date or type(last) is not date or not isinstance(reasons_value, set):
+            raise I3MigrationIOError("unresolved tail accumulator is invalid")
+        reasons = tuple(sorted({_reason_code(str(value)) for value in reasons_value}))
         seed = stable_digest(
             {
                 "first_observed_session": first.isoformat(),
@@ -1757,7 +1884,7 @@ def _unresolved_tail_states(
                 "subject_kind": "ticker_identity",
             }
         )
-        states.append(
+        unresolved_states.append(
             UnresolvedSubjectState(
                 subject_kind="ticker_identity",
                 subject_key=ticker,
@@ -1768,7 +1895,15 @@ def _unresolved_tail_states(
                 state_available_session=state_available_session,
             )
         )
-    return tuple(states)
+    return asset_result, issuer_result, tuple(unresolved_states)
+
+
+def _path_batches(paths: Sequence[str]) -> tuple[tuple[str, ...], ...]:
+    items = tuple(paths)
+    if not items:
+        raise I3MigrationIOError("bounded aggregation path set cannot be empty")
+    cap = I3_COMPACT_BASE_AGGREGATE_SESSION_BATCH_CAP
+    return tuple(tuple(items[index : index + cap]) for index in range(0, len(items), cap))
 
 
 def _migrate_universe_partition(
@@ -2358,6 +2493,10 @@ def _compact_base_migration_semantics_digest(run_spec: I3ProductionRunSpec) -> s
             "adapter_rule_versions": {
                 "canonical_projection": (
                     COMPACT_BASE_CANONICAL_PROJECTION_ATTESTATION_RULE_VERSION
+                ),
+                "bounded_aggregation": COMPACT_BASE_BOUNDED_AGGREGATION_RULE_VERSION,
+                "bounded_aggregation_session_batch_cap": (
+                    I3_COMPACT_BASE_AGGREGATE_SESSION_BATCH_CAP
                 ),
                 "input_binding": COMPACT_BASE_INPUT_BINDING_RULE_VERSION,
                 "initial_rowset_segment": I3_COMPACT_BASE_INITIAL_SEGMENT_RULE_VERSION,

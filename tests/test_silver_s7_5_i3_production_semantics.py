@@ -29,12 +29,12 @@ def _append_fields() -> dict[str, object]:
     }
 
 
-def test_transform_semantics_v5_seals_every_delta_and_base_input_rule() -> None:
+def test_transform_semantics_v6_seals_bounded_base_and_every_delta_rule() -> None:
     assert semantics.I3_PRODUCTION_TRANSFORM_SEMANTICS_RULE_VERSION == (
-        "s7_5_i3_production_transform_semantics_v5"
+        "s7_5_i3_production_transform_semantics_v6"
     )
     assert semantics.I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST == (
-        "bde1641f7c4c5c303f003d6a4747e1060d1c75cccb80c7c6673e6a89098adeef"
+        "62f4103dcfc9cd33e240b169f53c51621676acc2ac3fd3360b58d42491f958f8"
     )
     assert semantics.I3_COMPACT_BASE_INPUT_BINDING_RULE_VERSION == (
         "s7_5_i3_compact_base_exact_input_binding_v3"
@@ -44,6 +44,18 @@ def test_transform_semantics_v5_seals_every_delta_and_base_input_rule() -> None:
             "exact_input_binding"
         ]
         == semantics.I3_COMPACT_BASE_INPUT_BINDING_RULE_VERSION
+    )
+    assert (
+        semantics.I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD["materialization_rules"][
+            "bounded_aggregation"
+        ]
+        == semantics.I3_COMPACT_BASE_BOUNDED_AGGREGATION_RULE_VERSION
+    )
+    assert (
+        semantics.I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD["materialization_rules"][
+            "bounded_aggregation_session_batch_cap"
+        ]
+        == semantics.I3_COMPACT_BASE_AGGREGATE_SESSION_BATCH_CAP
     )
     expected = {
         "append_segment": semantics.I3_PRODUCTION_DELTA_APPEND_SEGMENT_RULE_VERSION,
@@ -63,6 +75,8 @@ def test_transform_semantics_v5_seals_every_delta_and_base_input_rule() -> None:
     )
     assert len(set(expected.values())) == len(expected)
     for name in (
+        "I3_COMPACT_BASE_AGGREGATE_SESSION_BATCH_CAP",
+        "I3_COMPACT_BASE_BOUNDED_AGGREGATION_RULE_VERSION",
         "I3_PRODUCTION_DELTA_APPEND_SEGMENT_RULE_VERSION",
         "I3_PRODUCTION_DELTA_IDENTITY_FALLBACK_RULE_VERSION",
         "I3_PRODUCTION_DELTA_INPUT_BINDING_RULE_VERSION",

@@ -433,6 +433,73 @@ def test_missing_gate_b_fallback_is_scoped_and_ineligible() -> None:
         )
 
 
+def test_ordinary_non_us_pending_projection_is_not_an_s75_extension() -> None:
+    extension, _delta_inputs, _run_spec, _membership = _authority_fixture()
+    binding = SimpleNamespace(
+        incremental_session_extension=extension,
+        registry_pins=(SimpleNamespace(release_available_session=_AVAILABLE),),
+        cutoff_session=_AVAILABLE,
+    )
+    source = {
+        "active_on_date": True,
+        "composite_figi": "BBG000000099",
+        "selected_source_record_id": _digest("ordinary-non-us-source"),
+        "session_date": date(2025, 12, 31),
+        "source_available_session": date(2026, 1, 2),
+    }
+    extension_projection = stream._s75_incremental_full_projection(
+        {
+            **source,
+            "composite_figi": "BBG000KMY6N2",
+            "session_date": _TARGET,
+            "source_available_session": _TARGET,
+        },
+        gate_b_by_composite={},
+        registries=SimpleNamespace(),
+        binding=binding,
+    )
+    ordinary_projection = replace(
+        extension_projection,
+        selected_source_record_id=source["selected_source_record_id"],
+        cross_market_classification_status="known_non_us_foreign_locale",
+    )
+
+    assert not stream._is_s75_pending_extension_projection(
+        source,
+        ordinary_projection,
+        binding,
+    )
+
+
+def test_unclassified_pending_projection_outside_exact_extension_fails_closed() -> None:
+    extension, _delta_inputs, _run_spec, _membership = _authority_fixture()
+    binding = SimpleNamespace(
+        incremental_session_extension=extension,
+        registry_pins=(SimpleNamespace(release_available_session=_AVAILABLE),),
+        cutoff_session=_AVAILABLE,
+    )
+    source = {
+        "active_on_date": True,
+        "composite_figi": "BBG000KMY6N2",
+        "selected_source_record_id": _digest("out-of-scope-unclassified-source"),
+        "session_date": date(2026, 7, 9),
+        "source_available_session": date(2026, 7, 9),
+    }
+    projection = stream._s75_incremental_full_projection(
+        {**source, "session_date": _TARGET, "source_available_session": _TARGET},
+        gate_b_by_composite={},
+        registries=SimpleNamespace(),
+        binding=binding,
+    )
+    projection = replace(
+        projection,
+        selected_source_record_id=source["selected_source_record_id"],
+    )
+
+    with pytest.raises(stream.S7StreamingMaterializationError, match="outside its exact"):
+        stream._is_s75_pending_extension_projection(source, projection, binding)
+
+
 def test_i5_requires_all_sixteen_fail_closed_gate_b_rows() -> None:
     extension, _delta_inputs, _run_spec, _membership = _authority_fixture()
     binding = SimpleNamespace(incremental_session_extension=extension)

@@ -114,7 +114,7 @@ STREAMING_APPROVAL_VERSION: Final = 1
 STREAMING_INTENT_VERSION: Final = 1
 STREAMING_CANDIDATE_VERSION: Final = 1
 STREAMING_COMPLETION_VERSION: Final = 1
-PROFILE_POLICY_VERSION: Final = "s7-streaming-bounded-size-profile-v2"
+PROFILE_POLICY_VERSION: Final = "s7-streaming-bounded-size-profile-v3"
 PROFILE_SAMPLE_SELECTION_POLICY_VERSION: Final = "s7-transition-closed-calendar-strata-base-only-v2"
 TRANSITION_PROFILE_ANCHOR_POLICY_VERSION: Final = "s7-transition-profile-anchor-binding-v1"
 PROFILE_SAMPLE_SESSION_HARD_CAP: Final = 25
@@ -4540,13 +4540,13 @@ def _is_s75_pending_extension_projection(
     projection: ResolutionProjection,
     binding: S7StreamingSourceBinding,
 ) -> bool:
-    pending_methods = {
-        "cross_market_composite_pending_unresolved",
-        "provider_figi_bounce_pending_unresolved",
-    }
     claims_pending = (
-        projection.identity_resolution_method in pending_methods
-        or projection.identity_disposition in {"pending_cross_market_review", "pending_unresolved"}
+        projection.identity_resolution_method == "cross_market_composite_pending_unresolved"
+        and projection.identity_disposition == "pending_cross_market_review"
+        and projection.cross_market_classification_status == "not_classified"
+    ) or (
+        projection.identity_resolution_method == "provider_figi_bounce_pending_unresolved"
+        and projection.identity_disposition == "pending_unresolved"
     )
     extension = binding.incremental_session_extension
     in_scope = (

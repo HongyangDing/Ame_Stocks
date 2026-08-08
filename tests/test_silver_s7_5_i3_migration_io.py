@@ -651,6 +651,47 @@ def test_compact_base_streams_exact_parquet_into_prepared_materialization(
             assert stat.S_IMODE(path.stat().st_mode) & 0o222 == 0
 
 
+def test_base_global_aggregates_are_equivalent_and_never_scan_over_batch_cap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_spec, legacy, s4 = _base_fixture(tmp_path)
+    universe_path = str(tmp_path / legacy.pins_for("universe_daily")[0].artifact.path)
+    s4_path = str(tmp_path / s4.universe_source_partitions[0].artifact.path)
+    kwargs = {
+        "legacy_release_set_id": legacy.release_set_id,
+        "legacy_partition_set_digest": legacy.complete_partition_pin_digest,
+        "state_available_session": run_spec.run_available_session,
+    }
+    expected = migration_io._bounded_base_state_projections(
+        (universe_path,),
+        (s4_path,),
+        **kwargs,
+    )
+
+    calls: list[tuple[str, ...]] = []
+    observations: list[None] = []
+    original = migration_io._scan_explicit_parquet
+
+    def tracked(paths):
+        values = tuple(paths)
+        calls.append(values)
+        assert len(values) <= migration_io.I3_COMPACT_BASE_AGGREGATE_SESSION_BATCH_CAP
+        return original(values)
+
+    monkeypatch.setattr(migration_io, "_scan_explicit_parquet", tracked)
+    actual = migration_io._bounded_base_state_projections(
+        (universe_path,) * 17,
+        (s4_path,) * 17,
+        **kwargs,
+        batch_observer=lambda: observations.append(None),
+    )
+
+    assert actual == expected
+    assert [len(values) for values in calls] == [16, 1, 16, 1, 16, 1]
+    assert len(observations) == len(calls)
+
+
 def test_compact_base_mints_sealed_authority_output_and_projection_attestation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -18,6 +18,8 @@ from ame_stocks_api.silver.incremental_i3_production_contract import (
     I3ProductionResourceCaps,
 )
 from ame_stocks_api.silver.incremental_i3_production_semantics import (
+    I3_COMPACT_BASE_AGGREGATE_SESSION_BATCH_CAP,
+    I3_COMPACT_BASE_BOUNDED_AGGREGATION_RULE_VERSION,
     I3_COMPACT_BASE_INITIAL_SEGMENT_RULE_VERSION,
     I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST,
     I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD,
@@ -121,9 +123,19 @@ def test_base_config_exposes_only_exact_inputs_availability_and_caps(tmp_path: P
         inputs.I3ProductionBaseRunConfig.from_dict(document)
 
 
-def test_transform_semantics_golden_binds_compact_base_initial_rowset_segment() -> None:
+def test_transform_semantics_golden_binds_bounded_base_and_initial_segment() -> None:
     assert I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST == (
-        "bde1641f7c4c5c303f003d6a4747e1060d1c75cccb80c7c6673e6a89098adeef"
+        "62f4103dcfc9cd33e240b169f53c51621676acc2ac3fd3360b58d42491f958f8"
+    )
+    assert (
+        I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD["materialization_rules"]["bounded_aggregation"]
+        == I3_COMPACT_BASE_BOUNDED_AGGREGATION_RULE_VERSION
+    )
+    assert (
+        I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD["materialization_rules"][
+            "bounded_aggregation_session_batch_cap"
+        ]
+        == I3_COMPACT_BASE_AGGREGATE_SESSION_BATCH_CAP
     )
     assert (
         I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD["materialization_rules"]["initial_rowset_segment"]
