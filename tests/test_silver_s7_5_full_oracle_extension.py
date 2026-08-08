@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import subprocess
 from dataclasses import replace
-from datetime import date
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -156,6 +158,162 @@ def test_extension_loader_rejects_tampered_membership_contract(
             base_pin=extension.base_source_binding_manifest,
             session_date=_TARGET,
         )
+
+
+def test_historical_full_oracle_runtime_replays_old_git_without_replace_refs(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+
+    def git(*arguments: str) -> str:
+        result = subprocess.run(
+            ("git", "-C", str(repository), *arguments),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip()
+
+    git("init")
+    git("config", "user.email", "s75-test@example.invalid")
+    git("config", "user.name", "S7.5 Test")
+    runtime_path = repository / "tracked_runtime.py"
+    runtime_path.write_bytes(b"RECORDED = True\n")
+    git("add", "tracked_runtime.py")
+    git("commit", "-m", "record runtime")
+    recorded_commit = git("rev-parse", "HEAD")
+    monkeypatch.setattr(stream, "_repository_root", lambda: repository)
+    monkeypatch.setattr(stream, "_RUNTIME_SOURCE_PATHS", ("tracked_runtime.py",))
+    recorded = stream._repository_runtime_binding()
+
+    runtime_path.write_bytes(b"RECORDED = False\n")
+    git("add", "tracked_runtime.py")
+    git("commit", "-m", "change runtime")
+    replacement_commit = git("rev-parse", "HEAD")
+    execution = stream._repository_runtime_binding()
+    git("replace", recorded_commit, replacement_commit)
+
+    stream._verify_recorded_streaming_runtime_binding(recorded)
+    binding = SimpleNamespace(
+        mode="production",
+        incremental_session_extension=object(),
+        runtime_binding=recorded,
+    )
+
+    stream._verify_bound_execution_runtime(
+        binding,
+        execution_runtime_binding=execution,
+        runtime_probe=lambda: execution,
+    )
+    with pytest.raises(stream.S7StreamingMaterializationError, match="execution runtime differs"):
+        stream._verify_bound_execution_runtime(
+            binding,
+            execution_runtime_binding=execution,
+            runtime_probe=lambda: recorded,
+        )
+
+    tampered = dict(recorded)
+    files = [dict(value) for value in recorded["runtime_files"]]
+    files[0]["sha256"] = hashlib.sha256(b"RECORDED = False\n").hexdigest()
+    files[0]["bytes"] = len(b"RECORDED = False\n")
+    tampered["runtime_files"] = files
+    tampered["runtime_file_set_digest"] = stable_digest(files)
+    with pytest.raises(stream.S7StreamingMaterializationError, match="mode/blob/bytes differ"):
+        stream._verify_recorded_streaming_runtime_binding(tampered)
+
+
+def test_nonextended_full_execution_still_requires_current_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current = {"runtime": "current"}
+    monkeypatch.setattr(stream, "_validate_runtime_binding", lambda _value: None)
+    binding = SimpleNamespace(
+        mode="production",
+        incremental_session_extension=None,
+        runtime_binding=current,
+    )
+    monkeypatch.setattr(
+        stream,
+        "_verify_recorded_streaming_runtime_binding",
+        lambda _value: (_ for _ in ()).throw(AssertionError("historical replay was selected")),
+    )
+    stream._verify_bound_execution_runtime(
+        binding,
+        execution_runtime_binding=None,
+        runtime_probe=lambda: current,
+    )
+    with pytest.raises(stream.S7StreamingMaterializationError, match="runtime Git/source"):
+        stream._verify_bound_execution_runtime(
+            binding,
+            execution_runtime_binding=None,
+            runtime_probe=lambda: {"runtime": "different"},
+        )
+
+
+def test_extended_profile_plan_binds_executor_runtime_and_changes_slot_id(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    extension, _delta_inputs, _run_spec, _membership = _authority_fixture()
+    source_runtime = {"runtime": "historical-source"}
+    execution_runtime = {"runtime": "current-executor"}
+    membership = extension.membership_artifact
+    transition = SimpleNamespace(mandatory_sessions=(), to_dict=lambda: {"anchor": "fixed"})
+    binding = SimpleNamespace(
+        contract_approvals=(),
+        incremental_session_extension=extension,
+        membership_artifacts=(membership,),
+        mode="production",
+        runtime_binding=source_runtime,
+        source_binding_id=_digest("extended-binding"),
+        transition_profile_anchor_binding=transition,
+    )
+    binding_receipt = stream.ExactFilePin(
+        path=(
+            "manifests/silver/identity/s7-streaming-full-source-bindings/"
+            f"source_binding_id={binding.source_binding_id}/manifest.json"
+        ),
+        sha256=_digest("extended-binding-pin"),
+        bytes=123,
+    )
+    monkeypatch.setattr(
+        stream, "_load_source_binding", lambda _root, _id: (binding, binding_receipt)
+    )
+    monkeypatch.setattr(stream, "_trusted_contract_approvals", lambda _root, _binding: ())
+    monkeypatch.setattr(stream, "_validate_binding_against_caps", lambda *_args: None)
+    monkeypatch.setattr(stream, "_repository_runtime_binding", lambda: execution_runtime)
+    caps = stream.StreamingResourceCaps(
+        source_bytes_cap=1,
+        row_count_cap=1,
+        session_count_cap=1,
+        per_session_row_cap=1,
+        output_bytes_cap=1,
+        tmp_bytes_cap=1,
+        rss_bytes_cap=1,
+        disk_free_floor_bytes=stream.DISK_HARD_FLOOR_BYTES,
+        wall_clock_seconds_cap=1,
+        batch_row_cap=1,
+        worker_count=1,
+    )
+
+    plan, _ = stream.prepare_streaming_bounded_profile_preview_plan(
+        tmp_path,
+        source_binding_id=binding.source_binding_id,
+        full_resource_caps=caps,
+        sample_session_cap=1,
+        prepared_by="s75-test",
+        prepared_at_utc=datetime(2026, 8, 9, tzinfo=UTC),
+    )
+
+    assert plan["runtime_binding"] == source_runtime
+    assert plan["execution_runtime_binding"] == execution_runtime
+    legacy_slot = dict(plan)
+    legacy_slot.pop("plan_id")
+    legacy_slot.pop("prepared_at_utc")
+    legacy_slot.pop("prepared_by")
+    legacy_slot.pop("execution_runtime_binding")
+    legacy_slot["artifact_type"] = "s7_streaming_size_profile_plan_slot"
+    assert stable_digest(legacy_slot) != plan["plan_id"]
 
 
 @pytest.mark.parametrize(

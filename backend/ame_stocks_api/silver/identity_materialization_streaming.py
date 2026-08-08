@@ -3149,6 +3149,8 @@ def prepare_streaming_bounded_profile_preview_plan(
         "source_binding_id": binding.source_binding_id,
         "transition_profile_anchor_binding": (binding.transition_profile_anchor_binding.to_dict()),
     }
+    if binding.mode == "production" and binding.incremental_session_extension is not None:
+        slot["execution_runtime_binding"] = dict(_repository_runtime_binding())
     plan_id = stable_digest({**slot, "artifact_type": "s7_streaming_size_profile_plan_slot"})
     relative = _profile_plan_path(plan_id)
     actor = _text(prepared_by, "profile plan preparer")
@@ -3331,9 +3333,11 @@ def _execute_streaming_bounded_profile_preview(
         "standing_reaffirmation_sha256": S7_STANDING_REAFFIRMATION_SHA256,
     }
     _verify_profile_approval(approval, expected_slot, root=root, binding=binding)
-    runtime = dict(runtime_probe())
-    if runtime != dict(binding.runtime_binding):
-        raise S7StreamingMaterializationError("profile runtime binding differs")
+    _verify_bound_execution_runtime(
+        binding,
+        execution_runtime_binding=plan.get("execution_runtime_binding"),
+        runtime_probe=runtime_probe,
+    )
     caps = StreamingResourceCaps.from_dict(plan["full_resource_caps"])
     start = monotonic()
     candidate_id = stable_digest(
@@ -3611,6 +3615,8 @@ def prepare_streaming_full_plan(
         "source_binding": binding_receipt.to_dict(),
         "source_binding_id": binding.source_binding_id,
     }
+    if binding.mode == "production" and binding.incremental_session_extension is not None:
+        slot_payload["execution_runtime_binding"] = dict(_repository_runtime_binding())
     plan_id = stable_digest(
         {**slot_payload, "artifact_type": "s7_streaming_four_table_full_plan_slot"}
     )
@@ -4053,10 +4059,11 @@ def _execute_streaming_full_candidate(
             "production and fixture Full execution boundaries cannot be crossed"
         )
     caps = StreamingResourceCaps.from_dict(plan["resource_caps"])
-    current_runtime = dict(runtime_probe())
-    _validate_runtime_binding(current_runtime)
-    if current_runtime != dict(binding.runtime_binding):
-        raise S7StreamingMaterializationError("runtime Git/source binding differs")
+    _verify_bound_execution_runtime(
+        binding,
+        execution_runtime_binding=plan.get("execution_runtime_binding"),
+        runtime_probe=runtime_probe,
+    )
     if binding.contract_approvals != _trusted_contract_approvals(root, binding):
         raise S7StreamingMaterializationError(
             "four v4 derived-contract approvals are incomplete or changed"
@@ -6095,27 +6102,26 @@ def _load_profile_plan(
     document = _mapping(
         _load_canonical_json(content, "bounded profile plan"), "bounded profile plan"
     )
-    _expect_keys(
-        document,
-        {
-            "artifact_type",
-            "authorized_action",
-            "capabilities",
-            "full_resource_caps",
-            "plan_id",
-            "policy_version",
-            "prepared_at_utc",
-            "prepared_by",
-            "runtime_binding",
-            "sample_artifacts",
-            "sample_selection_policy_version",
-            "sample_session_cap",
-            "source_binding",
-            "source_binding_id",
-            "transition_profile_anchor_binding",
-        },
-        "bounded profile plan",
-    )
+    profile_plan_fields = {
+        "artifact_type",
+        "authorized_action",
+        "capabilities",
+        "full_resource_caps",
+        "plan_id",
+        "policy_version",
+        "prepared_at_utc",
+        "prepared_by",
+        "runtime_binding",
+        "sample_artifacts",
+        "sample_selection_policy_version",
+        "sample_session_cap",
+        "source_binding",
+        "source_binding_id",
+        "transition_profile_anchor_binding",
+    }
+    if "execution_runtime_binding" in document:
+        profile_plan_fields.add("execution_runtime_binding")
+    _expect_keys(document, profile_plan_fields, "bounded profile plan")
     slot = dict(document)
     claimed = slot.pop("plan_id")
     slot.pop("prepared_at_utc")
@@ -6143,6 +6149,13 @@ def _load_profile_plan(
         raise S7StreamingMaterializationError("profile source-binding receipt differs")
     if document["runtime_binding"] != dict(binding.runtime_binding):
         raise S7StreamingMaterializationError("profile runtime binding differs")
+    execution_runtime = document.get("execution_runtime_binding")
+    if (execution_runtime is not None) != (
+        binding.mode == "production" and binding.incremental_session_extension is not None
+    ):
+        raise S7StreamingMaterializationError("profile execution runtime binding mode differs")
+    if execution_runtime is not None:
+        _validate_runtime_binding(_mapping(execution_runtime, "profile execution runtime binding"))
     if (
         TransitionProfileAnchorBinding.from_dict(document["transition_profile_anchor_binding"])
         != binding.transition_profile_anchor_binding
@@ -6779,26 +6792,25 @@ def _load_plan(
     relative = _plan_path(identifier)
     content = _read_exact_file(root, relative, label="streaming Full plan")
     document = _mapping(_load_canonical_json(content, "streaming Full plan"), "Full plan")
-    _expect_keys(
-        document,
-        {
-            "artifact_type",
-            "bounded_profile_evidence",
-            "candidate_state",
-            "capabilities",
-            "contract_pins",
-            "plan_id",
-            "plan_version",
-            "policy_version",
-            "prepared_at_utc",
-            "prepared_by",
-            "resource_caps",
-            "runtime_binding",
-            "source_binding",
-            "source_binding_id",
-        },
-        "streaming Full plan",
-    )
+    full_plan_fields = {
+        "artifact_type",
+        "bounded_profile_evidence",
+        "candidate_state",
+        "capabilities",
+        "contract_pins",
+        "plan_id",
+        "plan_version",
+        "policy_version",
+        "prepared_at_utc",
+        "prepared_by",
+        "resource_caps",
+        "runtime_binding",
+        "source_binding",
+        "source_binding_id",
+    }
+    if "execution_runtime_binding" in document:
+        full_plan_fields.add("execution_runtime_binding")
+    _expect_keys(document, full_plan_fields, "streaming Full plan")
     slot_payload = dict(document)
     claimed = slot_payload.pop("plan_id")
     slot_payload.pop("prepared_at_utc")
@@ -6824,6 +6836,13 @@ def _load_plan(
         raise S7StreamingMaterializationError("Full plan source binding receipt differs")
     if document["runtime_binding"] != dict(binding.runtime_binding):
         raise S7StreamingMaterializationError("Full plan runtime binding differs")
+    execution_runtime = document.get("execution_runtime_binding")
+    if (execution_runtime is not None) != (
+        binding.mode == "production" and binding.incremental_session_extension is not None
+    ):
+        raise S7StreamingMaterializationError("Full execution runtime binding mode differs")
+    if execution_runtime is not None:
+        _validate_runtime_binding(_mapping(execution_runtime, "Full execution runtime binding"))
     raw_profile = document["bounded_profile_evidence"]
     if raw_profile is None:
         expected_profile = _profile_evidence_for_full_plan(
@@ -7840,6 +7859,149 @@ def _git_output(repository: Path, *arguments: str, label: str) -> bytes:
     if result.returncode != 0:
         raise S7StreamingMaterializationError(f"cannot inspect Git {label}")
     return result.stdout
+
+
+def _historical_git_output(repository: Path, *arguments: str, label: str) -> bytes:
+    """Read recorded Git objects without consulting mutable replace refs."""
+
+    try:
+        result = subprocess.run(
+            ("git", "--no-replace-objects", "-C", str(repository), *arguments),
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise S7StreamingMaterializationError(f"cannot replay historical Git {label}") from exc
+    if result.returncode != 0:
+        raise S7StreamingMaterializationError(f"cannot replay historical Git {label}")
+    return result.stdout
+
+
+def _verify_recorded_streaming_runtime_binding(value: Mapping[str, object]) -> None:
+    """Replay the frozen streaming runtime from its exact historical Git objects."""
+
+    binding = _mapping(value, "recorded streaming runtime binding")
+    _validate_runtime_binding(binding)
+    repository = _repository_root()
+    commit = _git_identifier(
+        _text(binding["repository_commit"], "recorded runtime commit").encode(),
+        "recorded runtime commit",
+    )
+    expected_tree = _git_identifier(
+        _text(binding["repository_tree"], "recorded runtime tree").encode(),
+        "recorded runtime tree",
+    )
+    object_type = (
+        _historical_git_output(
+            repository,
+            "cat-file",
+            "-t",
+            commit,
+            label="commit type",
+        )
+        .decode("ascii", errors="strict")
+        .strip()
+    )
+    observed_tree = _git_identifier(
+        _historical_git_output(
+            repository,
+            "rev-parse",
+            f"{commit}^{{tree}}",
+            label="commit tree",
+        ),
+        "recorded runtime tree",
+    )
+    if object_type != "commit" or observed_tree != expected_tree:
+        raise S7StreamingMaterializationError("recorded streaming runtime commit/tree differs")
+    for raw in _array(binding["runtime_files"], "recorded runtime files"):
+        item = _mapping(raw, "recorded runtime file")
+        relative = _relative(item["path"], "recorded runtime file path")
+        entry = (
+            _historical_git_output(
+                repository,
+                "ls-tree",
+                commit,
+                "--",
+                relative,
+                label=f"entry {relative}",
+            )
+            .decode("utf-8", errors="strict")
+            .strip()
+        )
+        try:
+            metadata, tracked_path = entry.split("\t", 1)
+            mode, object_kind, blob = metadata.split(" ", 2)
+        except ValueError as exc:
+            raise S7StreamingMaterializationError(
+                f"recorded streaming runtime entry differs: {relative}"
+            ) from exc
+        expected_blob = _git_identifier(
+            _text(item["git_blob"], "recorded runtime blob").encode(),
+            "recorded runtime blob",
+        )
+        resolved_blob = _git_identifier(
+            _historical_git_output(
+                repository,
+                "rev-parse",
+                f"{commit}:{relative}",
+                label=f"blob {relative}",
+            ),
+            f"recorded runtime blob {relative}",
+        )
+        content = _historical_git_output(
+            repository,
+            "show",
+            f"{commit}:{relative}",
+            label=f"bytes {relative}",
+        )
+        if (
+            tracked_path != relative
+            or object_kind != "blob"
+            or mode != _text(item["git_mode"], "recorded runtime mode")
+            or blob != expected_blob
+            or resolved_blob != expected_blob
+            or len(content) != _nonnegative(item["bytes"], "recorded runtime bytes")
+            or hashlib.sha256(content).hexdigest()
+            != _digest(item["sha256"], "recorded runtime SHA-256")
+        ):
+            raise S7StreamingMaterializationError(
+                f"recorded streaming runtime mode/blob/bytes differ: {relative}"
+            )
+
+
+def _verify_bound_execution_runtime(
+    binding: S7StreamingSourceBinding,
+    *,
+    execution_runtime_binding: object,
+    runtime_probe: Callable[[], Mapping[str, object]],
+) -> None:
+    """Bind new S7.5 execution code separately from its historical source code."""
+
+    if binding.mode == "production" and binding.incremental_session_extension is not None:
+        if execution_runtime_binding is None:
+            raise S7StreamingMaterializationError(
+                "S7.5 Full execution runtime binding is unavailable"
+            )
+        expected_execution = _mapping(
+            execution_runtime_binding,
+            "S7.5 Full execution runtime binding",
+        )
+        _validate_runtime_binding(expected_execution)
+        current = dict(runtime_probe())
+        _validate_runtime_binding(current)
+        if current != dict(expected_execution):
+            raise S7StreamingMaterializationError("S7.5 Full execution runtime differs")
+        _verify_recorded_streaming_runtime_binding(binding.runtime_binding)
+        return
+    if execution_runtime_binding is not None:
+        raise S7StreamingMaterializationError(
+            "legacy Full execution unexpectedly carries a second runtime binding"
+        )
+    current = dict(runtime_probe())
+    _validate_runtime_binding(current)
+    if current != dict(binding.runtime_binding):
+        raise S7StreamingMaterializationError("runtime Git/source binding differs")
 
 
 def _git_identifier(content: bytes, label: str) -> str:
