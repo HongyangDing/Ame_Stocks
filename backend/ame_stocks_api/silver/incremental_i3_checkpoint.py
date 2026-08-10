@@ -47,7 +47,7 @@ _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _FIGI = re.compile(r"^BBG[0-9A-Z]{9}$")
 _CIK = re.compile(r"^[0-9]{10}$")
 _TOKEN = re.compile(r"^[a-z][a-z0-9_]*$")
-_TICKER = re.compile(r"^[A-Z0-9][A-Z0-9.\-/]{0,31}$")
+_TICKER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.\-/]{0,31}$")
 
 
 class I3CheckpointError(ValueError):

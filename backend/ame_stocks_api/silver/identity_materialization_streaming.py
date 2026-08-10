@@ -921,6 +921,7 @@ class S7StreamingSourceBinding:
                 or artifacts[-1] != extension.membership_artifact
                 or artifacts[-1].session_date <= base_artifacts[-1].session_date
                 or self.cutoff_session < artifacts[-1].session_date
+                or self.cutoff_session < extension.receipt_available_session
             )
             if invalid_base or invalid_extension:
                 raise S7StreamingMaterializationError("production S4 membership scope differs")
@@ -2397,6 +2398,7 @@ def build_and_store_s75_incremental_full_source_binding(
     )
     binding = replace(
         base,
+        cutoff_session=max(base.cutoff_session, extension.receipt_available_session),
         membership_artifacts=(*base.membership_artifacts, extension.membership_artifact),
         incremental_session_extension=extension,
     )

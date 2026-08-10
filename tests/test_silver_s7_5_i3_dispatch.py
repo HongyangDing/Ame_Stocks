@@ -27,6 +27,7 @@ from ame_stocks_api.silver.incremental_i3_dispatch import (
     I3DispatchError,
     IdentityObservation,
     IdentityPolicySnapshot,
+    RegistrySourceScopeRow,
     SourceCoverageSlot,
     _dispatch_i3_identity_window_from_verified_batch,
     _verify_i3_identity_policy_snapshot_for_batch,
@@ -239,6 +240,29 @@ def _observation(
         source_record_id=_digest(source_label),
         active_on_date=active_on_date,
     )
+
+
+def test_dispatch_preserves_exact_mixed_case_provider_ticker() -> None:
+    observation = replace(
+        _observation(_SESSIONS[-1], _A, "US", source_label="mixed-case"),
+        ticker="AVKrw",
+    )
+    scope = RegistrySourceScopeRow(
+        session_date=observation.session_date,
+        source_record_id=observation.source_record_id,
+        source_dataset="asset_observation_daily",
+        source_s4_release_set_id=_digest("s4-release"),
+        provider_id=observation.provider_id,
+        provider_market=observation.provider_market,
+        provider_locale=observation.provider_locale,
+        ticker=observation.ticker,
+        observed_composite_figi=observation.observed_composite_figi,
+        observed_share_class_figi=observation.observed_share_class_figi,
+        primary_exchange_mic=observation.primary_exchange,
+    )
+
+    assert observation.ticker == "AVKrw"
+    assert scope.ticker == "AVKrw"
 
 
 def _coverage(

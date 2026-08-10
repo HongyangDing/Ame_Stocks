@@ -160,6 +160,46 @@ def test_extension_loader_rejects_tampered_membership_contract(
         )
 
 
+def test_extension_builder_advances_cutoff_to_authenticated_i2_availability(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    extension, _delta_inputs, _run_spec, _membership = _authority_fixture()
+    extension = replace(extension, receipt_available_session=date(2026, 8, 5))
+    base = SimpleNamespace(
+        cutoff_session=date(2026, 7, 29),
+        membership_artifacts=(
+            replace(extension.membership_artifact, session_date=date(2026, 7, 9)),
+        ),
+    )
+    captured: dict[str, object] = {}
+
+    def fake_replace(value: object, **changes: object) -> SimpleNamespace:
+        assert value is base
+        captured.update(changes)
+        return SimpleNamespace(**{**vars(base), **changes})
+
+    stored = SimpleNamespace(object_id=_digest("stored-extension"))
+    monkeypatch.setattr(stream, "_load_source_binding", lambda *_args: (base, object()))
+    monkeypatch.setattr(
+        stream, "_authenticate_historical_production_binding", lambda *_args: object()
+    )
+    monkeypatch.setattr(
+        stream, "_load_s75_incremental_session_extension", lambda *_args, **_kwargs: extension
+    )
+    monkeypatch.setattr(stream, "replace", fake_replace)
+    monkeypatch.setattr(stream, "_verify_loaded_registry_set", lambda *_args: None)
+    monkeypatch.setattr(stream, "_store_verified_streaming_source_binding", lambda *_args: stored)
+
+    binding, receipt = stream.build_and_store_s75_incremental_full_source_binding(
+        tmp_path,
+        base_source_binding_id=_digest("base-binding"),
+    )
+
+    assert captured["cutoff_session"] == extension.receipt_available_session
+    assert binding.cutoff_session == extension.receipt_available_session
+    assert receipt is stored
+
+
 def test_bounded_profile_sample_uses_base_rows_and_drops_extension_authority() -> None:
     extension, _delta_inputs, _run_spec, _membership = _authority_fixture()
     base_membership = replace(

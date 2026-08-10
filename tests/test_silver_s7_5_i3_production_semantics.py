@@ -29,12 +29,12 @@ def _append_fields() -> dict[str, object]:
     }
 
 
-def test_transform_semantics_v7_seals_bounded_base_and_every_delta_rule() -> None:
+def test_transform_semantics_v8_seals_bounded_base_and_every_delta_rule() -> None:
     assert semantics.I3_PRODUCTION_TRANSFORM_SEMANTICS_RULE_VERSION == (
-        "s7_5_i3_production_transform_semantics_v7"
+        "s7_5_i3_production_transform_semantics_v8"
     )
     assert semantics.I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST == (
-        "fbc70e3b4c2c9708ce1b343f2a4d893761c3f2ee47c136271517cb2c361e3408"
+        "417ff8254ca27e7e70162d8a9563c89a104340146e0a8ddb562d61bdaf9c3d37"
     )
     assert semantics.I3_COMPACT_BASE_INPUT_BINDING_RULE_VERSION == (
         "s7_5_i3_compact_base_exact_input_binding_v3"

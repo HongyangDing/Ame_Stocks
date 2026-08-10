@@ -298,6 +298,16 @@ def _checkpoint() -> I3CheckpointState:
     )
 
 
+def test_checkpoint_preserves_exact_mixed_case_provider_tickers() -> None:
+    checkpoint = _checkpoint()
+
+    asset = replace(checkpoint.asset_aggregates[0], observed_tickers=("AANw",))
+    issuer = replace(checkpoint.issuer_aggregates[0], observed_tickers=("BF.Aw",))
+
+    assert asset.observed_tickers == ("AANw",)
+    assert issuer.observed_tickers == ("BF.Aw",)
+
+
 def _pin_bytes(path: str, content: bytes) -> ArtifactPin:
     return ArtifactPin(path=path, sha256=hashlib.sha256(content).hexdigest(), bytes=len(content))
 

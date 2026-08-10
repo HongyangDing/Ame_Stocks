@@ -348,6 +348,14 @@ def test_i3_observation_projection_and_us_exact_group_are_closed() -> None:
         ExactIdentityGroup("massive", "stocks", "ca", "AAPL")
 
 
+def test_i4_exact_group_preserves_mixed_case_provider_ticker() -> None:
+    source = replace(_source(), ticker="AANw")
+    group = ExactIdentityGroup("massive", "stocks", "us", "AANw")
+
+    assert group.matches(source)
+    assert source.ticker == "AANw"
+
+
 def test_alias_scope_stops_at_first_reproduced_i3_open_alias_frontier() -> None:
     checkpoint = _checkpoint()
     group = ExactIdentityGroup("massive", "stocks", "us", "AAPL")
