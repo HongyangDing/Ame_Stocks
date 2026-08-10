@@ -826,10 +826,10 @@ class _LoadedReleaseAuthority:
 class ResearchParentAnchor:
     """Exact immutable import of the research selector that predates I6.
 
-    I6 never creates this authority.  A deployment migration may freeze the
-    already-published research parent once, after which Gate C binds its exact
-    event/release/revision.  Keeping this parser here lets failed cutovers read
-    the old parent without granting shadow output research visibility.
+    The production initializer may freeze the already-published research
+    parent once, after which Gate C binds its exact event/release/revision.
+    Keeping this parser here lets failed cutovers read the old parent without
+    granting shadow output research visibility.
     """
 
     event_id: str
@@ -1221,6 +1221,90 @@ def read_research_pointer(data_root: Path) -> ResolvedPointerView:
     """Resolve only the research selector; shadow/pending output is invisible."""
 
     return _read_visible_pointer(_root(data_root), RESEARCH_POINTER_NAME)
+
+
+def initialize_research_parent(
+    data_root: Path,
+    *,
+    release_chain: ReleaseChainBinding,
+    source_publication_artifact: ArtifactPin,
+) -> ResolvedPointerView:
+    """Import the exact published BASE as the one immutable research root.
+
+    This can only create revision one and can only select the BASE in a fully
+    replayed BASE-to-DELTA chain.  A different existing selector is never
+    replaced or adopted implicitly.
+    """
+
+    root = _root(data_root)
+    chain = _load_release_chain_exact(root, release_chain)
+    base = _load_release_authority_exact(root, release_chain.base)
+    if base.resolved != chain.base or base.run_spec.run_kind is not I3ProductionRunKind.BASE:
+        raise I6PointerRuntimeError("research-parent authority is not the exact BASE")
+    if source_publication_artifact != base.run_spec.i0_oracle.artifact:
+        raise I6PointerRuntimeError("research-parent source publication differs from BASE")
+    _ExactReader(root).read_pin(
+        source_publication_artifact,
+        label="research-parent source publication",
+    )
+    available = max(
+        base.run_spec.i0_oracle.available_session,
+        base.run_spec.run_available_session,
+        base.completion.completion_available_session,
+        base.deep.attestation_available_session,
+    )
+    provisional = ResearchParentAnchor(
+        event_id="0" * 64,
+        release_chain=release_chain,
+        selected_release_id=chain.base.release_id,
+        pointer_revision=1,
+        available_session=available,
+        source_publication_artifact=source_publication_artifact,
+    )
+    anchor = ResearchParentAnchor(
+        event_id=provisional.reproduced_event_id,
+        release_chain=release_chain,
+        selected_release_id=chain.base.release_id,
+        pointer_revision=1,
+        available_session=available,
+        source_publication_artifact=source_publication_artifact,
+    )
+    event_relative = _event_path(RESEARCH_POINTER_NAME, anchor.event_id)
+
+    with _pointer_lock(root, RESEARCH_POINTER_NAME):
+        current = _read_current_optional(root, RESEARCH_POINTER_NAME)
+        if current is not None:
+            if (
+                current.event_id != anchor.event_id
+                or current.event_artifact.path != event_relative
+                or current.release_id != chain.base.release_id
+                or current.pointer_revision != 1
+                or current.updated_session != available
+            ):
+                raise I6PointerRuntimeError("research selector already has another authority")
+            return _read_visible_pointer(root, RESEARCH_POINTER_NAME)
+
+        event_pin = _write_immutable(
+            root,
+            event_relative,
+            anchor.canonical_bytes(),
+            label="research-parent anchor",
+        )
+        replacement = CurrentPointer(
+            pointer_name=RESEARCH_POINTER_NAME,
+            event_id=anchor.event_id,
+            event_artifact=event_pin,
+            release_id=chain.base.release_id,
+            pointer_revision=1,
+            updated_session=available,
+        )
+        _atomic_compare_and_swap_current(
+            root,
+            pointer=RESEARCH_POINTER_NAME,
+            expected=_expectation(None),
+            replacement=replacement,
+        )
+        return _read_visible_pointer(root, RESEARCH_POINTER_NAME)
 
 
 def load_research_top_snapshot_exact(data_root: Path) -> ResearchTopSnapshot:
@@ -3479,6 +3563,7 @@ __all__ = [
     "ResolvedPointerView",
     "ResolvedRelease",
     "ResolvedReleaseChain",
+    "initialize_research_parent",
     "load_research_top_snapshot_exact",
     "prepare_research_cutover",
     "prepare_shadow_publish",

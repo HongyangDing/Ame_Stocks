@@ -6,6 +6,7 @@ import os
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from test_silver_s7_5_i3_production_contract import (
@@ -557,6 +558,139 @@ def test_missing_gate_b_freezes_only_awaiting_package(fx: Fixture) -> None:
     with pytest.raises(runtime.I6PointerRuntimeError, match="awaiting"):
         runtime.stage_shadow_publish(fx.root, package_pin)
     assert not (fx.root / runtime._current_path(runtime.SHADOW_POINTER_NAME)).exists()
+
+
+def test_initialize_research_parent_is_exact_idempotent_and_no_clobber(
+    fx: Fixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = _write(
+        fx.root,
+        "manifests/silver/identity/s7-published/release-set.json",
+        _canonical({"release_id": fx.base.release_id}),
+    )
+    loaded_base = SimpleNamespace(
+        resolved=fx.base,
+        run_spec=SimpleNamespace(
+            run_kind=I3ProductionRunKind.BASE,
+            i0_oracle=SimpleNamespace(
+                artifact=source,
+                available_session=date(2026, 8, 3),
+            ),
+            run_available_session=date(2026, 8, 8),
+        ),
+        completion=SimpleNamespace(completion_available_session=date(2026, 8, 9)),
+        deep=SimpleNamespace(attestation_available_session=date(2026, 8, 10)),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_load_release_authority_exact",
+        lambda _root, binding: (
+            loaded_base
+            if binding == fx.binding.base
+            else pytest.fail("initializer loaded a non-BASE authority")
+        ),
+    )
+
+    first = runtime.initialize_research_parent(
+        fx.root,
+        release_chain=fx.binding,
+        source_publication_artifact=source,
+    )
+    assert first.release_id == fx.base.release_id
+    assert first.pointer_revision == 1
+    assert runtime._read_current_required(
+        fx.root, runtime.RESEARCH_POINTER_NAME
+    ).updated_session == date(2026, 8, 10)
+    event_paths = tuple((fx.root / runtime._EVENT_ROOT).rglob("event.json"))
+    assert len(event_paths) == 1
+    event_bytes = event_paths[0].read_bytes()
+    current_path = fx.root / runtime._current_path(runtime.RESEARCH_POINTER_NAME)
+    current_bytes = current_path.read_bytes()
+
+    assert (
+        runtime.initialize_research_parent(
+            fx.root,
+            release_chain=fx.binding,
+            source_publication_artifact=source,
+        )
+        == first
+    )
+    assert event_paths[0].read_bytes() == event_bytes
+    assert current_path.read_bytes() == current_bytes
+    assert len(tuple((fx.root / runtime._EVENT_ROOT).rglob("event.json"))) == 1
+
+    decoy = _write(
+        fx.root,
+        "manifests/silver/identity/s7-published/decoy.json",
+        (fx.root / source.path).read_bytes(),
+    )
+    with pytest.raises(runtime.I6PointerRuntimeError, match="source publication"):
+        runtime.initialize_research_parent(
+            fx.root,
+            release_chain=fx.binding,
+            source_publication_artifact=decoy,
+        )
+    assert event_paths[0].read_bytes() == event_bytes
+    assert current_path.read_bytes() == current_bytes
+
+
+def test_initialize_research_parent_rejects_hardlink_and_existing_other_selector(
+    fx: Fixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = _write(
+        fx.root,
+        "manifests/silver/identity/s7-published/release-set.json",
+        _canonical({"release_id": fx.base.release_id}),
+    )
+    loaded_base = SimpleNamespace(
+        resolved=fx.base,
+        run_spec=SimpleNamespace(
+            run_kind=I3ProductionRunKind.BASE,
+            i0_oracle=SimpleNamespace(artifact=source, available_session=AVAILABLE),
+            run_available_session=AVAILABLE,
+        ),
+        completion=SimpleNamespace(completion_available_session=AVAILABLE),
+        deep=SimpleNamespace(attestation_available_session=AVAILABLE),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_load_release_authority_exact",
+        lambda _root, _binding: loaded_base,
+    )
+    hardlink = fx.root / "manifests/silver/identity/s7-published/hardlink.json"
+    os.link(fx.root / source.path, hardlink)
+    with pytest.raises(runtime.I6PointerRuntimeError, match="single regular file"):
+        runtime.initialize_research_parent(
+            fx.root,
+            release_chain=fx.binding,
+            source_publication_artifact=source,
+        )
+    assert not (fx.root / runtime._current_path(runtime.RESEARCH_POINTER_NAME)).exists()
+    hardlink.unlink()
+
+    other = runtime.CurrentPointer(
+        pointer_name=runtime.RESEARCH_POINTER_NAME,
+        event_id=_digest("other-anchor"),
+        event_artifact=ArtifactPin(
+            path=runtime._event_path(runtime.RESEARCH_POINTER_NAME, _digest("other-anchor")),
+            sha256=_digest("other-anchor-bytes"),
+            bytes=100,
+        ),
+        release_id=_digest("other-release"),
+        pointer_revision=1,
+        updated_session=AVAILABLE,
+    )
+    current_path = fx.root / runtime._current_path(runtime.RESEARCH_POINTER_NAME)
+    _write(fx.root, runtime._current_path(runtime.RESEARCH_POINTER_NAME), other.canonical_bytes())
+    before = current_path.read_bytes()
+    with pytest.raises(runtime.I6PointerRuntimeError, match="another authority"):
+        runtime.initialize_research_parent(
+            fx.root,
+            release_chain=fx.binding,
+            source_publication_artifact=source,
+        )
+    assert current_path.read_bytes() == before
+    assert not (fx.root / runtime._EVENT_ROOT).exists()
 
 
 def test_first_shadow_publish_is_append_only_idempotent_and_not_research_visible(

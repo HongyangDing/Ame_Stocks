@@ -125,7 +125,7 @@ def test_base_config_exposes_only_exact_inputs_availability_and_caps(tmp_path: P
 
 def test_transform_semantics_golden_binds_bounded_base_and_initial_segment() -> None:
     assert I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST == (
-        "417ff8254ca27e7e70162d8a9563c89a104340146e0a8ddb562d61bdaf9c3d37"
+        "7875b2b942328acaa39b24feff2efc4140ec4e6068eb154fe1efa974024c7e09"
     )
     assert (
         I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD["materialization_rules"]["bounded_aggregation"]

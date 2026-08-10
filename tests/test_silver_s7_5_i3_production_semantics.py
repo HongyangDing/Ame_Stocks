@@ -29,12 +29,12 @@ def _append_fields() -> dict[str, object]:
     }
 
 
-def test_transform_semantics_v8_seals_bounded_base_and_every_delta_rule() -> None:
+def test_transform_semantics_v9_seals_bounded_base_and_every_delta_rule() -> None:
     assert semantics.I3_PRODUCTION_TRANSFORM_SEMANTICS_RULE_VERSION == (
-        "s7_5_i3_production_transform_semantics_v8"
+        "s7_5_i3_production_transform_semantics_v9"
     )
     assert semantics.I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST == (
-        "417ff8254ca27e7e70162d8a9563c89a104340146e0a8ddb562d61bdaf9c3d37"
+        "7875b2b942328acaa39b24feff2efc4140ec4e6068eb154fe1efa974024c7e09"
     )
     assert semantics.I3_COMPACT_BASE_INPUT_BINDING_RULE_VERSION == (
         "s7_5_i3_compact_base_exact_input_binding_v3"
@@ -63,6 +63,12 @@ def test_transform_semantics_v8_seals_bounded_base_and_every_delta_rule() -> Non
         ]
         == semantics.I3_EXACT_CASE_SENSITIVE_TICKER_RULE_VERSION
     )
+    assert (
+        semantics.I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD["materialization_rules"][
+            "distinct_decision_counters"
+        ]
+        == semantics.I3_COMPACT_BASE_DISTINCT_DECISION_COUNTER_RULE_VERSION
+    )
     expected = {
         "append_segment": semantics.I3_PRODUCTION_DELTA_APPEND_SEGMENT_RULE_VERSION,
         "exact_input_binding": semantics.I3_PRODUCTION_DELTA_INPUT_BINDING_RULE_VERSION,
@@ -83,6 +89,7 @@ def test_transform_semantics_v8_seals_bounded_base_and_every_delta_rule() -> Non
     for name in (
         "I3_COMPACT_BASE_AGGREGATE_SESSION_BATCH_CAP",
         "I3_COMPACT_BASE_BOUNDED_AGGREGATION_RULE_VERSION",
+        "I3_COMPACT_BASE_DISTINCT_DECISION_COUNTER_RULE_VERSION",
         "I3_PRODUCTION_DELTA_APPEND_SEGMENT_RULE_VERSION",
         "I3_PRODUCTION_DELTA_IDENTITY_FALLBACK_RULE_VERSION",
         "I3_PRODUCTION_DELTA_INPUT_BINDING_RULE_VERSION",

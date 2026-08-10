@@ -7202,6 +7202,10 @@ def _load_verified_execution_sources(
         )
         rebuilt = replace(
             base,
+            cutoff_session=max(
+                base.cutoff_session,
+                rebuilt_extension.receipt_available_session,
+            ),
             membership_artifacts=(
                 *base.membership_artifacts,
                 rebuilt_extension.membership_artifact,

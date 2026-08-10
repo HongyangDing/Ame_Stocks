@@ -335,10 +335,29 @@ def build_asset_aggregate_state(
 
     _require_fields(legacy_row, "asset_master", v2=False)
     _validate_asset_projection(legacy_row, projection)
-    counters = tuple(
-        AggregateCount(name, _integer(legacy_row[name], f"asset counter {name}"))
-        for name in ASSET_COUNTER_NAMES
+    counter_values = {
+        name: _integer(legacy_row[name], f"asset counter {name}") for name in ASSET_COUNTER_NAMES
+    }
+    # The v1 compatibility row deliberately counted cross-market decisions in
+    # both its provider-contamination total and its dedicated cross-market
+    # total.  Native-v2 checkpoint state stores disjoint complete decision
+    # sets, so only its internal distinct counters are normalized here.  The
+    # materialized v1 projection remains byte-for-byte compatible.
+    counter_values.update(
+        {
+            "cross_market_adjudication_count": len(projection.cross_market_adjudication_ids),
+            "genuine_transition_adjudication_count": len(
+                projection.genuine_transition_identity_adjudication_ids
+            ),
+            "identity_adjudication_count": len(projection.identity_adjudication_ids),
+            "provider_composite_override_count": len(projection.provider_composite_override_ids),
+            "provider_contamination_adjudication_count": len(
+                projection.provider_contamination_identity_adjudication_ids
+            ),
+            "share_class_adjudication_count": len(projection.share_class_adjudication_ids),
+        }
     )
+    counters = tuple(AggregateCount(name, counter_values[name]) for name in ASSET_COUNTER_NAMES)
     canonical_shares = projection.canonical_share_class_figis
     state = AssetAggregateState(
         asset_id=_text(legacy_row["asset_id"], "asset ID"),

@@ -200,6 +200,56 @@ def test_extension_builder_advances_cutoff_to_authenticated_i2_availability(
     assert receipt is stored
 
 
+def test_extension_execution_replay_preserves_authenticated_availability_cutoff(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    extension, _delta_inputs, _run_spec, _membership = _authority_fixture()
+    extension = replace(extension, receipt_available_session=date(2026, 8, 5))
+    base_pin = extension.base_source_binding_manifest
+    base = SimpleNamespace(
+        cutoff_session=date(2026, 7, 29),
+        membership_artifacts=(
+            replace(extension.membership_artifact, session_date=date(2026, 7, 9)),
+        ),
+    )
+    binding = SimpleNamespace(
+        mode="production",
+        incremental_session_extension=extension,
+        gate_b=object(),
+    )
+    registries = object()
+    captured: dict[str, object] = {}
+
+    def fake_replace(value: object, **changes: object) -> object:
+        assert value is base
+        captured.update(changes)
+        return binding
+
+    monkeypatch.setattr(stream, "_load_source_binding", lambda *_args: (base, base_pin))
+    monkeypatch.setattr(
+        stream,
+        "_authenticate_historical_production_binding",
+        lambda *_args: registries,
+    )
+    monkeypatch.setattr(
+        stream,
+        "_load_s75_incremental_session_extension",
+        lambda *_args, **_kwargs: extension,
+    )
+    monkeypatch.setattr(stream, "replace", fake_replace)
+    monkeypatch.setattr(stream, "_load_gate_b_reference", lambda *_args: {})
+
+    loaded, gate_b = stream._load_verified_execution_sources(
+        tmp_path,
+        binding=binding,
+        registry_loader=lambda *_args, **_kwargs: pytest.fail("unexpected registry loader"),
+    )
+
+    assert captured["cutoff_session"] == extension.receipt_available_session
+    assert loaded is registries
+    assert gate_b == {}
+
+
 def test_bounded_profile_sample_uses_base_rows_and_drops_extension_authority() -> None:
     extension, _delta_inputs, _run_spec, _membership = _authority_fixture()
     base_membership = replace(

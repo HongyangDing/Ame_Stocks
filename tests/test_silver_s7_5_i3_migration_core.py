@@ -241,6 +241,36 @@ def test_aggregate_projection_count_mismatch_fails_closed() -> None:
         )
 
 
+def test_cross_market_v1_overlap_is_normalized_only_in_v2_checkpoint_state() -> None:
+    result, _, _, legacy_asset, _ = _legacy_alias_and_masters()
+    cross_market_id = _digest("migration-cross-market-decision")
+    projection = replace(
+        _asset_projection(result),
+        cross_market_adjudication_ids=(cross_market_id,),
+        provider_contamination_identity_adjudication_ids=(),
+    )
+    legacy_asset = dict(legacy_asset)
+    legacy_asset["cross_market_adjudication_count"] = 1
+    legacy_asset["provider_contamination_adjudication_count"] = 1
+
+    state = build_asset_aggregate_state(
+        legacy_asset,
+        projection,
+        migration_available_session=RUN_AVAILABLE,
+    )
+    counters = {item.name: item.value for item in state.counters}
+    assert counters["cross_market_adjudication_count"] == 1
+    assert counters["provider_contamination_adjudication_count"] == 0
+
+    row, _ = materialize_asset_root(
+        legacy_asset,
+        state,
+        available_session=RUN_AVAILABLE,
+    )
+    assert row["cross_market_adjudication_count"] == 1
+    assert row["provider_contamination_adjudication_count"] == 1
+
+
 def test_universe_missing_alias_or_master_version_fails_closed() -> None:
     _, legacy_universe, _, _, _ = _legacy_alias_and_masters()
     with pytest.raises(I3MigrationError, match="alias is absent"):
