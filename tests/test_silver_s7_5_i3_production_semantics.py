@@ -29,12 +29,12 @@ def _append_fields() -> dict[str, object]:
     }
 
 
-def test_transform_semantics_v10_seals_bounded_base_and_every_delta_rule() -> None:
+def test_transform_semantics_v11_seals_bounded_base_and_every_delta_rule() -> None:
     assert semantics.I3_PRODUCTION_TRANSFORM_SEMANTICS_RULE_VERSION == (
-        "s7_5_i3_production_transform_semantics_v10"
+        "s7_5_i3_production_transform_semantics_v11"
     )
     assert semantics.I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST == (
-        "27b8f0d66b35163dd7b7df8e1476fd841b40097bcc0f87f5abad83b1264de82d"
+        "7af7b04fdf2bb64701622e22f6f4d7b0e69d545b2e7f650bab95b0b66baea077"
     )
     assert semantics.I3_COMPACT_BASE_INPUT_BINDING_RULE_VERSION == (
         "s7_5_i3_compact_base_exact_input_binding_v3"
@@ -71,6 +71,12 @@ def test_transform_semantics_v10_seals_bounded_base_and_every_delta_rule() -> No
     )
     assert semantics.I3_COMPACT_BASE_DISTINCT_DECISION_COUNTER_RULE_VERSION == (
         "s7_5_i3_compact_base_distinct_decision_counter_projection_v2"
+    )
+    assert (
+        semantics.I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD["materialization_rules"][
+            "issuer_legacy_counters"
+        ]
+        == semantics.I3_COMPACT_BASE_ISSUER_LEGACY_COUNTER_RULE_VERSION
     )
     expected = {
         "append_segment": semantics.I3_PRODUCTION_DELTA_APPEND_SEGMENT_RULE_VERSION,

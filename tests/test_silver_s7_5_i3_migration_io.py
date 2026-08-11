@@ -692,6 +692,48 @@ def test_base_global_aggregates_are_equivalent_and_never_scan_over_batch_cap(
     assert len(observations) == len(calls)
 
 
+def test_base_issuer_projection_keeps_legacy_counts_out_of_trusted_state(
+    tmp_path: Path,
+) -> None:
+    run_spec, legacy, s4 = _base_fixture(tmp_path)
+    original_pin = legacy.pins_for("universe_daily")[0]
+    original_path = tmp_path / original_pin.artifact.path
+    trusted_row = pq.read_table(original_path).to_pylist()[0]
+    excluded_row = {
+        **trusted_row,
+        "asset_id": stable_digest({"fixture": "excluded-issuer-asset"}),
+        "backtest_identity_eligible": False,
+        "identity_adjudication_id": stable_digest({"fixture": "excluded-issuer-adjudication"}),
+        "identity_disposition": "confirmed_provider_contamination",
+        "ticker": "AAPLp",
+    }
+    combined = _write_parquet(
+        tmp_path,
+        "inputs/s7/data/universe_daily/issuer-legacy-counts.parquet",
+        table_name="universe_daily",
+        rows=[trusted_row, excluded_row],
+        availability_session=original_pin.availability_session,
+        session_date=original_pin.session_date,
+    )
+    s4_path = str(tmp_path / s4.universe_source_partitions[0].artifact.path)
+
+    _, issuer_projections, _ = migration_io._bounded_base_state_projections(
+        (str(tmp_path / combined.artifact.path),),
+        (s4_path,),
+        legacy_release_set_id=legacy.release_set_id,
+        legacy_partition_set_digest=legacy.complete_partition_pin_digest,
+        state_available_session=run_spec.run_available_session,
+    )
+
+    projection = issuer_projections[str(trusted_row["issuer_id"])]
+    assert projection.observed_asset_ids == (trusted_row["asset_id"],)
+    assert projection.observed_tickers == ("AAPL",)
+    assert projection.legacy_observed_asset_ids == tuple(
+        sorted((trusted_row["asset_id"], excluded_row["asset_id"]))
+    )
+    assert projection.legacy_observed_tickers == ("AAPL", "AAPLp")
+
+
 def test_compact_base_mints_sealed_authority_output_and_projection_attestation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

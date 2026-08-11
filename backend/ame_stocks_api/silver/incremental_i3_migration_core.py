@@ -151,10 +151,12 @@ class LegacyAssetAggregateProjection:
 
 @dataclass(frozen=True, slots=True)
 class LegacyIssuerAggregateProjection:
-    """Complete issuer sets needed for safe future incremental updates."""
+    """Issuer sets for native state plus the exact wider v1 count projection."""
 
     observed_asset_ids: tuple[str, ...]
     observed_tickers: tuple[str, ...]
+    legacy_observed_asset_ids: tuple[str, ...]
+    legacy_observed_tickers: tuple[str, ...]
     reference_names: tuple[str, ...]
     sic_codes: tuple[str, ...]
     source_record_seed_digest: str
@@ -163,10 +165,16 @@ class LegacyIssuerAggregateProjection:
         for values, label in (
             (self.observed_asset_ids, "issuer observed asset IDs"),
             (self.observed_tickers, "issuer observed tickers"),
+            (self.legacy_observed_asset_ids, "legacy issuer observed asset IDs"),
+            (self.legacy_observed_tickers, "legacy issuer observed tickers"),
             (self.reference_names, "issuer reference names"),
             (self.sic_codes, "issuer SIC codes"),
         ):
             _sorted_unique(values, label)
+        if not set(self.observed_asset_ids).issubset(self.legacy_observed_asset_ids):
+            raise I3MigrationError("trusted issuer asset IDs are absent from the v1 projection")
+        if not set(self.observed_tickers).issubset(self.legacy_observed_tickers):
+            raise I3MigrationError("trusted issuer tickers are absent from the v1 projection")
         _digest(self.source_record_seed_digest, "issuer source-record seed digest")
 
 
@@ -673,8 +681,8 @@ def _validate_issuer_projection(
     row: Mapping[str, object], projection: LegacyIssuerAggregateProjection
 ) -> None:
     expected = {
-        "observed_asset_count": len(projection.observed_asset_ids),
-        "observed_ticker_count": len(projection.observed_tickers),
+        "observed_asset_count": len(projection.legacy_observed_asset_ids),
+        "observed_ticker_count": len(projection.legacy_observed_tickers),
         "reference_name_variant_count": len(projection.reference_names),
         "sic_code_variant_count": len(projection.sic_codes),
     }

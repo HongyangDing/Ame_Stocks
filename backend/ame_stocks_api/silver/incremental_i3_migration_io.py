@@ -1582,6 +1582,7 @@ def _bounded_base_state_projections(
 
     asset_sets: dict[str, dict[str, set[str]]] = {}
     issuer_sets: dict[str, dict[str, set[str]]] = {}
+    legacy_issuer_sets: dict[str, dict[str, set[str]]] = {}
     last_resolved: dict[str, date] = {}
     base_columns = (
         "asset_id",
@@ -1693,6 +1694,36 @@ def _bounded_base_state_projections(
             if not isinstance(canonical_cik, str) or not canonical_cik:
                 raise I3MigrationIOError("trusted issuer aggregate lacks a canonical CIK")
             bucket = issuer_sets.setdefault(
+                issuer_id,
+                {
+                    "canonical_ciks": set(),
+                    "observed_asset_ids": set(),
+                    "observed_tickers": set(),
+                },
+            )
+            bucket["canonical_ciks"].add(canonical_cik)
+            bucket["observed_asset_ids"].update(_strings(row["observed_asset_ids"]))
+            bucket["observed_tickers"].update(_strings(row["observed_tickers"]))
+
+        # The frozen v1 issuer master counted every observed issuer row,
+        # including rows deliberately excluded from the native-v2 checkpoint
+        # state.  Preserve that wider set only for exact v1 projection QA; it
+        # must never be promoted back into the trusted incremental frontier.
+        legacy_issuers = frame.filter(
+            pl.col("issuer_id").is_not_null() & pl.col("canonical_cik_normalized").is_not_null()
+        )
+        grouped_legacy_issuers = legacy_issuers.group_by(
+            "issuer_id", "canonical_cik_normalized"
+        ).agg(
+            pl.col("asset_id").drop_nulls().unique().sort().alias("observed_asset_ids"),
+            pl.col("ticker").drop_nulls().unique().sort().alias("observed_tickers"),
+        )
+        for row in grouped_legacy_issuers.iter_rows(named=True):
+            issuer_id = str(row["issuer_id"])
+            canonical_cik = row["canonical_cik_normalized"]
+            if not isinstance(canonical_cik, str) or not canonical_cik:
+                raise I3MigrationIOError("legacy issuer aggregate lacks a canonical CIK")
+            bucket = legacy_issuer_sets.setdefault(
                 issuer_id,
                 {
                     "canonical_ciks": set(),
@@ -1842,11 +1873,22 @@ def _bounded_base_state_projections(
         )
 
     issuer_result: dict[str, LegacyIssuerAggregateProjection] = {}
-    for issuer_id in sorted(issuer_sets):
-        values = issuer_sets[issuer_id]
-        canonical_ciks = tuple(sorted(values["canonical_ciks"]))
+    for issuer_id in sorted(legacy_issuer_sets):
+        legacy_values = legacy_issuer_sets[issuer_id]
+        canonical_ciks = tuple(sorted(legacy_values["canonical_ciks"]))
         if len(canonical_ciks) != 1:
             raise I3MigrationIOError("one issuer maps to multiple canonical CIKs")
+        values = issuer_sets.get(
+            issuer_id,
+            {
+                "canonical_ciks": set(),
+                "observed_asset_ids": set(),
+                "observed_tickers": set(),
+            },
+        )
+        trusted_ciks = tuple(sorted(values["canonical_ciks"]))
+        if trusted_ciks and trusted_ciks != canonical_ciks:
+            raise I3MigrationIOError("trusted and legacy issuer CIK projections differ")
         seed = stable_digest(
             {
                 "legacy_partition_set_digest": legacy_partition_set_digest,
@@ -1858,6 +1900,8 @@ def _bounded_base_state_projections(
         issuer_result[issuer_id] = LegacyIssuerAggregateProjection(
             observed_asset_ids=tuple(sorted(values["observed_asset_ids"])),
             observed_tickers=tuple(sorted(values["observed_tickers"])),
+            legacy_observed_asset_ids=tuple(sorted(legacy_values["observed_asset_ids"])),
+            legacy_observed_tickers=tuple(sorted(legacy_values["observed_tickers"])),
             reference_names=tuple(sorted(reference_names.get(canonical_ciks[0], set()))),
             sic_codes=(),
             source_record_seed_digest=seed,

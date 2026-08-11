@@ -32,7 +32,7 @@ from ame_stocks_api.silver.incremental_i3_migration_core import (
     MIGRATION_SOURCE_SEED_RULE_VERSION,
 )
 
-I3_PRODUCTION_TRANSFORM_SEMANTICS_RULE_VERSION: Final = "s7_5_i3_production_transform_semantics_v10"
+I3_PRODUCTION_TRANSFORM_SEMANTICS_RULE_VERSION: Final = "s7_5_i3_production_transform_semantics_v11"
 I3_PRODUCTION_MIGRATION_ID_RULE_VERSION: Final = "s7_5_i3_production_native_v2_migration_id_v1"
 
 # These strings are deliberately defined outside migration_io so the RunSpec
@@ -55,6 +55,9 @@ I3_COMPACT_BASE_BOUNDED_AGGREGATION_RULE_VERSION: Final = (
 )
 I3_COMPACT_BASE_DISTINCT_DECISION_COUNTER_RULE_VERSION: Final = (
     "s7_5_i3_compact_base_distinct_decision_counter_projection_v2"
+)
+I3_COMPACT_BASE_ISSUER_LEGACY_COUNTER_RULE_VERSION: Final = (
+    "s7_5_i3_compact_base_issuer_legacy_counter_projection_v1"
 )
 I3_EXACT_CASE_SENSITIVE_TICKER_RULE_VERSION: Final = (
     "s7_5_i3_exact_case_sensitive_provider_ticker_v2"
@@ -137,6 +140,7 @@ I3_PRODUCTION_TRANSFORM_SEMANTICS_PAYLOAD: Final = {
         "exact_case_sensitive_ticker": I3_EXACT_CASE_SENSITIVE_TICKER_RULE_VERSION,
         "exact_input_binding": I3_COMPACT_BASE_INPUT_BINDING_RULE_VERSION,
         "initial_rowset_segment": I3_COMPACT_BASE_INITIAL_SEGMENT_RULE_VERSION,
+        "issuer_legacy_counters": I3_COMPACT_BASE_ISSUER_LEGACY_COUNTER_RULE_VERSION,
         "partition_receipt": I3_COMPACT_BASE_PARTITION_RECEIPT_RULE_VERSION,
         "row_validator": I3_COMPACT_BASE_ROW_VALIDATOR_RULE_VERSION,
         "s4_terminal_receipt": I3_COMPACT_BASE_S4_TERMINAL_RECEIPT_RULE_VERSION,
@@ -356,6 +360,7 @@ __all__ = [
     "I3_COMPACT_BASE_DISTINCT_DECISION_COUNTER_RULE_VERSION",
     "I3_COMPACT_BASE_INITIAL_SEGMENT_RULE_VERSION",
     "I3_COMPACT_BASE_INPUT_BINDING_RULE_VERSION",
+    "I3_COMPACT_BASE_ISSUER_LEGACY_COUNTER_RULE_VERSION",
     "I3_COMPACT_BASE_PARTITION_RECEIPT_RULE_VERSION",
     "I3_COMPACT_BASE_ROW_VALIDATOR_RULE_VERSION",
     "I3_COMPACT_BASE_S4_TERMINAL_RECEIPT_RULE_VERSION",

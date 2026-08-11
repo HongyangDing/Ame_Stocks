@@ -113,6 +113,8 @@ def _issuer_projection(result) -> LegacyIssuerAggregateProjection:
     return LegacyIssuerAggregateProjection(
         observed_asset_ids=state.observed_asset_ids,
         observed_tickers=state.observed_tickers,
+        legacy_observed_asset_ids=state.observed_asset_ids,
+        legacy_observed_tickers=state.observed_tickers,
         reference_names=state.reference_names,
         sic_codes=state.sic_codes,
         source_record_seed_digest=_digest("migration-issuer-seed"),
@@ -239,6 +241,35 @@ def test_aggregate_projection_count_mismatch_fails_closed() -> None:
             issuer_projection,
             migration_available_session=RUN_AVAILABLE,
         )
+
+
+def test_issuer_v1_counts_are_separate_from_trusted_native_state() -> None:
+    result, _, _, _, legacy_issuer = _legacy_alias_and_masters()
+    trusted = _issuer_projection(result)
+    projection = replace(
+        trusted,
+        legacy_observed_asset_ids=tuple(
+            sorted((trusted.observed_asset_ids[0], _digest("excluded-asset")))
+        ),
+        legacy_observed_tickers=tuple(sorted((trusted.observed_tickers[0], "EXCLUDED"))),
+    )
+    legacy_row = {
+        **legacy_issuer,
+        "observed_asset_count": 2,
+        "observed_ticker_count": 2,
+    }
+
+    state = build_issuer_aggregate_state(
+        legacy_row,
+        projection,
+        migration_available_session=RUN_AVAILABLE,
+    )
+
+    assert state.observed_asset_ids == trusted.observed_asset_ids
+    assert state.observed_tickers == trusted.observed_tickers
+
+    with pytest.raises(I3MigrationError, match="absent from the v1 projection"):
+        replace(trusted, legacy_observed_tickers=())
 
 
 def test_cross_market_v1_overlap_is_normalized_only_in_v2_checkpoint_state() -> None:
