@@ -271,6 +271,63 @@ def test_cross_market_v1_overlap_is_normalized_only_in_v2_checkpoint_state() -> 
     assert row["provider_contamination_adjudication_count"] == 1
 
 
+def test_v1_transition_counter_uses_lineage_relations_while_v2_uses_identity_disposition() -> None:
+    result, _, _, legacy_asset, _ = _legacy_alias_and_masters()
+    genuine_identity_id = _digest("migration-genuine-identity-decision")
+    transition_id = _digest("migration-asset-transition-decision")
+    projection = replace(
+        _asset_projection(result),
+        identity_adjudication_ids=(genuine_identity_id,),
+        genuine_transition_identity_adjudication_ids=(genuine_identity_id,),
+        provider_contamination_identity_adjudication_ids=(),
+        asset_transition_ids=(transition_id,),
+    )
+    legacy_asset = dict(legacy_asset)
+    legacy_asset["identity_adjudication_count"] = 1
+    legacy_asset["genuine_transition_adjudication_count"] = 1
+    legacy_asset["provider_contamination_adjudication_count"] = 0
+
+    state = build_asset_aggregate_state(
+        legacy_asset,
+        projection,
+        migration_available_session=RUN_AVAILABLE,
+    )
+    counters = {item.name: item.value for item in state.counters}
+    assert counters["genuine_transition_adjudication_count"] == 1
+    assert state.genuine_transition_identity_adjudication_ids == (genuine_identity_id,)
+    assert state.asset_transition_ids == (transition_id,)
+
+    row, _ = materialize_asset_root(legacy_asset, state, available_session=RUN_AVAILABLE)
+    assert row["genuine_transition_adjudication_count"] == 1
+
+
+def test_v1_transition_counter_does_not_follow_genuine_identity_disposition() -> None:
+    result, _, _, legacy_asset, _ = _legacy_alias_and_masters()
+    genuine_identity_id = _digest("migration-genuine-identity-without-lineage")
+    projection = replace(
+        _asset_projection(result),
+        identity_adjudication_ids=(genuine_identity_id,),
+        genuine_transition_identity_adjudication_ids=(genuine_identity_id,),
+        provider_contamination_identity_adjudication_ids=(),
+        asset_transition_ids=(),
+    )
+    legacy_asset = dict(legacy_asset)
+    legacy_asset["identity_adjudication_count"] = 1
+    legacy_asset["genuine_transition_adjudication_count"] = 0
+    legacy_asset["provider_contamination_adjudication_count"] = 0
+
+    state = build_asset_aggregate_state(
+        legacy_asset,
+        projection,
+        migration_available_session=RUN_AVAILABLE,
+    )
+    counters = {item.name: item.value for item in state.counters}
+    assert counters["genuine_transition_adjudication_count"] == 1
+
+    row, _ = materialize_asset_root(legacy_asset, state, available_session=RUN_AVAILABLE)
+    assert row["genuine_transition_adjudication_count"] == 0
+
+
 def test_universe_missing_alias_or_master_version_fails_closed() -> None:
     _, legacy_universe, _, _, _ = _legacy_alias_and_masters()
     with pytest.raises(I3MigrationError, match="alias is absent"):

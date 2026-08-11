@@ -45,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--exact-group-candidate-ref-json", type=Path)
     prepare.add_argument("--exact-group-completion-ref-json", type=Path)
     prepare.add_argument("--asset-transition-release-pin-json", type=Path)
+    prepare.add_argument("--predecessor-registry-release-pin-json", type=Path)
 
     publish = subparsers.add_parser("publish-fixed-standing-release")
     publish.add_argument("--data-root", type=Path, required=True)
@@ -120,6 +121,11 @@ def main(argv: list[str] | None = None) -> int:
                 None
                 if args.asset_transition_release_pin_json is None
                 else RegistryReleasePin.from_dict(_load(args.asset_transition_release_pin_json))
+            ),
+            predecessor_registry_release=(
+                None
+                if args.predecessor_registry_release_pin_json is None
+                else RegistryReleasePin.from_dict(_load(args.predecessor_registry_release_pin_json))
             ),
         )
         _print(

@@ -887,7 +887,7 @@ def _native_row(
         identity_method=(
             "approved_identity_adjudication"
             if identity_adjudication_id is not None
-            else "approved_cross_market_adjudication"
+            else "approved_cross_market_provider_contamination_override"
             if cross_market_adjudication_id is not None
             else "source_composite_figi_exact"
         ),

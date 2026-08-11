@@ -4117,14 +4117,17 @@ def _validate_corrected_alias_projection(
 ) -> None:
     resolution = state.resolution
     segment = state.segment
-    legacy_method = {
-        "direct_observed": "source_composite_figi_exact",
-        "approved_genuine_transition": "approved_identity_adjudication",
-        "approved_provider_contamination_override": "approved_identity_adjudication",
-        "approved_cross_market_provider_contamination_override": (
-            "approved_cross_market_adjudication"
+    legacy_methods = {
+        "direct_observed": frozenset({"source_composite_figi_exact"}),
+        "approved_genuine_transition": frozenset({"approved_identity_adjudication"}),
+        "approved_provider_contamination_override": frozenset({"approved_identity_adjudication"}),
+        "approved_cross_market_provider_contamination_override": frozenset(
+            {
+                "approved_cross_market_adjudication",
+                "approved_cross_market_provider_contamination_override",
+            }
         ),
-        "approved_provider_composite_override": "approved_provider_composite_override",
+        "approved_provider_composite_override": frozenset({"approved_provider_composite_override"}),
     }.get(resolution.resolution_method.value)
     legacy_status = {
         "resolved": "resolved_strong",
@@ -4172,7 +4175,6 @@ def _validate_corrected_alias_projection(
             resolution.canonical_cik_normalized,
             "canonical CIK",
         ),
-        (projection.resolution_method, legacy_method, "resolution method"),
         (projection.resolution_status, legacy_status, "resolution status"),
         (projection.disposition, resolution.disposition.value, "disposition"),
         (
@@ -4197,8 +4199,12 @@ def _validate_corrected_alias_projection(
             "alias resolution version ID",
         ),
     )
-    if legacy_method is None:
+    if legacy_methods is None:
         raise I4CorrectionError("corrected alias uses an unsupported production method")
+    if projection.resolution_method not in legacy_methods:
+        raise I4CorrectionError(
+            "corrected OpenAliasState differs from replacement resolution method"
+        )
     for observed, required, label in expected:
         if observed != required:
             raise I4CorrectionError(f"corrected OpenAliasState differs from replacement {label}")

@@ -94,6 +94,17 @@ PRODUCTION_PREREQUISITE_AUTHORIZATION_TYPE: Final = (
 )
 PRODUCTION_INGRESS_ATTESTATION_VERSION: Final = "s7_registry_production_ingress_attestation_v1"
 PRODUCTION_INGRESS_ATTESTATION_TYPE: Final = "s7_registry_production_ingress_attestation"
+S75_I4_CROSS_MARKET_SUCCESSOR_CASE_KEY: Final = (
+    "s7_5_i4_successor:identity_cross_market_adjudication:SBGI"
+)
+S75_I4_CROSS_MARKET_PREDECESSOR_DECISION_ID: Final = (
+    "d7809b5a72b19577bbc5f3f645e521c5130e64afe5ffda1875d7eeeb4c3e3fc4"
+)
+S75_I4_CROSS_MARKET_SUCCESSOR_REASON_CODE: Final = "s7_5_reviewed_lineage_successor"
+S75_I4_CROSS_MARKET_SUCCESSOR_REASON_DETAIL: Final = (
+    "S7.5 reissues the reviewed SBGI adjudication as an explicit versioned "
+    "successor while preserving the adjudicated canonical identity."
+)
 CANONICAL_PRODUCTION_DATA_ROOT: Final = Path("/mnt/HC_Volume_106309665/american_stocks")
 AWAITING_REVIEW: Final = "awaiting_review"
 APPROVED: Final = "approved"
@@ -3939,7 +3950,11 @@ FIXED_DECISION_SCOPE_SPECS: Final[Mapping[str, FixedDecisionScopeSpec]] = Mappin
 def validate_fixed_decision_candidate(candidate: RegistryDecisionCandidate) -> None:
     """Bind the reviewed 3+9 cases without inventing missing source-record IDs."""
 
-    spec = FIXED_DECISION_SCOPE_SPECS.get(candidate.case_key)
+    is_s75_i4_successor = candidate.case_key == S75_I4_CROSS_MARKET_SUCCESSOR_CASE_KEY
+    spec_key = (
+        "identity_cross_market_adjudication:SBGI" if is_s75_i4_successor else candidate.case_key
+    )
+    spec = FIXED_DECISION_SCOPE_SPECS.get(spec_key)
     if spec is None:
         raise RegistryWorkflowError("candidate is not one of the frozen S7 reviewed cases")
     if candidate.registry_name != spec.registry_name:
@@ -3976,6 +3991,10 @@ def validate_fixed_decision_candidate(candidate: RegistryDecisionCandidate) -> N
     ):
         raise RegistryWorkflowError("fixed case Composite mapping changed")
     if candidate.registry_name == RegistryName.IDENTITY_CROSS_MARKET_ADJUDICATION.value:
+        if not is_s75_i4_successor and (
+            candidate.decision_version != 1 or candidate.supersedes_decision_id is not None
+        ):
+            raise RegistryWorkflowError("frozen cross-market root lineage changed")
         if (
             claims.get("share_class_figi") != spec.observed_share_class_figi
             or claims.get("observed_composite_market_code") != spec.observed_market_code
@@ -4003,6 +4022,13 @@ def validate_fixed_decision_candidate(candidate: RegistryDecisionCandidate) -> N
             raise RegistryWorkflowError("fixed inverse case lineage is incomplete")
         if expected_case_count == 1 and role_set != {"contaminated_middle_episode"}:
             raise RegistryWorkflowError("fixed single-day case lineage changed")
+        if is_s75_i4_successor and (
+            candidate.decision_version != 2
+            or candidate.supersedes_decision_id != S75_I4_CROSS_MARKET_PREDECESSOR_DECISION_ID
+            or claims.get("reason_code") != S75_I4_CROSS_MARKET_SUCCESSOR_REASON_CODE
+            or claims.get("reason_detail") != S75_I4_CROSS_MARKET_SUCCESSOR_REASON_DETAIL
+        ):
+            raise RegistryWorkflowError("fixed S7.5 successor lineage changed")
     elif candidate.registry_name == RegistryName.SHARE_CLASS_ADJUDICATION.value:
         if (
             claims.get("observed_share_class_figi") != spec.observed_share_class_figi
@@ -4433,15 +4459,18 @@ def _production_cross_market_identity_case_binding(
     use this exception.
     """
 
+    source_roles = {item.role for item in candidate.source_artifacts}
+    expected_source_roles = {
+        "source_gate_c_candidate_manifest",
+        "source_gate_c_completion_manifest",
+    }
+    if S75_I4_CROSS_MARKET_SUCCESSOR_CASE_KEY in {item.case_key for item in candidate.decisions}:
+        expected_source_roles.add("source_predecessor_registry_release")
     if (
         candidate.registry_name != RegistryName.IDENTITY_CROSS_MARKET_ADJUDICATION.value
         or candidate.production_ingress_artifact is None
         or not candidate.decisions
-        or {item.role for item in candidate.source_artifacts}
-        != {
-            "source_gate_c_candidate_manifest",
-            "source_gate_c_completion_manifest",
-        }
+        or source_roles != expected_source_roles
     ):
         return None
     bindings = {
@@ -4811,10 +4840,13 @@ def _validate_gate_c_registry_scopes(
     }:
         return
     by_role = {item.role: item for item in candidate.source_artifacts}
-    if set(by_role) != {
+    expected_roles = {
         "source_gate_c_candidate_manifest",
         "source_gate_c_completion_manifest",
-    }:
+    }
+    if S75_I4_CROSS_MARKET_SUCCESSOR_CASE_KEY in {item.case_key for item in candidate.decisions}:
+        expected_roles.add("source_predecessor_registry_release")
+    if set(by_role) != expected_roles:
         raise RegistryWorkflowError("episode/cross-market candidate requires the exact Gate C pair")
     from ame_stocks_api.silver.identity_registry_production import (
         IdentityRegistryProductionError,
@@ -4846,8 +4878,13 @@ def _validate_gate_c_registry_scopes(
             )
         return
     for decision in candidate.decisions:
+        source_case_key = (
+            "identity_cross_market_adjudication:SBGI"
+            if decision.case_key == S75_I4_CROSS_MARKET_SUCCESSOR_CASE_KEY
+            else decision.case_key
+        )
         try:
-            scope = loaded.scopes[decision.case_key]
+            scope = loaded.scopes[source_case_key]
         except KeyError as exc:
             raise RegistryWorkflowError("cross-market case is absent from exact Gate C") from exc
         if decision.source_scope != scope:
@@ -6465,6 +6502,10 @@ __all__ = [
     "REGISTRY_ORDER",
     "REQUIRED_CANDIDATE_AUTHORIZATION_ROLES",
     "RUNTIME_BINDING_PATHS",
+    "S75_I4_CROSS_MARKET_PREDECESSOR_DECISION_ID",
+    "S75_I4_CROSS_MARKET_SUCCESSOR_CASE_KEY",
+    "S75_I4_CROSS_MARKET_SUCCESSOR_REASON_CODE",
+    "S75_I4_CROSS_MARKET_SUCCESSOR_REASON_DETAIL",
     "STANDING_AUTHORIZATION_ACTION",
     "STANDING_AUTHORIZATION_CAPABILITIES",
     "STANDING_AUTHORIZATION_LITERAL",

@@ -53,9 +53,14 @@ from ame_stocks_api.silver.identity_registry_workflow import (
     PRODUCTION_INGRESS_ATTESTATION_VERSION,
     REGISTRY_ORDER,
     REQUIRED_CANDIDATE_AUTHORIZATION_ROLES,
+    S75_I4_CROSS_MARKET_PREDECESSOR_DECISION_ID,
+    S75_I4_CROSS_MARKET_SUCCESSOR_CASE_KEY,
+    S75_I4_CROSS_MARKET_SUCCESSOR_REASON_CODE,
+    S75_I4_CROSS_MARKET_SUCCESSOR_REASON_DETAIL,
     ExactArtifactBinding,
     ExactSourceRow,
     ExactSourceScope,
+    LoadedRegistryRelease,
     RegistryCandidateManifest,
     RegistryName,
     RegistryReleasePin,
@@ -89,6 +94,12 @@ from ame_stocks_api.silver.identity_resolution import canonical_asset_id
 from ame_stocks_api.silver.identity_source import S7_S4_RELEASE_SET_ID
 
 PRODUCTION_INGRESS_VERSION: Final = "s7_fixed_registry_production_ingress_v1"
+S75_I4_SUCCESSOR_PRODUCTION_INGRESS_VERSION: Final = (
+    "s7_5_i4_cross_market_successor_production_ingress_v1"
+)
+S75_I4_CROSS_MARKET_PREDECESSOR_RELEASE_ID: Final = (
+    "4dd3c51311392e0c479ecee8ed8954fb91535563b0514240e2988ae40fe04428"
+)
 EVIDENCE_PACKAGE_IMPORT_VERSION: Final = "s7_fixed_external_evidence_import_v1"
 PRODUCTION_PREPARATION_ORDER: Final = (
     RegistryName.ASSET_TRANSITION.value,
@@ -387,6 +398,7 @@ def prepare_fixed_production_request(
     exact_group_candidate: StoredControlDocument | None = None,
     exact_group_completion: StoredControlDocument | None = None,
     asset_transition_release: RegistryReleasePin | None = None,
+    predecessor_registry_release: RegistryReleasePin | None = None,
 ) -> PreparedProductionRegistryRequest:
     """Build and store one fixed production candidate/request without fact inputs.
 
@@ -415,6 +427,22 @@ def prepare_fixed_production_request(
         raise IdentityRegistryProductionError(
             "only provider Composite override may consume an asset-transition release"
         )
+    if predecessor_registry_release is not None:
+        if (
+            registry_name != RegistryName.IDENTITY_CROSS_MARKET_ADJUDICATION.value
+            or predecessor_registry_release.registry_name != registry_name
+            or predecessor_registry_release.release_id != S75_I4_CROSS_MARKET_PREDECESSOR_RELEASE_ID
+        ):
+            raise IdentityRegistryProductionError(
+                "S7.5 successor requires the exact frozen cross-market predecessor release"
+            )
+        predecessor_loaded = load_registry_release(
+            root,
+            predecessor_registry_release,
+            revalidate_current_runtime=False,
+        )
+    else:
+        predecessor_loaded = None
     calendar = load_xnys_calendar_artifact(
         root,
         calendar_artifact_id=CALENDAR_ARTIFACT_ID,
@@ -488,7 +516,25 @@ def prepare_fixed_production_request(
                 "episode/cross-market ingress cannot consume exact-group inputs"
             )
         gate_c = _load_gate_c_source(root, gate_c_completion)
-        source_artifacts = (gate_c.candidate, gate_c.completion)
+        source_artifacts = (
+            gate_c.candidate,
+            gate_c.completion,
+            *(
+                ()
+                if predecessor_registry_release is None
+                else (
+                    ExactArtifactBinding(
+                        role="source_predecessor_registry_release",
+                        artifact_id=predecessor_registry_release.release_id,
+                        path=predecessor_registry_release.manifest_path,
+                        sha256=predecessor_registry_release.manifest_sha256,
+                        bytes=predecessor_registry_release.manifest_bytes,
+                        available_session=(predecessor_registry_release.release_available_session),
+                        embedded_id_field="release_id",
+                    ),
+                )
+            ),
+        )
         evidence_document = _load_external_evidence(
             root,
             external_evidence,
@@ -531,6 +577,7 @@ def prepare_fixed_production_request(
         authorization_artifacts=tuple(candidate_authorizations),
         evidence_import_artifact=imported_evidence.import_receipt,
         asset_transition_release=asset_transition_release,
+        predecessor_registry_release=predecessor_registry_release,
         calendar=calendar,
         runtime_binding=imported_evidence.runtime_binding,
     )
@@ -561,6 +608,11 @@ def prepare_fixed_production_request(
                 candidate_available=candidate_available,
             )
         )
+        if predecessor_loaded is not None:
+            decisions = _append_s75_i4_cross_market_successor(
+                decisions,
+                predecessor_loaded=predecessor_loaded,
+            )
 
     candidate = RegistryCandidateManifest(
         registry_name=registry_name,
@@ -603,6 +655,7 @@ def _record_or_replay_production_ingress_attestation(
     authorization_artifacts: tuple[ExactArtifactBinding, ...],
     evidence_import_artifact: ExactArtifactBinding,
     asset_transition_release: RegistryReleasePin | None,
+    predecessor_registry_release: RegistryReleasePin | None = None,
     calendar: object,
     runtime_binding: RegistryRuntimeBinding,
 ) -> tuple[Mapping[str, object], ExactArtifactBinding]:
@@ -639,6 +692,7 @@ def _record_or_replay_production_ingress_attestation(
         authorization_artifacts=authorization_artifacts,
         evidence_import_artifact=evidence_import_artifact,
         asset_transition_release=asset_transition_release,
+        predecessor_registry_release=predecessor_registry_release,
         runtime_binding=runtime_binding,
     )
     relative_path = _production_ingress_path(registry_name, slot_id)
@@ -652,6 +706,7 @@ def _record_or_replay_production_ingress_attestation(
         expected_authorizations=authorization_artifacts,
         expected_evidence_import=evidence_import_artifact,
         expected_transition_release=asset_transition_release,
+        expected_predecessor_registry_release=predecessor_registry_release,
         expected_runtime_binding=runtime_binding,
         calendar=calendar,
     )
@@ -667,10 +722,17 @@ def _record_or_replay_production_ingress_attestation(
     ]
     if asset_transition_release is not None:
         upstream_sessions.append(asset_transition_release.release_available_session)
+    if predecessor_registry_release is not None:
+        upstream_sessions.append(predecessor_registry_release.release_available_session)
     available_session = max(upstream_sessions)
+    artifact_version = (
+        S75_I4_SUCCESSOR_PRODUCTION_INGRESS_VERSION
+        if predecessor_registry_release is not None
+        else PRODUCTION_INGRESS_ATTESTATION_VERSION
+    )
     logical: dict[str, object] = {
         "artifact_type": PRODUCTION_INGRESS_ATTESTATION_TYPE,
-        "artifact_version": PRODUCTION_INGRESS_ATTESTATION_VERSION,
+        "artifact_version": artifact_version,
         "asset_transition_release": (
             None if asset_transition_release is None else asset_transition_release.to_dict()
         ),
@@ -684,6 +746,11 @@ def _record_or_replay_production_ingress_attestation(
         "evidence_artifacts": [item.to_dict() for item in evidence_artifacts],
         "evidence_import_artifact": evidence_import_artifact.to_dict(),
         "ingress_slot_id": slot_id,
+        **(
+            {}
+            if predecessor_registry_release is None
+            else {"predecessor_registry_release": predecessor_registry_release.to_dict()}
+        ),
         "production_data_root": root.as_posix(),
         "registry_name": registry_name,
         "runtime_binding": runtime_binding.to_dict(),
@@ -709,6 +776,7 @@ def _record_or_replay_production_ingress_attestation(
             expected_authorizations=authorization_artifacts,
             expected_evidence_import=evidence_import_artifact,
             expected_transition_release=asset_transition_release,
+            expected_predecessor_registry_release=predecessor_registry_release,
             expected_runtime_binding=runtime_binding,
             calendar=calendar,
         )
@@ -734,6 +802,7 @@ def _record_or_replay_production_ingress_attestation(
         expected_authorizations=authorization_artifacts,
         expected_evidence_import=evidence_import_artifact,
         expected_transition_release=asset_transition_release,
+        expected_predecessor_registry_release=predecessor_registry_release,
         expected_runtime_binding=runtime_binding,
         calendar=calendar,
     )
@@ -754,12 +823,18 @@ def _production_ingress_slot_id(
     authorization_artifacts: tuple[ExactArtifactBinding, ...],
     evidence_import_artifact: ExactArtifactBinding,
     asset_transition_release: RegistryReleasePin | None,
+    predecessor_registry_release: RegistryReleasePin | None = None,
     runtime_binding: RegistryRuntimeBinding,
 ) -> str:
+    artifact_version = (
+        S75_I4_SUCCESSOR_PRODUCTION_INGRESS_VERSION
+        if predecessor_registry_release is not None
+        else PRODUCTION_INGRESS_ATTESTATION_VERSION
+    )
     return stable_digest(
         {
             "artifact_type": PRODUCTION_INGRESS_ATTESTATION_TYPE,
-            "artifact_version": PRODUCTION_INGRESS_ATTESTATION_VERSION,
+            "artifact_version": artifact_version,
             "asset_transition_release": (
                 None if asset_transition_release is None else asset_transition_release.to_dict()
             ),
@@ -769,6 +844,11 @@ def _production_ingress_slot_id(
             "contract_pin": dict(contract_pin),
             "evidence_artifacts": [item.to_dict() for item in evidence_artifacts],
             "evidence_import_artifact": evidence_import_artifact.to_dict(),
+            **(
+                {}
+                if predecessor_registry_release is None
+                else {"predecessor_registry_release": predecessor_registry_release.to_dict()}
+            ),
             "production_data_root": root.as_posix(),
             "registry_name": registry_name,
             "runtime_binding_id": runtime_binding.runtime_binding_id,
@@ -796,6 +876,7 @@ def _load_existing_production_ingress_attestation(
     expected_authorizations: tuple[ExactArtifactBinding, ...],
     expected_evidence_import: ExactArtifactBinding,
     expected_transition_release: RegistryReleasePin | None,
+    expected_predecessor_registry_release: RegistryReleasePin | None = None,
     expected_runtime_binding: RegistryRuntimeBinding,
     calendar: object,
 ) -> tuple[Mapping[str, object], ExactArtifactBinding] | None:
@@ -831,6 +912,7 @@ def _load_existing_production_ingress_attestation(
         expected_authorizations=expected_authorizations,
         expected_evidence_import=expected_evidence_import,
         expected_transition_release=expected_transition_release,
+        expected_predecessor_registry_release=expected_predecessor_registry_release,
         expected_runtime_binding=expected_runtime_binding,
         calendar=calendar,
         revalidate_runtime=True,
@@ -851,6 +933,7 @@ def _validate_production_ingress_attestation(
     expected_authorizations: tuple[ExactArtifactBinding, ...],
     expected_evidence_import: ExactArtifactBinding,
     expected_transition_release: RegistryReleasePin | None,
+    expected_predecessor_registry_release: RegistryReleasePin | None = None,
     expected_runtime_binding: RegistryRuntimeBinding | None,
     calendar: object,
     revalidate_runtime: bool,
@@ -875,6 +958,8 @@ def _validate_production_ingress_attestation(
         "runtime_binding",
         "source_artifacts",
     }
+    if expected_predecessor_registry_release is not None:
+        expected_keys.add("predecessor_registry_release")
     if set(document) != expected_keys:
         raise IdentityRegistryProductionError("production ingress attestation fields changed")
     if _canonical_control_bytes(document) != content:
@@ -898,6 +983,11 @@ def _validate_production_ingress_attestation(
         if document["asset_transition_release"] is None
         else RegistryReleasePin.from_dict(document["asset_transition_release"])
     )
+    predecessor = (
+        None
+        if document.get("predecessor_registry_release") is None
+        else RegistryReleasePin.from_dict(document["predecessor_registry_release"])
+    )
     evidence_import = ExactArtifactBinding.from_dict(document["evidence_import_artifact"])
     runtime_binding = RegistryRuntimeBinding.from_dict(document["runtime_binding"])
     created_at = _parse_utc(str(document["created_at_utc"]))
@@ -912,6 +1002,7 @@ def _validate_production_ingress_attestation(
         authorization_artifacts=authorizations,
         evidence_import_artifact=evidence_import,
         asset_transition_release=transition,
+        predecessor_registry_release=predecessor,
         runtime_binding=runtime_binding,
     )
     logical = {key: value for key, value in document.items() if key != "attestation_id"}
@@ -924,12 +1015,19 @@ def _validate_production_ingress_attestation(
     ]
     if transition is not None:
         upstream_sessions.append(transition.release_available_session)
+    if predecessor is not None:
+        upstream_sessions.append(predecessor.release_available_session)
+    expected_artifact_version = (
+        S75_I4_SUCCESSOR_PRODUCTION_INGRESS_VERSION
+        if predecessor is not None
+        else PRODUCTION_INGRESS_ATTESTATION_VERSION
+    )
     if (
         not is_canonical_production_data_root(root)
         or getattr(calendar, "calendar_artifact_id", None) != CALENDAR_ARTIFACT_ID
         or getattr(calendar, "sha256", None) != CALENDAR_ARTIFACT_SHA256
         or document["artifact_type"] != PRODUCTION_INGRESS_ATTESTATION_TYPE
-        or document["artifact_version"] != PRODUCTION_INGRESS_ATTESTATION_VERSION
+        or document["artifact_version"] != expected_artifact_version
         or document["attestation_id"] != artifact.artifact_id
         or document["attestation_id"] != stable_digest(logical)
         or document["authorization_effect"] != "none_provenance_only"
@@ -947,9 +1045,27 @@ def _validate_production_ingress_attestation(
         or authorizations != expected_authorizations
         or evidence_import != expected_evidence_import
         or transition != expected_transition_release
+        or predecessor != expected_predecessor_registry_release
         or (expected_runtime_binding is not None and runtime_binding != expected_runtime_binding)
     ):
         raise IdentityRegistryProductionError("production ingress attestation binding changed")
+    if predecessor is not None:
+        expected_predecessor_binding = ExactArtifactBinding(
+            role="source_predecessor_registry_release",
+            artifact_id=predecessor.release_id,
+            path=predecessor.manifest_path,
+            sha256=predecessor.manifest_sha256,
+            bytes=predecessor.manifest_bytes,
+            available_session=predecessor.release_available_session,
+            embedded_id_field="release_id",
+        )
+        if (
+            expected_registry_name != RegistryName.IDENTITY_CROSS_MARKET_ADJUDICATION.value
+            or predecessor.release_id != S75_I4_CROSS_MARKET_PREDECESSOR_RELEASE_ID
+            or tuple(item for item in sources if item.role == expected_predecessor_binding.role)
+            != (expected_predecessor_binding,)
+        ):
+            raise IdentityRegistryProductionError("S7.5 predecessor release source binding changed")
     evidence_type = (
         "identity_exact_group_external_evidence"
         if expected_registry_name in _RELATION_REGISTRIES
@@ -994,6 +1110,11 @@ def validate_production_candidate_rebuild(
         if document.get("asset_transition_release") is None
         else RegistryReleasePin.from_dict(document["asset_transition_release"])
     )
+    predecessor = (
+        None
+        if document.get("predecessor_registry_release") is None
+        else RegistryReleasePin.from_dict(document["predecessor_registry_release"])
+    )
     evidence_import = ExactArtifactBinding.from_dict(document.get("evidence_import_artifact"))
     calendar = load_xnys_calendar_artifact(
         root,
@@ -1012,6 +1133,7 @@ def validate_production_candidate_rebuild(
         expected_authorizations=candidate.authorization_artifacts,
         expected_evidence_import=evidence_import,
         expected_transition_release=transition,
+        expected_predecessor_registry_release=predecessor,
         expected_runtime_binding=None,
         calendar=calendar,
         revalidate_runtime=revalidate_current_runtime,
@@ -1068,6 +1190,16 @@ def validate_production_candidate_rebuild(
                 evidence_document=evidence_document,
                 candidate_available=candidate.candidate_available_session,
             )
+            if predecessor is not None:
+                predecessor_loaded = load_registry_release(
+                    root,
+                    predecessor,
+                    revalidate_current_runtime=False,
+                )
+                rebuilt = _append_s75_i4_cross_market_successor(
+                    rebuilt,
+                    predecessor_loaded=predecessor_loaded,
+                )
     if tuple(sorted(rebuilt, key=lambda item: item.decision_id)) != candidate.decisions:
         raise IdentityRegistryProductionError(
             "production candidate decisions differ from fixed ingress rebuild"
@@ -1301,6 +1433,119 @@ def _build_cross_market_decisions(
             )
         )
     return tuple(decisions)
+
+
+def _append_s75_i4_cross_market_successor(
+    decisions: tuple[object, ...],
+    *,
+    predecessor_loaded: LoadedRegistryRelease,
+) -> tuple[object, ...]:
+    """Append the one fixed S7.5 SBGI successor from an exact published release."""
+
+    if (
+        predecessor_loaded.registry_name != RegistryName.IDENTITY_CROSS_MARKET_ADJUDICATION.value
+        or predecessor_loaded.release_id != S75_I4_CROSS_MARKET_PREDECESSOR_RELEASE_ID
+        or len(decisions) != 9
+        or {item.decision_id for item in decisions} != set(predecessor_loaded.decision_rows)
+    ):
+        raise IdentityRegistryProductionError(
+            "S7.5 predecessor release differs from the fixed nine-decision baseline"
+        )
+    try:
+        predecessor = next(
+            item for item in decisions if item.case_key == "identity_cross_market_adjudication:SBGI"
+        )
+    except StopIteration as exc:  # pragma: no cover - fixed source invariant
+        raise IdentityRegistryProductionError("S7.5 predecessor lacks SBGI") from exc
+    if (
+        predecessor.decision_id != S75_I4_CROSS_MARKET_PREDECESSOR_DECISION_ID
+        or predecessor.decision_version != 1
+        or predecessor.supersedes_decision_id is not None
+        or predecessor_loaded.source_scopes[predecessor.decision_id] != predecessor.source_scope
+    ):
+        raise IdentityRegistryProductionError("S7.5 SBGI predecessor lineage changed")
+    released_row = predecessor_loaded.decision_rows[predecessor.decision_id]
+    if (
+        released_row.get("decision_version") != 1
+        or released_row.get("supersedes_cross_market_adjudication_id") is not None
+        or released_row.get("observed_ticker") != "SBGI"
+    ):
+        raise IdentityRegistryProductionError("published SBGI predecessor row changed")
+
+    claims = predecessor.frozen_row_claims
+    try:
+        case_ids = json.loads(str(claims["related_identity_case_ids_json"]))
+        case_roles = json.loads(str(claims["related_identity_case_roles_json"]))
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise IdentityRegistryProductionError("SBGI linked identity cases are invalid") from exc
+    if (
+        not isinstance(case_ids, list)
+        or not isinstance(case_roles, dict)
+        or set(case_ids) != set(case_roles)
+    ):
+        raise IdentityRegistryProductionError("SBGI linked identity cases changed")
+    linked = tuple(
+        LinkedIdentityCase(
+            identity_case_id=str(case_id),
+            role=IdentityCaseResolutionRole(str(case_roles[case_id])),
+        )
+        for case_id in sorted(case_ids)
+    )
+    approved = ApprovedCrossMarketAdjudication(
+        provider_id=str(claims["provider_id"]),
+        provider_market=str(claims["provider_market"]),
+        provider_locale=str(claims["provider_locale"]),
+        ticker="SBGI",
+        share_class_figi=str(claims["share_class_figi"]),
+        observed_foreign_composite_figi=str(claims["observed_foreign_composite_figi"]),
+        disposition=CrossMarketAdjudicationDisposition(str(claims["identity_disposition"])),
+        canonical_us_composite_figi=str(claims["canonical_us_composite_figi"]),
+        observed_composite_market_code=str(claims["observed_composite_market_code"]),
+        canonical_composite_market_code=str(claims["canonical_composite_market_code"]),
+        valid_from_session=date.fromisoformat(str(claims["valid_from_session"])),
+        valid_through_session=date.fromisoformat(str(claims["valid_through_session"])),
+        scoped_source_record_ids=predecessor.source_scope.source_record_ids,
+        source_s4_release_set_id=str(claims["source_s4_release_set_id"]),
+        source_six_release_binding_id=str(claims["source_six_release_binding_id"]),
+        source_market_consistency_candidate_manifest_id=str(
+            claims["source_identity_market_consistency_candidate_manifest_id"]
+        ),
+        source_market_consistency_candidate_manifest_sha256=str(
+            claims["source_identity_market_consistency_candidate_manifest_sha256"]
+        ),
+        candidate_available_session=date.fromisoformat(str(claims["candidate_available_session"])),
+        source_external_evidence_manifest_id=str(claims["source_external_evidence_manifest_id"]),
+        source_external_evidence_manifest_sha256=str(
+            claims["source_external_evidence_manifest_sha256"]
+        ),
+        external_evidence_available_session=date.fromisoformat(
+            str(claims["external_evidence_available_session"])
+        ),
+        approval_receipt_id=_PLACEHOLDER_DIGEST,
+        approval_receipt_sha256=_PLACEHOLDER_DIGEST,
+        approved_by="pending_immutable_registry_approval",
+        approved_at_utc=datetime(2000, 1, 3, tzinfo=UTC),
+        approval_available_session=date(2000, 1, 4),
+        decision_version=2,
+        supersedes_cross_market_adjudication_id=predecessor.decision_id,
+        linked_identity_cases=linked,
+        reason_code=S75_I4_CROSS_MARKET_SUCCESSOR_REASON_CODE,
+        reason_detail=S75_I4_CROSS_MARKET_SUCCESSOR_REASON_DETAIL,
+    )
+    row = _cross_market_row(
+        approved,
+        scope=predecessor.source_scope,
+        detector_preview_id=str(claims["source_identity_case_candidate_manifest_id"]),
+        detector_preview_sha256=str(claims["source_identity_case_candidate_manifest_sha256"]),
+        evidence_claim_digest=str(claims["evidence_claim_digest"]),
+    )
+    successor = create_registry_decision_candidate(
+        registry_name=RegistryName.IDENTITY_CROSS_MARKET_ADJUDICATION.value,
+        case_key=S75_I4_CROSS_MARKET_SUCCESSOR_CASE_KEY,
+        proposed_contract_row=row,
+        source_scope=predecessor.source_scope,
+    )
+    return (*decisions, successor)
 
 
 def _cross_market_row(

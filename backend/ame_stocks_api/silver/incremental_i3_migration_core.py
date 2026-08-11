@@ -628,15 +628,20 @@ def _resolution_shape(
 def _validate_asset_projection(
     row: Mapping[str, object], projection: LegacyAssetAggregateProjection
 ) -> None:
+    # The frozen v1 materializer populated the historically named
+    # ``genuine_transition_adjudication_count`` from ``asset_transition_ids``
+    # (lineage-only relation decisions), not from identity-adjudication
+    # dispositions. Native-v2 separates those two domains: its internal
+    # counter is normalized from genuine identity decisions in
+    # ``build_asset_aggregate_state``, while this guard validates the exact v1
+    # projection against the lineage relation set that produced it.
     expected = {
         "observed_ticker_count": len(projection.observed_tickers),
         "observed_composite_figi_count": len(projection.observed_composite_figis),
         "observed_share_class_figi_count": len(projection.observed_share_class_figis),
         "observed_issuer_count": len(projection.observed_issuer_ids),
         "identity_adjudication_count": len(projection.identity_adjudication_ids),
-        "genuine_transition_adjudication_count": len(
-            projection.genuine_transition_identity_adjudication_ids
-        ),
+        "genuine_transition_adjudication_count": len(projection.asset_transition_ids),
         "provider_contamination_adjudication_count": len(
             {
                 *projection.provider_contamination_identity_adjudication_ids,

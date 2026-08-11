@@ -32,6 +32,7 @@ from ame_stocks_api.silver.identity_registry_workflow import (
     ExactSourceScope,
     RegistryCandidateManifest,
     RegistryName,
+    RegistryReleasePin,
     RegistryRuntimeBinding,
     RuntimeFilePin,
     StoredControlDocument,
@@ -376,6 +377,67 @@ def test_fixed_production_builders_construct_all_five_registry_candidate_sets(
     )
     assert len(cross) == 9
     assert sum(len(item.source_scope.rows) for item in cross) == 79
+    predecessor_rows = {
+        item.decision_id: {
+            "decision_version": item.decision_version,
+            "observed_ticker": item.frozen_row_claims["observed_ticker"],
+            "supersedes_cross_market_adjudication_id": item.supersedes_decision_id,
+        }
+        for item in cross
+    }
+    synthetic_sbgi = next(
+        item for item in cross if item.case_key == "identity_cross_market_adjudication:SBGI"
+    )
+    monkeypatch.setattr(
+        production,
+        "S75_I4_CROSS_MARKET_PREDECESSOR_DECISION_ID",
+        synthetic_sbgi.decision_id,
+    )
+    monkeypatch.setattr(
+        workflow,
+        "S75_I4_CROSS_MARKET_PREDECESSOR_DECISION_ID",
+        synthetic_sbgi.decision_id,
+    )
+    predecessor_loaded = SimpleNamespace(
+        registry_name=RegistryName.IDENTITY_CROSS_MARKET_ADJUDICATION.value,
+        release_id=production.S75_I4_CROSS_MARKET_PREDECESSOR_RELEASE_ID,
+        decision_rows=predecessor_rows,
+        source_scopes={item.decision_id: item.source_scope for item in cross},
+    )
+    extended = production._append_s75_i4_cross_market_successor(
+        cross,
+        predecessor_loaded=predecessor_loaded,
+    )
+    assert len(extended) == 10
+    successor = next(
+        item
+        for item in extended
+        if item.case_key == workflow.S75_I4_CROSS_MARKET_SUCCESSOR_CASE_KEY
+    )
+    assert successor.decision_version == 2
+    assert successor.supersedes_decision_id == synthetic_sbgi.decision_id
+    assert successor.frozen_row_claims["canonical_us_composite_figi"] == "BBG000F2XXP2"
+    workflow.validate_fixed_decision_candidate(successor)
+    with pytest.raises(
+        workflow.RegistryWorkflowError,
+        match="frozen cross-market root lineage changed",
+    ):
+        workflow.validate_fixed_decision_candidate(
+            replace(successor, case_key="identity_cross_market_adjudication:SBGI")
+        )
+    with pytest.raises(
+        production.IdentityRegistryProductionError,
+        match=r"exact frozen cross-market predecessor release|nine-decision baseline",
+    ):
+        production._append_s75_i4_cross_market_successor(
+            cross,
+            predecessor_loaded=SimpleNamespace(
+                registry_name=predecessor_loaded.registry_name,
+                release_id="f" * 64,
+                decision_rows=predecessor_loaded.decision_rows,
+                source_scopes=predecessor_loaded.source_scopes,
+            ),
+        )
     authorization_artifacts = tuple(
         _artifact(role, character * 64, character.upper() * 64)
         for role, character in (
@@ -417,12 +479,39 @@ def test_fixed_production_builders_construct_all_five_registry_candidate_sets(
         **candidate_kwargs,
         production_ingress_artifact=ingress,
     )
+    predecessor_binding = ExactArtifactBinding(
+        role="source_predecessor_registry_release",
+        artifact_id=production.S75_I4_CROSS_MARKET_PREDECESSOR_RELEASE_ID,
+        path=(
+            "manifests/silver/identity/registry-releases/"
+            "registry=identity_cross_market_adjudication/"
+            f"release_id={production.S75_I4_CROSS_MARKET_PREDECESSOR_RELEASE_ID}/"
+            "manifest.json"
+        ),
+        sha256="7" * 64,
+        bytes=1,
+        available_session=date(2026, 7, 20),
+        embedded_id_field="release_id",
+    )
+    successor_candidate = RegistryCandidateManifest(
+        **{
+            **candidate_kwargs,
+            "source_artifacts": (
+                gate_c.candidate,
+                gate_c.completion,
+                predecessor_binding,
+            ),
+            "decisions": tuple(sorted(extended, key=lambda item: item.decision_id)),
+        },
+        production_ingress_artifact=ingress,
+    )
     assert {item.role for item in candidate.source_artifacts} == {
         "source_gate_c_candidate_manifest",
         "source_gate_c_completion_manifest",
     }
     monkeypatch.setattr(production, "_load_gate_c_source", lambda *_args: gate_c)
     workflow._validate_gate_c_registry_scopes(ROOT, candidate)
+    workflow._validate_gate_c_registry_scopes(ROOT, successor_candidate)
     monkeypatch.setattr(
         production,
         "_load_gate_c_source",
@@ -997,6 +1086,85 @@ def test_production_ingress_attestation_is_first_writer_and_runtime_bound(
             expected_authorizations=authorizations,
             expected_evidence_import=evidence_import,
             expected_transition_release=None,
+            expected_runtime_binding=runtime,
+            calendar=calendar,
+            revalidate_runtime=False,
+        )
+
+    monkeypatch.setattr(
+        production,
+        "require_current_registry_runtime_binding",
+        lambda _runtime: None,
+    )
+    predecessor = RegistryReleasePin(
+        registry_name=RegistryName.IDENTITY_CROSS_MARKET_ADJUDICATION.value,
+        release_id=production.S75_I4_CROSS_MARKET_PREDECESSOR_RELEASE_ID,
+        manifest_path=(
+            "manifests/silver/identity/registry-releases/"
+            "registry=identity_cross_market_adjudication/"
+            f"release_id={production.S75_I4_CROSS_MARKET_PREDECESSOR_RELEASE_ID}/"
+            "manifest.json"
+        ),
+        manifest_sha256="9" * 64,
+        manifest_bytes=11,
+        release_available_session=date(2026, 7, 20),
+    )
+    predecessor_binding = ExactArtifactBinding(
+        role="source_predecessor_registry_release",
+        artifact_id=predecessor.release_id,
+        path=predecessor.manifest_path,
+        sha256=predecessor.manifest_sha256,
+        bytes=predecessor.manifest_bytes,
+        available_session=predecessor.release_available_session,
+        embedded_id_field="release_id",
+    )
+    successor_sources = (
+        _artifact("source_gate_c_candidate_manifest", "a" * 64, "b" * 64),
+        _artifact("source_gate_c_completion_manifest", "c" * 64, "d" * 64),
+        predecessor_binding,
+    )
+    successor_contract = workflow.current_registry_contract_pin(
+        RegistryName.IDENTITY_CROSS_MARKET_ADJUDICATION.value
+    )
+    successor_document, successor_binding = (
+        production._record_or_replay_production_ingress_attestation(
+            tmp_path,
+            registry_name=RegistryName.IDENTITY_CROSS_MARKET_ADJUDICATION.value,
+            contract_pin=successor_contract.to_dict(),
+            source_artifacts=successor_sources,
+            evidence_artifacts=evidence,
+            authorization_artifacts=authorizations,
+            evidence_import_artifact=evidence_import,
+            asset_transition_release=None,
+            predecessor_registry_release=predecessor,
+            calendar=calendar,
+            runtime_binding=runtime,
+        )
+    )
+    assert (
+        successor_document["artifact_version"]
+        == production.S75_I4_SUCCESSOR_PRODUCTION_INGRESS_VERSION
+    )
+    assert successor_document["predecessor_registry_release"] == predecessor.to_dict()
+    altered = json.loads(json.dumps(successor_document))
+    altered["predecessor_registry_release"]["release_id"] = "f" * 64
+    with pytest.raises(
+        production.IdentityRegistryProductionError,
+        match=r"attestation binding changed|predecessor release source binding changed",
+    ):
+        production._validate_production_ingress_attestation(
+            tmp_path,
+            altered,
+            content=production._canonical_control_bytes(altered),
+            artifact=successor_binding,
+            expected_registry_name=RegistryName.IDENTITY_CROSS_MARKET_ADJUDICATION.value,
+            expected_contract_pin=successor_contract.to_dict(),
+            expected_sources=successor_sources,
+            expected_evidence=evidence,
+            expected_authorizations=authorizations,
+            expected_evidence_import=evidence_import,
+            expected_transition_release=None,
+            expected_predecessor_registry_release=predecessor,
             expected_runtime_binding=runtime,
             calendar=calendar,
             revalidate_runtime=False,
