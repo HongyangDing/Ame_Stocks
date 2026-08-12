@@ -78,6 +78,7 @@ from ame_stocks_api.silver.incremental_i3_contract import (
     I3_V2_TABLE_ORDER,
 )
 from ame_stocks_api.silver.incremental_i3_production_semantics import (
+    I3_PRODUCTION_DELTA_SOURCE_VERSION_PROJECTION_RULE_VERSION,
     I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST,
     production_compact_base_initial_segment_id,
     production_compact_base_row_validator_digest,
@@ -88,6 +89,7 @@ from ame_stocks_api.silver.incremental_i3_production_semantics import (
 
 I3_PRODUCTION_NAMESPACE: Final = "ame_stocks.silver.s7_5.i3_production_staging"
 I3_PRODUCTION_RUN_SPEC_RULE_VERSION: Final = "s7_5_i3_production_run_spec_v1"
+I3_PRODUCTION_DELTA_RUN_SPEC_RULE_VERSION: Final = "s7_5_i3_production_delta_run_spec_v2"
 I3_PRODUCTION_RUN_RECEIPT_RULE_VERSION: Final = "s7_5_i3_production_run_receipt_v1"
 I3_PRODUCTION_COMPLETION_RULE_VERSION: Final = "s7_5_i3_production_completion_v1"
 I3_PRODUCTION_OUTPUT_SET_RULE_VERSION: Final = "s7_5_i3_production_output_set_v1"
@@ -1476,7 +1478,7 @@ class I3ProductionRunSpec:
         return stable_digest(self.logical_payload())
 
     def logical_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "calendar": self.calendar.to_dict(),
             "i0_oracle": self.i0_oracle.to_dict(),
             "i2_receipts": [item.to_dict() for item in self.i2_receipts],
@@ -1517,7 +1519,11 @@ class I3ProductionRunSpec:
                 else None
             ),
             "resource_caps": self.resource_caps.to_dict(),
-            "rule_version": I3_PRODUCTION_RUN_SPEC_RULE_VERSION,
+            "rule_version": (
+                I3_PRODUCTION_DELTA_RUN_SPEC_RULE_VERSION
+                if self.run_kind is I3ProductionRunKind.DELTA
+                else I3_PRODUCTION_RUN_SPEC_RULE_VERSION
+            ),
             "run_available_session": self.run_available_session.isoformat(),
             "run_kind": self.run_kind.value,
             "s4_v1_source": self.s4_v1_source.to_dict(),
@@ -1527,6 +1533,11 @@ class I3ProductionRunSpec:
             "transform_semantics_digest": self.transform_semantics_digest,
             "v2_contracts": [item.to_dict() for item in self.v2_contracts],
         }
+        if self.run_kind is I3ProductionRunKind.DELTA:
+            payload["delta_source_version_projection_rule_version"] = (
+                I3_PRODUCTION_DELTA_SOURCE_VERSION_PROJECTION_RULE_VERSION
+            )
+        return payload
 
     def to_dict(self) -> dict[str, object]:
         return {"run_spec_id": self.run_spec_id, **self.logical_payload()}
@@ -1542,41 +1553,61 @@ class I3ProductionRunSpec:
 
     @classmethod
     def from_dict(cls, value: object) -> Self:
+        common_fields = {
+            "calendar",
+            "i0_oracle",
+            "i2_receipts",
+            "i2_base_frontier",
+            "identity_policy_bundle",
+            "identity_policy_bundle_artifact",
+            "namespace",
+            "native_v2_migration_id",
+            "parent_checkpoint_artifact",
+            "parent_gate_a_manifest",
+            "parent_authority",
+            "parent_deep_attestation_artifact",
+            "parent_pointer_event_artifact",
+            "parent_release",
+            "parent_shadow_completion_artifact",
+            "resource_caps",
+            "rule_version",
+            "run_available_session",
+            "run_kind",
+            "run_spec_id",
+            "s4_v1_source",
+            "schema_bundle_digest",
+            "source_cutoff_session",
+            "terminal_session",
+            "transform_semantics_digest",
+            "v2_contracts",
+        }
+        raw_run_kind = value.get("run_kind") if isinstance(value, Mapping) else None
+        is_delta = raw_run_kind == I3ProductionRunKind.DELTA.value
+        expected_fields = common_fields | (
+            {"delta_source_version_projection_rule_version"} if is_delta else set()
+        )
         item = _closed_mapping(
             value,
-            {
-                "calendar",
-                "i0_oracle",
-                "i2_receipts",
-                "i2_base_frontier",
-                "identity_policy_bundle",
-                "identity_policy_bundle_artifact",
-                "namespace",
-                "native_v2_migration_id",
-                "parent_checkpoint_artifact",
-                "parent_gate_a_manifest",
-                "parent_authority",
-                "parent_deep_attestation_artifact",
-                "parent_pointer_event_artifact",
-                "parent_release",
-                "parent_shadow_completion_artifact",
-                "resource_caps",
-                "rule_version",
-                "run_available_session",
-                "run_kind",
-                "run_spec_id",
-                "s4_v1_source",
-                "schema_bundle_digest",
-                "source_cutoff_session",
-                "terminal_session",
-                "transform_semantics_digest",
-                "v2_contracts",
-            },
+            expected_fields,
             "production run spec",
         )
         _literal(item["namespace"], I3_PRODUCTION_NAMESPACE, "production namespace")
-        _literal(item["rule_version"], I3_PRODUCTION_RUN_SPEC_RULE_VERSION, "run-spec rule")
+        _literal(
+            item["rule_version"],
+            (
+                I3_PRODUCTION_DELTA_RUN_SPEC_RULE_VERSION
+                if is_delta
+                else I3_PRODUCTION_RUN_SPEC_RULE_VERSION
+            ),
+            "run-spec rule",
+        )
         _literal(item["schema_bundle_digest"], I3_V2_SCHEMA_BUNDLE_DIGEST, "v2 schema bundle")
+        if is_delta:
+            _literal(
+                item["delta_source_version_projection_rule_version"],
+                I3_PRODUCTION_DELTA_SOURCE_VERSION_PROJECTION_RULE_VERSION,
+                "DELTA source-version projection rule",
+            )
         try:
             run_kind = I3ProductionRunKind(_text(item["run_kind"], "production run kind"))
         except ValueError as exc:
@@ -5048,6 +5079,7 @@ __all__ = [
     "I3_PRODUCTION_COMPLETION_RULE_VERSION",
     "I3_PRODUCTION_DATASET_INDEX_RULE_VERSION",
     "I3_PRODUCTION_DEEP_ATTESTATION_RULE_VERSION",
+    "I3_PRODUCTION_DELTA_RUN_SPEC_RULE_VERSION",
     "I3_PRODUCTION_NAMESPACE",
     "I3_PRODUCTION_OUTPUT_SET_RULE_VERSION",
     "I3_PRODUCTION_PHYSICAL_INDEX_DIGEST_RULE_VERSION",

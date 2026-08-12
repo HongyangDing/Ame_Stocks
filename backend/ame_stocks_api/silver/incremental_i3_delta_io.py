@@ -134,6 +134,7 @@ from ame_stocks_api.silver.incremental_i3_production_semantics import (
     I3_PRODUCTION_DELTA_RESOURCE_ENVELOPE_RULE_VERSION,
     I3_PRODUCTION_DELTA_ROW_VALIDATOR_RULE_VERSION,
     I3_PRODUCTION_DELTA_SOR_EXPIRY_RULE_VERSION,
+    I3_PRODUCTION_DELTA_SOURCE_VERSION_PROJECTION_RULE_VERSION,
     I3_PRODUCTION_DELTA_SOURCE_WINDOW_RULE_VERSION,
     I3_PRODUCTION_DELTA_STATE_TRANSITION_RULE_VERSION,
     I3_PRODUCTION_DELTA_TRANSITIVE_CONTROL_REPLAY_BYTES_CAP,
@@ -150,7 +151,7 @@ I3_PRODUCTION_DELTA_MATERIALIZATION_ATTESTATION_RULE_VERSION: Final = (
     "s7_5_i3_production_delta_materialization_attestation_v1"
 )
 I3_PRODUCTION_DELTA_SOURCE_DIGEST_RULE_VERSION: Final = (
-    "s7_5_i3_production_delta_physical_source_v1"
+    "s7_5_i3_production_delta_physical_source_v2"
 )
 I3_PRODUCTION_DELTA_CANONICAL_PROJECTION_RULE_VERSION: Final = (
     "s7_5_i3_production_delta_canonical_projection_v1"
@@ -3397,6 +3398,9 @@ def _delta_source_digest(
             "native_v2_migration_id": run_spec.native_v2_migration_id,
             "rule_version": I3_PRODUCTION_DELTA_SOURCE_DIGEST_RULE_VERSION,
             "run_spec_id": run_spec.run_spec_id,
+            "source_version_projection_rule_version": (
+                I3_PRODUCTION_DELTA_SOURCE_VERSION_PROJECTION_RULE_VERSION
+            ),
             "transform_semantics_digest": run_spec.transform_semantics_digest,
         }
     )
@@ -3917,6 +3921,7 @@ def _reference_metadata_by_selected_source(
 
     result: dict[str, Mapping[str, object]] = {}
     selected_ids: set[str] = set()
+    expected_version_tickers: set[str] = set()
     for raw in source_rows:
         source = dict(raw)
         ticker = _nonempty_text(source.get("ticker"), "I2 selected ticker")
@@ -3954,7 +3959,22 @@ def _reference_metadata_by_selected_source(
 
         group = versions_by_ticker.get(ticker, [])
         expected_count = source.get("source_version_count")
-        if type(expected_count) is not int or expected_count <= 0 or len(group) != expected_count:
+        if type(expected_count) is not int or expected_count <= 0:
+            raise I3DeltaIOError("I2 version group row count differs from universe membership")
+        if expected_count == 1:
+            if (
+                group
+                or source.get("version_group_id") is not None
+                or source.get("selection_status") != "singleton"
+            ):
+                raise I3DeltaIOError("I2 singleton version projection differs")
+            reference_name = _optional_clean_text(observation.get("name"))
+            if reference_name is not None:
+                result[source_id] = {"reference_name": reference_name, "sic_code": None}
+            continue
+
+        expected_version_tickers.add(ticker)
+        if len(group) != expected_count:
             raise I3DeltaIOError("I2 version group row count differs from universe membership")
         if any(
             row.get("session_date") != source.get("session_date")
@@ -3965,6 +3985,8 @@ def _reference_metadata_by_selected_source(
             for row in group
         ):
             raise I3DeltaIOError("I2 version group lineage differs from universe membership")
+        if any(row.get("source_record_id") not in observation_by_id for row in group):
+            raise I3DeltaIOError("I2 version source record is absent from observations")
         selected = [row for row in group if row.get("is_selected") is True]
         if (
             len(selected) != 1
@@ -3975,6 +3997,13 @@ def _reference_metadata_by_selected_source(
         reference_name = _optional_clean_text(observation.get("name"))
         if reference_name is not None:
             result[source_id] = {"reference_name": reference_name, "sic_code": None}
+    if set(versions_by_ticker) != expected_version_tickers:
+        raise I3DeltaIOError("I2 version partition contains an unexpected ticker group")
+    version_source_ids = {
+        _digest(row.get("source_record_id"), "I2 version source-record ID") for row in versions
+    }
+    if set(observation_by_id) != selected_ids | version_source_ids:
+        raise I3DeltaIOError("I2 observation/version projection is not exact")
     return result
 
 

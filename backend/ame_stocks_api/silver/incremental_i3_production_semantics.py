@@ -73,6 +73,14 @@ I3_PRODUCTION_INDEXED_ROW_VALIDATOR_RULE_VERSION: Final = (
 I3_PRODUCTION_DELTA_SOURCE_WINDOW_RULE_VERSION: Final = (
     "s7_5_i3_production_delta_three_session_source_window_v1"
 )
+# The S4/I2 version table is intentionally sparse: singleton source selections
+# are represented only by the selected observation, while version rows exist
+# only for multi-version groups.  This is an authenticated DELTA input-proof
+# rule, not a BASE transformation rule, so it is bound by the DELTA RunSpec
+# without changing the already-materialized BASE migration identity.
+I3_PRODUCTION_DELTA_SOURCE_VERSION_PROJECTION_RULE_VERSION: Final = (
+    "s7_5_i3_production_delta_sparse_source_version_projection_v1"
+)
 I3_PRODUCTION_DELTA_INPUT_BINDING_RULE_VERSION: Final = (
     "s7_5_i3_production_delta_exact_input_binding_v1"
 )

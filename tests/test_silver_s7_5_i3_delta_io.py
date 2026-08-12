@@ -486,7 +486,6 @@ def _i2_rows(target_rows: tuple[dict[str, object], ...]):
     for target in target_rows:
         source_id = str(target["selected_source_record_id"])
         ticker = str(target["ticker"])
-        group_id = _digest(f"version-group-{ticker}")
         name = "Apple Inc." if ticker == "AAPL" else f"{ticker} Inc."
         source = _default_row(
             ASSET_CONTRACTS["universe_source_daily"].arrow_schema,
@@ -511,9 +510,9 @@ def _i2_rows(target_rows: tuple[dict[str, object], ...]):
                 "last_updated_at_utc": None,
                 "identity_link_status": "linked",
                 "selected_source_record_id": source_id,
-                "version_group_id": group_id,
+                "version_group_id": None,
                 "source_version_count": 1,
-                "selection_status": "selected_exact_source_record",
+                "selection_status": "singleton",
                 "selection_rule_version": "fixture-selection-v1",
                 "reference_time_scope": target["membership_time_scope"],
                 "metadata_time_scope": target["metadata_time_scope"],
@@ -546,32 +545,8 @@ def _i2_rows(target_rows: tuple[dict[str, object], ...]):
                 "source_record_id": source_id,
             }
         )
-        version = _default_row(
-            ASSET_CONTRACTS["asset_observation_version"].arrow_schema,
-            TARGET_SESSION,
-        )
-        version.update(
-            {
-                "session_year": TARGET_SESSION.year,
-                "session_date": TARGET_SESSION,
-                "requested_active": True,
-                "ticker": ticker,
-                "version_group_id": group_id,
-                "version_count": 1,
-                "source_record_id": source_id,
-                "identity_signature": _digest(f"identity-{ticker}"),
-                "difference_fields_json": "[]",
-                "selection_rank": 1,
-                "is_selected": True,
-                "selection_status": "selected_exact_source_record",
-                "selection_reason": "fixture",
-                "selection_rule_version": "fixture-selection-v1",
-                "selected_source_record_id": source_id,
-            }
-        )
         source_rows.append(source)
         observation_rows.append(observation)
-        version_rows.append(version)
     return source_rows, observation_rows, version_rows
 
 
@@ -1044,13 +1019,36 @@ def test_selected_i2_join_rejects_version_and_observation_tampering() -> None:
         "reference_name": "Apple Inc.",
         "sic_code": None,
     }
+    assert versions == []
 
-    forged_versions = [dict(versions[0], selected_source_record_id=_digest("forged"))]
-    with pytest.raises(delta_io.I3DeltaIOError, match="version group lineage"):
+    forged_version = _default_row(
+        ASSET_CONTRACTS["asset_observation_version"].arrow_schema,
+        TARGET_SESSION,
+    )
+    forged_version.update(
+        {
+            "session_year": TARGET_SESSION.year,
+            "session_date": TARGET_SESSION,
+            "requested_active": True,
+            "ticker": str(target[0]["ticker"]),
+            "version_group_id": _digest("forged-singleton-group"),
+            "version_count": 1,
+            "source_record_id": str(target[0]["selected_source_record_id"]),
+            "identity_signature": _digest("forged-singleton-identity"),
+            "difference_fields_json": "[]",
+            "selection_rank": 1,
+            "is_selected": True,
+            "selection_status": "singleton",
+            "selection_reason": "forged",
+            "selection_rule_version": "fixture-selection-v1",
+            "selected_source_record_id": str(target[0]["selected_source_record_id"]),
+        }
+    )
+    with pytest.raises(delta_io.I3DeltaIOError, match="singleton version projection"):
         delta_io._reference_metadata_by_selected_source(
             sources,
             observations,
-            forged_versions,
+            [forged_version],
         )
     forged_observations = [dict(observations[0], composite_figi="BBG000KMY6N2")]
     with pytest.raises(delta_io.I3DeltaIOError, match="observation projection"):
@@ -1059,6 +1057,121 @@ def test_selected_i2_join_rejects_version_and_observation_tampering() -> None:
             forged_observations,
             versions,
         )
+
+
+def test_selected_i2_join_requires_complete_sparse_multi_version_groups() -> None:
+    spec = replace(
+        _base_run_spec(),
+        terminal_session=PARENT_SESSION,
+        i2_base_frontier=replace(
+            _base_run_spec().i2_base_frontier,
+            terminal_session=PARENT_SESSION,
+        ),
+    )
+    target = (_eligible_row(TARGET_SESSION, spec),)
+    sources, observations, _ = _i2_rows(target)
+    selected_source_id = str(target[0]["selected_source_record_id"])
+    rejected_source_id = _digest("multi-version-rejected-source")
+    ticker = str(target[0]["ticker"])
+    group_id = _digest("multi-version-group")
+    selection_status = "resolved_multi_version"
+    sources = [
+        dict(
+            sources[0],
+            version_group_id=group_id,
+            source_version_count=2,
+            selection_status=selection_status,
+        )
+    ]
+    observations = [
+        observations[0],
+        dict(
+            observations[0],
+            source_record_id=rejected_source_id,
+            last_updated_at_utc=datetime(2026, 7, 10, 19, tzinfo=UTC),
+        ),
+    ]
+
+    def version_row(
+        source_record_id: str,
+        *,
+        selection_rank: int,
+        is_selected: bool,
+    ) -> dict[str, object]:
+        row = _default_row(
+            ASSET_CONTRACTS["asset_observation_version"].arrow_schema,
+            TARGET_SESSION,
+        )
+        row.update(
+            {
+                "session_year": TARGET_SESSION.year,
+                "session_date": TARGET_SESSION,
+                "requested_active": True,
+                "ticker": ticker,
+                "version_group_id": group_id,
+                "version_count": 2,
+                "source_record_id": source_record_id,
+                "identity_signature": _digest(f"identity-{source_record_id}"),
+                "difference_fields_json": "[]",
+                "selection_rank": selection_rank,
+                "is_selected": is_selected,
+                "selection_status": selection_status,
+                "selection_reason": "fixture-multi-version",
+                "selection_rule_version": "fixture-selection-v1",
+                "selected_source_record_id": selected_source_id,
+            }
+        )
+        return row
+
+    versions = [
+        version_row(selected_source_id, selection_rank=1, is_selected=True),
+        version_row(rejected_source_id, selection_rank=2, is_selected=False),
+    ]
+    metadata = delta_io._reference_metadata_by_selected_source(
+        sources,
+        observations,
+        versions,
+    )
+    assert metadata[selected_source_id]["reference_name"] == "Apple Inc."
+
+    with pytest.raises(delta_io.I3DeltaIOError, match="version group row count"):
+        delta_io._reference_metadata_by_selected_source(
+            sources,
+            observations,
+            versions[:-1],
+        )
+    with pytest.raises(delta_io.I3DeltaIOError, match="version group lineage"):
+        delta_io._reference_metadata_by_selected_source(
+            sources,
+            observations,
+            [versions[0], dict(versions[1], selected_source_record_id=_digest("forged"))],
+        )
+    with pytest.raises(delta_io.I3DeltaIOError, match="absent from observations"):
+        delta_io._reference_metadata_by_selected_source(
+            sources,
+            observations[:1],
+            versions,
+        )
+    with pytest.raises(delta_io.I3DeltaIOError, match="unexpected ticker group"):
+        delta_io._reference_metadata_by_selected_source(
+            sources,
+            observations,
+            [*versions, dict(versions[1], ticker="EXTRA")],
+        )
+
+
+def test_delta_source_digest_commits_sparse_version_projection_rule(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_spec, _, loaded, _ = _integration_fixture(tmp_path)
+    original = delta_io._delta_source_digest(run_spec, loaded.binding)
+    monkeypatch.setattr(
+        delta_io,
+        "I3_PRODUCTION_DELTA_SOURCE_VERSION_PROJECTION_RULE_VERSION",
+        "s7_5_i3_production_delta_sparse_source_version_projection_forged",
+    )
+    assert delta_io._delta_source_digest(run_spec, loaded.binding) != original
 
 
 def test_pending_projectors_are_closed_for_gate_b_miss_and_expired_sor() -> None:
