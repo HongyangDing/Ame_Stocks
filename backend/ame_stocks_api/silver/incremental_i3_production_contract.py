@@ -116,6 +116,11 @@ S4_V1_RELEASE_SET_BYTES: Final = 4_440_685
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _TOKEN = re.compile(r"^[a-z][a-z0-9_]*$")
 _CONTROL_JSON_BYTES_CAP = 64 * 1024 * 1024
+# The authenticated checkpoint contains the complete bounded native-v2
+# frontier and is intentionally larger than ordinary control documents.  Give
+# only this exact artifact class a separate finite envelope; do not widen the
+# generic control reader or any caller-selected path.
+_CHECKPOINT_JSON_BYTES_CAP = 192 * 1024 * 1024
 _DELTA_BOUNDARY_PARTITION_COUNT: Final = 3
 _VERSIONED_TABLES: Final = ("asset_master", "ticker_alias", "issuer_master")
 _VERSION_FIELDS: Final[Mapping[str, tuple[str, str, str, str]]] = {
@@ -3001,7 +3006,7 @@ def load_i3_production_parent_shallow_exact(
 
     manifest_content = _read_exact_root(root, output_set.release_manifest_artifact)
     manifest = NativeV2ReleaseManifest.from_dict(_strict_json_document(manifest_content))
-    checkpoint_content = _read_exact_root(root, output_set.checkpoint_artifact)
+    checkpoint_content = _read_exact_checkpoint_root(root, output_set.checkpoint_artifact)
     checkpoint = I3CheckpointState.from_dict(_strict_json_document(checkpoint_content))
     reproduced_native_parent = NativeV2ParentReleasePin.from_manifest(
         manifest, path=output_set.release_manifest_artifact.path
@@ -3511,7 +3516,7 @@ def load_i3_production_staging_exact(
     ):
         raise I3ProductionContractError("production manifest differs from RunSpec or OutputSet")
 
-    checkpoint_content = _read_exact_root(root, output_set.checkpoint_artifact)
+    checkpoint_content = _read_exact_checkpoint_root(root, output_set.checkpoint_artifact)
     checkpoint = I3CheckpointState.from_dict(_strict_json_document(checkpoint_content))
     if checkpoint.canonical_bytes() != checkpoint_content:
         raise I3ProductionContractError("production checkpoint is not canonical JSON")
@@ -4751,11 +4756,37 @@ def _read_exact_bytes(pin: ArtifactPin, reader: Callable[[str], bytes], *, label
 
 
 def _read_root_bytes(root: Path, relative: str) -> bytes:
+    return _read_root_bytes_with_cap(
+        root,
+        relative,
+        byte_cap=_CONTROL_JSON_BYTES_CAP,
+        artifact_label="control JSON",
+    )
+
+
+def _read_checkpoint_root_bytes(root: Path, relative: str) -> bytes:
+    return _read_root_bytes_with_cap(
+        root,
+        relative,
+        byte_cap=_CHECKPOINT_JSON_BYTES_CAP,
+        artifact_label="checkpoint JSON",
+    )
+
+
+def _read_root_bytes_with_cap(
+    root: Path,
+    relative: str,
+    *,
+    byte_cap: int,
+    artifact_label: str,
+) -> bytes:
     path = safe_relative_path(root, relative)
     if not path.is_file() or path.is_symlink():
         raise I3ProductionContractError(f"exact artifact is missing: {relative}")
-    if path.stat().st_size > _CONTROL_JSON_BYTES_CAP:
-        raise I3ProductionContractError("control JSON exceeds its hard byte cap")
+    if type(byte_cap) is not int or byte_cap <= 0:
+        raise I3ProductionContractError("exact artifact byte cap is invalid")
+    if path.stat().st_size > byte_cap:
+        raise I3ProductionContractError(f"{artifact_label} exceeds its hard byte cap")
     try:
         return path.read_bytes()
     except OSError as exc:
@@ -4764,6 +4795,14 @@ def _read_root_bytes(root: Path, relative: str) -> bytes:
 
 def _read_exact_root(root: Path, pin: ArtifactPin) -> bytes:
     return _read_exact_bytes(pin, lambda path: _read_root_bytes(root, path), label=pin.path)
+
+
+def _read_exact_checkpoint_root(root: Path, pin: ArtifactPin) -> bytes:
+    return _read_exact_bytes(
+        pin,
+        lambda path: _read_checkpoint_root_bytes(root, path),
+        label=pin.path,
+    )
 
 
 def _verify_exact_file(root: Path, pin: ArtifactPin) -> None:

@@ -1431,3 +1431,28 @@ def test_terminal_leaf_derivation_rejects_external_predecessor_and_forks() -> No
                 ]
             ),
         )
+
+
+def test_checkpoint_has_a_separate_bounded_exact_read_envelope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    relative = "silver/schema=v2/identity/native_v2_staging/run/checkpoint.json"
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True)
+    content = b"checkpoint\n"
+    path.write_bytes(content)
+    pin = ArtifactPin(
+        path=relative,
+        sha256=hashlib.sha256(content).hexdigest(),
+        bytes=len(content),
+    )
+    monkeypatch.setattr(production, "_CONTROL_JSON_BYTES_CAP", len(content) - 1)
+    monkeypatch.setattr(production, "_CHECKPOINT_JSON_BYTES_CAP", len(content))
+
+    with pytest.raises(I3ProductionContractError, match="control JSON exceeds"):
+        production._read_exact_root(tmp_path, pin)
+    assert production._read_exact_checkpoint_root(tmp_path, pin) == content
+
+    monkeypatch.setattr(production, "_CHECKPOINT_JSON_BYTES_CAP", len(content) - 1)
+    with pytest.raises(I3ProductionContractError, match="checkpoint JSON exceeds"):
+        production._read_exact_checkpoint_root(tmp_path, pin)
