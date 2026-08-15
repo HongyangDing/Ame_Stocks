@@ -388,6 +388,10 @@ def _eligible_row(session: date, run_spec) -> dict[str, object]:
         source_label=f"AAPL-{session.isoformat()}",
     )
     row["source_selection_status"] = "selected_exact_source_record"
+    if session == TARGET_SESSION:
+        # Match production: the 2026-07-10 source partition became usable on
+        # 2026-08-05, after the 2026-07-29 registry decision cutoff.
+        row["membership_source_available_session"] = RUN_AVAILABLE
     return _production_lineage(row, run_spec)
 
 
@@ -1517,6 +1521,11 @@ def test_delta_parquet_append_prefix_seal_tamper_and_no_clobber(
     assert all(row["alias_segment_id"] is None for row in pending)
     assert all(row["identity_quality_liquidation_signal"] is False for row in universe_rows)
     assert any(item.operation.value == "mechanical_successor" for item in prepared.row_versions)
+    eligible_alias = prepared.checkpoint.open_aliases[0].resolution
+    assert eligible_alias.evidence_available_session == RUN_AVAILABLE
+    assert eligible_alias.resolution_available_session == RUN_AVAILABLE
+    assert eligible_alias.evidence_cutoff_session == RUN_AVAILABLE
+    assert eligible_alias.identity_cutoff_session == RUN_AVAILABLE
 
     first_output = prepared.table_outputs[0]
     first_rowset = first_output.rowset_index

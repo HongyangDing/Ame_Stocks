@@ -81,6 +81,12 @@ I3_PRODUCTION_DELTA_SOURCE_WINDOW_RULE_VERSION: Final = (
 I3_PRODUCTION_DELTA_SOURCE_VERSION_PROJECTION_RULE_VERSION: Final = (
     "s7_5_i3_production_delta_sparse_source_version_projection_v1"
 )
+# A DELTA source row can become available after the selected registry decision
+# cutoff.  This is child-only so the authenticated BASE migration identity
+# remains reusable while the successor binds the later operational cutoff.
+I3_PRODUCTION_DELTA_ALIAS_AVAILABILITY_PROGRESSION_RULE_VERSION: Final = (
+    "s7_5_i3_production_delta_alias_availability_progression_v1"
+)
 I3_PRODUCTION_DELTA_INPUT_BINDING_RULE_VERSION: Final = (
     "s7_5_i3_production_delta_exact_input_binding_v1"
 )
@@ -353,6 +359,9 @@ def production_delta_row_validator_digest(
         raise ValueError("delta row validator operation is invalid")
     return stable_digest(
         {
+            "alias_availability_progression_rule_version": (
+                I3_PRODUCTION_DELTA_ALIAS_AVAILABILITY_PROGRESSION_RULE_VERSION
+            ),
             "migration_rule_version": MIGRATION_RULE_VERSION,
             "operation": operation,
             "rule_version": I3_PRODUCTION_DELTA_ROW_VALIDATOR_RULE_VERSION,
@@ -374,6 +383,7 @@ __all__ = [
     "I3_COMPACT_BASE_S4_TERMINAL_RECEIPT_RULE_VERSION",
     "I3_COMPACT_BASE_SOURCE_RULE_VERSION",
     "I3_COMPACT_BASE_UNRESOLVED_SEED_RULE_VERSION",
+    "I3_PRODUCTION_DELTA_ALIAS_AVAILABILITY_PROGRESSION_RULE_VERSION",
     "I3_PRODUCTION_DELTA_APPEND_SEGMENT_RULE_VERSION",
     "I3_PRODUCTION_DELTA_IDENTITY_FALLBACK_RULE_VERSION",
     "I3_PRODUCTION_DELTA_INPUT_BINDING_RULE_VERSION",

@@ -71,6 +71,7 @@ from ame_stocks_api.silver.incremental_i3_production_contract import (
     production_v2_contract_pins,
 )
 from ame_stocks_api.silver.incremental_i3_production_semantics import (
+    I3_PRODUCTION_DELTA_ALIAS_AVAILABILITY_PROGRESSION_RULE_VERSION,
     I3_PRODUCTION_DELTA_SOURCE_VERSION_PROJECTION_RULE_VERSION,
     I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST,
     production_compact_base_initial_segment_id,
@@ -648,6 +649,7 @@ def _delta_run_spec() -> I3ProductionRunSpec:
 def test_run_spec_is_canonical_deterministic_and_exactly_loadable() -> None:
     spec = _run_spec()
     assert spec.to_dict()["rule_version"] == I3_PRODUCTION_RUN_SPEC_RULE_VERSION
+    assert "delta_alias_availability_progression_rule_version" not in spec.to_dict()
     assert "delta_source_version_projection_rule_version" not in spec.to_dict()
     assert spec == I3ProductionRunSpec.from_dict(spec.to_dict())
     assert spec.run_spec_id == I3ProductionRunSpec.from_dict(spec.to_dict()).run_spec_id
@@ -666,6 +668,10 @@ def test_delta_run_spec_commits_module_owned_sparse_source_projection() -> None:
     document = spec.to_dict()
     assert document["rule_version"] == I3_PRODUCTION_DELTA_RUN_SPEC_RULE_VERSION
     assert (
+        document["delta_alias_availability_progression_rule_version"]
+        == I3_PRODUCTION_DELTA_ALIAS_AVAILABILITY_PROGRESSION_RULE_VERSION
+    )
+    assert (
         document["delta_source_version_projection_rule_version"]
         == I3_PRODUCTION_DELTA_SOURCE_VERSION_PROJECTION_RULE_VERSION
     )
@@ -682,6 +688,13 @@ def test_delta_run_spec_commits_module_owned_sparse_source_projection() -> None:
         "s7_5_i3_production_delta_sparse_source_version_projection_forged"
     )
     with pytest.raises(I3ProductionContractError, match="source-version projection rule"):
+        I3ProductionRunSpec.from_dict(forged)
+
+    forged = dict(document)
+    forged["delta_alias_availability_progression_rule_version"] = (
+        "s7_5_i3_production_delta_alias_availability_progression_forged"
+    )
+    with pytest.raises(I3ProductionContractError, match="alias-availability progression rule"):
         I3ProductionRunSpec.from_dict(forged)
 
 

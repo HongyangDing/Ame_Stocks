@@ -126,6 +126,7 @@ from ame_stocks_api.silver.incremental_i3_production_policy import (
     load_production_identity_policy_snapshot,
 )
 from ame_stocks_api.silver.incremental_i3_production_semantics import (
+    I3_PRODUCTION_DELTA_ALIAS_AVAILABILITY_PROGRESSION_RULE_VERSION,
     I3_PRODUCTION_DELTA_APPEND_SEGMENT_RULE_VERSION,
     I3_PRODUCTION_DELTA_IDENTITY_FALLBACK_RULE_VERSION,
     I3_PRODUCTION_DELTA_INPUT_BINDING_RULE_VERSION,
@@ -2014,7 +2015,9 @@ def prepare_production_delta(
         # The imported transition is deliberately not exposed as a production
         # entrypoint.  All inputs and outputs are revalidated below under the
         # module-owned production DELTA semantics before acquiring authority.
-        raise I3DeltaIOError("production delta state transition failed closed") from exc
+        raise I3DeltaIOError(
+            f"production delta state transition failed closed: {type(exc).__name__}: {exc}"
+        ) from exc
     _validate_materialized_delta(
         materialized=materialized,
         target_rows=target_rows,
@@ -3132,6 +3135,60 @@ def _validate_materialized_delta(
     output_terminal = {item.map_key: item for item in materialized.terminal_rows}
     if not set(prior_terminal).issubset(output_terminal):
         raise I3DeltaIOError("delta state transition removed parent terminal row history")
+    prior_aliases = {item.segment.ticker: item for item in parent.checkpoint.open_aliases}
+    target_by_ticker = {
+        str(row["ticker"]): row for row in target_rows if row["backtest_identity_eligible"]
+    }
+    if {item.segment.ticker for item in materialized.open_aliases} != set(target_by_ticker):
+        raise I3DeltaIOError("delta open-alias frontier differs from eligible membership")
+    policy = parent.checkpoint.identity_policy_bundle
+    for state in materialized.open_aliases:
+        target = target_by_ticker[state.segment.ticker]
+        target_evidence = runner._native_date(
+            target["identity_evidence_available_session"],
+            "delta target identity evidence availability",
+        )
+        prior = prior_aliases.get(state.segment.ticker)
+        same_segment_prior = (
+            prior
+            if prior is not None
+            and prior.segment.alias_segment_id == state.segment.alias_segment_id
+            else None
+        )
+        expected_evidence = max(
+            target_evidence,
+            *(
+                ()
+                if same_segment_prior is None
+                else (same_segment_prior.resolution.evidence_available_session,)
+            ),
+        )
+        expected_resolution_available = max(
+            policy.bundle_available_session,
+            expected_evidence,
+            *(
+                ()
+                if same_segment_prior is None
+                else (same_segment_prior.resolution.resolution_available_session,)
+            ),
+        )
+        expected_identity_cutoff = max(
+            policy.policy_cutoff_session,
+            expected_resolution_available,
+            *(
+                ()
+                if same_segment_prior is None
+                else (same_segment_prior.resolution.identity_cutoff_session,)
+            ),
+        )
+        resolution = state.resolution
+        if (
+            resolution.evidence_available_session != expected_evidence
+            or resolution.resolution_available_session != expected_resolution_available
+            or resolution.evidence_cutoff_session != expected_identity_cutoff
+            or resolution.identity_cutoff_session != expected_identity_cutoff
+        ):
+            raise I3DeltaIOError("delta alias availability progression does not reproduce")
     if any(
         row["identity_quality_liquidation_signal"] is not False
         for row in materialized.universe_rows
@@ -3393,6 +3450,9 @@ def _delta_source_digest(
 ) -> str:
     return stable_digest(
         {
+            "alias_availability_progression_rule_version": (
+                I3_PRODUCTION_DELTA_ALIAS_AVAILABILITY_PROGRESSION_RULE_VERSION
+            ),
             "append_segment_rule_version": I3_PRODUCTION_DELTA_APPEND_SEGMENT_RULE_VERSION,
             "input_binding_id": binding.input_binding_id,
             "native_v2_migration_id": run_spec.native_v2_migration_id,

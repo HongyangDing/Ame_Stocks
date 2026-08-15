@@ -1108,9 +1108,23 @@ def _alias_for_target(
     policy: IdentityPolicyBundle,
 ) -> tuple[AliasSegmentIdentity, AliasResolutionVersion, str]:
     if prior is not None and _same_segment_subject(prior.segment, row):
-        evidence_available = _native_date(
+        target_evidence_available = _native_date(
             row["identity_evidence_available_session"],
             "identity evidence availability",
+        )
+        evidence_available = max(
+            prior.resolution.evidence_available_session,
+            target_evidence_available,
+        )
+        resolution_available = max(
+            prior.resolution.resolution_available_session,
+            policy.bundle_available_session,
+            evidence_available,
+        )
+        identity_cutoff = max(
+            prior.resolution.identity_cutoff_session,
+            policy.policy_cutoff_session,
+            resolution_available,
         )
         source_digest = stable_digest(
             {
@@ -1121,10 +1135,10 @@ def _alias_for_target(
         successor = successor_alias_resolution_version(
             prior.resolution,
             segment=prior.segment,
-            evidence_available_session=max(
-                prior.resolution.evidence_available_session,
-                evidence_available,
-            ),
+            identity_cutoff_session=identity_cutoff,
+            resolution_available_session=resolution_available,
+            evidence_cutoff_session=identity_cutoff,
+            evidence_available_session=evidence_available,
             valid_through_session=target_session,
             source_record_set_digest=source_digest,
         )
@@ -1172,6 +1186,8 @@ def _resolution_root(
     evidence_available = _native_date(
         row["identity_evidence_available_session"], "identity evidence availability"
     )
+    resolution_available = max(policy.bundle_available_session, evidence_available)
+    identity_cutoff = max(policy.policy_cutoff_session, resolution_available)
     return AliasResolutionVersion.for_segment(
         segment,
         canonical_asset_id=str(row["asset_id"]),
@@ -1187,11 +1203,11 @@ def _resolution_root(
         share_class_resolution_method=share_method,
         share_class_decision_lineage_ids=share_ids,
         identity_policy_bundle_id=policy.identity_policy_bundle_id,
-        identity_cutoff_session=policy.policy_cutoff_session,
+        identity_cutoff_session=identity_cutoff,
         # Wrapper availability is when this project may first consume the
         # resolution; evidence availability remains the source-era timeline.
-        resolution_available_session=policy.bundle_available_session,
-        evidence_cutoff_session=policy.policy_cutoff_session,
+        resolution_available_session=resolution_available,
+        evidence_cutoff_session=identity_cutoff,
         evidence_available_session=evidence_available,
         valid_through_session=segment.valid_from_session,
         source_record_set_digest=stable_digest(

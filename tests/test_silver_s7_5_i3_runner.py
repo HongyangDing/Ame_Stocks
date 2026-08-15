@@ -531,6 +531,32 @@ def test_share_only_correction_uses_transient_alias_shape_but_preserves_v1_proje
     assert legacy_oracle_universe_projection(native, legacy) == legacy
 
 
+def test_alias_root_advances_operational_cutoff_for_late_source_evidence() -> None:
+    session = CALENDAR[3]
+    policy = _policy()
+    legacy = _legacy_row(session, policy_bundle=policy)
+    legacy["identity_evidence_available_session"] = RUN_AVAILABLE
+    segment = AliasSegmentIdentity(
+        provider_id="massive",
+        provider_market="stocks",
+        provider_locale="us",
+        ticker=str(legacy["ticker"]),
+        observed_composite_figi=str(legacy["observed_composite_figi"]),
+        observed_share_class_figi=str(legacy["observed_share_class_figi"]),
+        observed_cik_normalized=str(legacy["observed_cik_normalized"]),
+        valid_from_session=session,
+        segment_origin_source_record_id=str(legacy["selected_source_record_id"]),
+    )
+
+    resolution = _resolution_root(segment, row=legacy, policy=policy)
+
+    assert policy.policy_cutoff_session < RUN_AVAILABLE
+    assert resolution.evidence_available_session == RUN_AVAILABLE
+    assert resolution.resolution_available_session == RUN_AVAILABLE
+    assert resolution.evidence_cutoff_session == RUN_AVAILABLE
+    assert resolution.identity_cutoff_session == RUN_AVAILABLE
+
+
 def test_fixture_reference_metadata_is_content_and_availability_bound() -> None:
     session = CALENDAR[2]
     source_id = _digest(f"AAPL-{session.isoformat()}")

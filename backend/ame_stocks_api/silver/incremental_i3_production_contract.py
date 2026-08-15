@@ -78,6 +78,7 @@ from ame_stocks_api.silver.incremental_i3_contract import (
     I3_V2_TABLE_ORDER,
 )
 from ame_stocks_api.silver.incremental_i3_production_semantics import (
+    I3_PRODUCTION_DELTA_ALIAS_AVAILABILITY_PROGRESSION_RULE_VERSION,
     I3_PRODUCTION_DELTA_SOURCE_VERSION_PROJECTION_RULE_VERSION,
     I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST,
     production_compact_base_initial_segment_id,
@@ -89,7 +90,7 @@ from ame_stocks_api.silver.incremental_i3_production_semantics import (
 
 I3_PRODUCTION_NAMESPACE: Final = "ame_stocks.silver.s7_5.i3_production_staging"
 I3_PRODUCTION_RUN_SPEC_RULE_VERSION: Final = "s7_5_i3_production_run_spec_v1"
-I3_PRODUCTION_DELTA_RUN_SPEC_RULE_VERSION: Final = "s7_5_i3_production_delta_run_spec_v2"
+I3_PRODUCTION_DELTA_RUN_SPEC_RULE_VERSION: Final = "s7_5_i3_production_delta_run_spec_v3"
 I3_PRODUCTION_RUN_RECEIPT_RULE_VERSION: Final = "s7_5_i3_production_run_receipt_v1"
 I3_PRODUCTION_COMPLETION_RULE_VERSION: Final = "s7_5_i3_production_completion_v1"
 I3_PRODUCTION_OUTPUT_SET_RULE_VERSION: Final = "s7_5_i3_production_output_set_v1"
@@ -1534,6 +1535,9 @@ class I3ProductionRunSpec:
             "v2_contracts": [item.to_dict() for item in self.v2_contracts],
         }
         if self.run_kind is I3ProductionRunKind.DELTA:
+            payload["delta_alias_availability_progression_rule_version"] = (
+                I3_PRODUCTION_DELTA_ALIAS_AVAILABILITY_PROGRESSION_RULE_VERSION
+            )
             payload["delta_source_version_projection_rule_version"] = (
                 I3_PRODUCTION_DELTA_SOURCE_VERSION_PROJECTION_RULE_VERSION
             )
@@ -1584,7 +1588,12 @@ class I3ProductionRunSpec:
         raw_run_kind = value.get("run_kind") if isinstance(value, Mapping) else None
         is_delta = raw_run_kind == I3ProductionRunKind.DELTA.value
         expected_fields = common_fields | (
-            {"delta_source_version_projection_rule_version"} if is_delta else set()
+            {
+                "delta_alias_availability_progression_rule_version",
+                "delta_source_version_projection_rule_version",
+            }
+            if is_delta
+            else set()
         )
         item = _closed_mapping(
             value,
@@ -1603,6 +1612,11 @@ class I3ProductionRunSpec:
         )
         _literal(item["schema_bundle_digest"], I3_V2_SCHEMA_BUNDLE_DIGEST, "v2 schema bundle")
         if is_delta:
+            _literal(
+                item["delta_alias_availability_progression_rule_version"],
+                I3_PRODUCTION_DELTA_ALIAS_AVAILABILITY_PROGRESSION_RULE_VERSION,
+                "DELTA alias-availability progression rule",
+            )
             _literal(
                 item["delta_source_version_projection_rule_version"],
                 I3_PRODUCTION_DELTA_SOURCE_VERSION_PROJECTION_RULE_VERSION,

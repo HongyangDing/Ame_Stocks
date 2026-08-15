@@ -205,8 +205,8 @@ def test_delta_row_validator_digest_is_operation_specific_and_closed() -> None:
         **fields,
         operation="mechanical_successor",
     )
-    assert new_root == "4dbe9eb1bc1c43b45e4854bf190c662fb98105509cc2f8ae1a406df9df02ff69"
-    assert successor == "8ffc3f505ac460290aceed3db78af0d44aa7eb113feeff7ae1b17971af614ccd"
+    assert new_root == "aadeb9e7c346a60b7b008b298881fc6aa3ea7f2793170223a5a044a8d1863650"
+    assert successor == "fea9b11d6b01221683c9250cd581d40b68674747b9a3a5cd370a217b5682c418"
     assert successor != new_root
 
     for operation in ("correction", "NEW_ROOT", "", None):

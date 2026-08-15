@@ -1662,14 +1662,18 @@ class I3CheckpointState:
                 self.identity_policy_bundle.identity_policy_bundle_id
             ):
                 raise I3CheckpointError("open alias uses a different identity policy bundle")
-            if version.identity_cutoff_session != self.identity_policy_bundle.policy_cutoff_session:
-                raise I3CheckpointError("open alias identity cutoff differs from policy cutoff")
             if version.resolution_available_session < (
                 self.identity_policy_bundle.bundle_available_session
             ):
                 raise I3CheckpointError(
                     "open alias resolution availability precedes its policy bundle"
                 )
+            if version.identity_cutoff_session < (
+                self.identity_policy_bundle.policy_cutoff_session
+            ):
+                raise I3CheckpointError("open alias identity cutoff precedes policy cutoff")
+            if version.identity_cutoff_session > self.availability_cutoff_session:
+                raise I3CheckpointError("open alias identity cutoff exceeds checkpoint cutoff")
             if version.valid_through_session != self.last_session:
                 raise I3CheckpointError(
                     "open alias does not extend through checkpoint last_session"
