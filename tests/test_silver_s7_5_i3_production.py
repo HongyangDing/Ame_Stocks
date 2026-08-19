@@ -43,7 +43,6 @@ from ame_stocks_api.silver.incremental_i3_production import (
     I3ProductionPreparedMaterialization,
     I3ProductionStageError,
     stage_i3_production_base,
-    stage_i3_production_delta,
     verify_i3_production_deep_attestation,
 )
 from ame_stocks_api.silver.incremental_i3_production_contract import (
@@ -1005,74 +1004,24 @@ def test_external_authority_entrypoints_reject_exact_controls_copied_below_tmp(
 
 
 @pytest.mark.parametrize(
-    "copied_relative",
+    "relative",
     (
         "manifests/latest/i3/delta/run-spec.json",
         "manifests/silver/identity/s7-5-native-v2-staging/copied/run-spec.json",
     ),
 )
-def test_stage_delta_rejects_copied_noncanonical_run_spec_before_any_read_or_workspace(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    copied_relative: str,
+def test_delta_run_spec_locator_is_not_factor_semantics(
+    relative: str,
 ) -> None:
     run_spec = _delta_run_spec()
-    canonical_relative = (
-        "manifests/silver/identity/s7-5-native-v2-staging/run-specs/"
-        f"run_spec_id={run_spec.run_spec_id}/run-spec.json"
-    )
-    canonical_path = tmp_path / canonical_relative
-    canonical_path.parent.mkdir(parents=True, exist_ok=True)
-    canonical_path.write_bytes(run_spec.canonical_bytes())
-    canonical_pin = run_spec.exact_pin(path=canonical_relative)
-    copied_pin = _copy_exact_pin(tmp_path, canonical_pin, copied_relative)
-    reads: list[str] = []
-
-    def forbidden_read(_root: Path, relative: str) -> bytes:
-        reads.append(relative)
-        raise AssertionError("DELTA stage read a noncanonical RunSpec")
-
-    monkeypatch.setattr(production, "_read_control", forbidden_read)
-    with pytest.raises(I3ProductionStageError, match="module-owned canonical"):
-        stage_i3_production_delta(
-            tmp_path,
-            copied_pin,
-            materializer=SimpleNamespace(),
+    pin = run_spec.exact_pin(path=relative)
+    assert (
+        production.validate_production_delta_run_spec_artifact_path(
+            pin,
+            run_spec_id=run_spec.run_spec_id,
         )
-    assert reads == []
-    assert not (tmp_path / production._OUTPUT_ROOT).exists()
-
-
-def test_stage_delta_rejects_canonical_shape_with_another_run_spec_id_before_workspace(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    run_spec = _delta_run_spec()
-    wrong_id = stable_digest({"fixture": "another-delta-run-spec"})
-    copied_relative = (
-        "manifests/silver/identity/s7-5-native-v2-staging/run-specs/"
-        f"run_spec_id={wrong_id}/run-spec.json"
+        == run_spec.run_spec_id
     )
-    path = tmp_path / copied_relative
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(run_spec.canonical_bytes())
-    copied_pin = run_spec.exact_pin(path=copied_relative)
-    original_read = production._read_control
-    reads: list[str] = []
-
-    def observed_read(root: Path, relative: str) -> bytes:
-        reads.append(relative)
-        return original_read(root, relative)
-
-    monkeypatch.setattr(production, "_read_control", observed_read)
-    with pytest.raises(I3ProductionStageError, match="exact RunSpec ID"):
-        stage_i3_production_delta(
-            tmp_path,
-            copied_pin,
-            materializer=SimpleNamespace(),
-        )
-    assert reads == [copied_relative]
-    assert not (tmp_path / production._OUTPUT_ROOT).exists()
 
 
 def test_interrupted_retry_resumes_from_durable_phase_after_process_seal_reset(

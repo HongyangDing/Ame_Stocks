@@ -90,7 +90,7 @@ from ame_stocks_api.silver.incremental_i3_production_semantics import (
 
 I3_PRODUCTION_NAMESPACE: Final = "ame_stocks.silver.s7_5.i3_production_staging"
 I3_PRODUCTION_RUN_SPEC_RULE_VERSION: Final = "s7_5_i3_production_run_spec_v1"
-I3_PRODUCTION_DELTA_RUN_SPEC_RULE_VERSION: Final = "s7_5_i3_production_delta_run_spec_v3"
+I3_PRODUCTION_DELTA_RUN_SPEC_RULE_VERSION: Final = "s7_5_i3_production_delta_run_spec_v4"
 I3_PRODUCTION_RUN_RECEIPT_RULE_VERSION: Final = "s7_5_i3_production_run_receipt_v1"
 I3_PRODUCTION_COMPLETION_RULE_VERSION: Final = "s7_5_i3_production_completion_v1"
 I3_PRODUCTION_OUTPUT_SET_RULE_VERSION: Final = "s7_5_i3_production_output_set_v1"

@@ -1326,6 +1326,71 @@ def test_pending_projectors_are_closed_for_gate_b_miss_and_expired_sor() -> None
     assert target_rows[1]["observed_composite_figi"] == "BBG000KMY6N2"
 
 
+def test_unresolved_factor_gate_allows_issuer_lineage_and_variable_review_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(delta_io, "_validate_delta_qa", lambda _qa: None)
+    source = {
+        "ticker": "PENDING",
+        "backtest_identity_eligible": False,
+        "identity_disposition": "pending_cross_market_review",
+        "identity_resolution_method": "cross_market_composite_pending_unresolved",
+        "observed_composite_market_code": None,
+        "composite_registry_collision": False,
+        "active_on_date": True,
+        "observed_cik_normalized": "0000000001",
+        "observed_composite_figi": "BBG000000001",
+        "observed_share_class_figi": "BBG000000002",
+        "selected_source_record_id": _digest("pending-source-record"),
+    }
+    output = {
+        **source,
+        "issuer_id": _digest("descriptive-issuer-lineage"),
+        "canonical_cik_normalized": "0000000001",
+        "identity_quality_liquidation_signal": False,
+        "position_continuity_status": (
+            "identity_uncertain_no_new_trade_no_forced_exit_run_incomplete"
+        ),
+        "alias_segment_id": None,
+        "alias_resolution_version_id": None,
+        "asset_master_version_id": None,
+        "issuer_master_version_id": None,
+    }
+    materialized = SimpleNamespace(
+        qa={},
+        universe_rows=(output,),
+        terminal_rows=(),
+        open_aliases=(),
+    )
+    parent = SimpleNamespace(
+        checkpoint=SimpleNamespace(
+            terminal_row_versions=(),
+            open_aliases=(),
+            identity_policy_bundle=SimpleNamespace(),
+        )
+    )
+    counts = {
+        "gate_b_reference_unattempted": 23,
+        "provider_composite_override_scope_expired": 2,
+    }
+
+    delta_io._validate_materialized_delta(
+        materialized=materialized,
+        target_rows=(source,),
+        parent=parent,
+        fallback_counts=counts,
+    )
+
+    output["alias_segment_id"] = _digest("bad-tradable-link")
+    with pytest.raises(delta_io.I3DeltaIOError, match=r"ticker=PENDING.*alias_segment_id"):
+        delta_io._validate_materialized_delta(
+            materialized=materialized,
+            target_rows=(source,),
+            parent=parent,
+            fallback_counts=counts,
+        )
+
+
 def test_expired_sor_requires_exact_terminal_scope_and_effective_precedence(
     tmp_path: Path,
 ) -> None:

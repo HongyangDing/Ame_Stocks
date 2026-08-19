@@ -21,15 +21,10 @@ from ame_stocks_api.silver.incremental_i3_migration_io import (
     load_compact_base_materializer,
 )
 from ame_stocks_api.silver.incremental_i3_production import (
-    FAILED_RECEIPT_DURABLE_BEFORE_COMPLETION,
-    I3ProductionInterruptedRetryPending,
-    I3ProductionInterruptedRetryResult,
     I3ProductionStageError,
     I3ProductionStageResult,
-    exercise_i3_production_interrupted_retry,
     stage_i3_production_base,
     stage_i3_production_delta,
-    validate_production_delta_run_spec_artifact_path,
     verify_i3_production_deep_attestation,
 )
 from ame_stocks_api.silver.incremental_i3_production_contract import (
@@ -43,6 +38,11 @@ from ame_stocks_api.silver.incremental_i3_production_inputs import (
     PreparedI3ProductionBaseRunSpec,
     prepare_i3_production_base_run_spec,
     store_i3_production_base_config,
+)
+from ame_stocks_api.silver.incremental_s75_completion_runtime import (
+    S75CompletionConfig,
+    prepare_s75_completion,
+    stage_s75_completion,
 )
 
 
@@ -74,26 +74,16 @@ def build_parser() -> argparse.ArgumentParser:
     ):
         prepare_base.add_argument(f"--{field}", type=int)
     prepare_delta = commands.add_parser("prepare-delta")
-    _add_data_root(prepare_delta)
-    _add_pin(prepare_delta, "config", required=False)
-    for label in ("parent-completion", "parent-deep-attestation", "i2-receipt"):
-        _add_pin(prepare_delta, label, required=False)
-    prepare_delta.add_argument("--run-available-session")
-    for field in (
-        "rss-bytes-hard-cap",
-        "disk-free-bytes-hard-floor",
-        "temporary-bytes-hard-cap",
-        "output-bytes-hard-cap",
-        "output-rows-hard-cap",
-    ):
-        prepare_delta.add_argument(f"--{field}", type=int)
+    _add_delta_inputs(prepare_delta)
+    run_delta = commands.add_parser(
+        "run-delta",
+        help="prepare, stage, and mark one factor-ready DELTA in one command",
+    )
+    _add_delta_inputs(run_delta)
     for name in ("stage-base", "stage-delta"):
         command = commands.add_parser(name)
         _add_data_root(command)
         _add_pin(command, "run-spec")
-    exercise_delta = commands.add_parser("exercise-delta-retry")
-    _add_data_root(exercise_delta)
-    _add_pin(exercise_delta, "run-spec")
     for name in ("verify-base", "verify-delta"):
         command = commands.add_parser(name)
         _add_data_root(command)
@@ -129,19 +119,29 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "run_spec_id": prepared.run_spec.run_spec_id,
                 "state": "prepared",
             }
+        elif args.command == "run-delta":
+            prepared = _prepare_delta(root, args)
+            staged = _stage_delta(root, prepared.run_spec_artifact)
+            ready_config = S75CompletionConfig(
+                delta_completion_artifact=staged.completion_pin,
+                delta_deep_attestation_artifact=staged.deep_attestation_pin,
+                completion_available_session=prepared.run_spec.run_available_session,
+            )
+            _, ready_config_pin = prepare_s75_completion(root, ready_config)
+            ready = stage_s75_completion(root, ready_config_pin)
+            payload = {
+                **_stage_payload(args.command, staged),
+                "factor_summary": ready.summary.to_dict(),
+                "s7_5_completion": ready.sentinel_artifact.to_dict(),
+                "s7_5_state": "factor_ready_for_s8",
+                "s8_started": False,
+            }
         elif args.command == "stage-base":
             result = _stage_base(root, _pin_from_args(args, "run_spec"))
             payload = _stage_payload(args.command, result)
         elif args.command == "stage-delta":
             result = _stage_delta(root, _pin_from_args(args, "run_spec"))
             payload = _stage_payload(args.command, result)
-        elif args.command == "exercise-delta-retry":
-            result = exercise_i3_production_interrupted_retry(
-                root,
-                _pin_from_args(args, "run_spec"),
-                fail_after=FAILED_RECEIPT_DURABLE_BEFORE_COMPLETION,
-            )
-            payload = _interrupted_retry_payload(args.command, result)
         else:
             kind = (
                 I3ProductionRunKind.BASE
@@ -163,22 +163,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 deep_attestation_pin=deep,
                 reused=True,
             )
-    except I3ProductionInterruptedRetryPending as exc:
-        print(
-            json.dumps(
-                {
-                    "command": args.command,
-                    "failed_receipt": exc.failed_receipt_artifact.to_dict(),
-                    "failpoint": FAILED_RECEIPT_DURABLE_BEFORE_COMPLETION,
-                    "phase_one": exc.phase_one_artifact.to_dict(),
-                    "publish_authorized": False,
-                    "state": "interrupted_retry_pending",
-                },
-                allow_nan=False,
-                sort_keys=True,
-            )
-        )
-        return 75
     except Exception as exc:
         failure: dict[str, object] = {
             "command": args.command,
@@ -248,14 +232,9 @@ def _prepare_base(
 
 
 def _stage_delta(root: Path, run_spec_pin: ArtifactPin) -> I3ProductionStageResult:
-    validate_production_delta_run_spec_artifact_path(run_spec_pin)
     run_spec = _load_run_spec(root, run_spec_pin)
     if run_spec.run_kind is not I3ProductionRunKind.DELTA:
         raise I3ProductionCliError("stage-delta requires an exact delta RunSpec")
-    validate_production_delta_run_spec_artifact_path(
-        run_spec_pin,
-        run_spec_id=run_spec.run_spec_id,
-    )
     try:
         from ame_stocks_api.silver.incremental_i3_delta_io import (
             load_production_delta_materializer,
@@ -371,28 +350,24 @@ def _loaded_payload(
     }
 
 
-def _interrupted_retry_payload(
-    command: str,
-    result: I3ProductionInterruptedRetryResult,
-) -> dict[str, object]:
-    return {
-        "command": command,
-        "completion": result.stage_result.completion_pin.to_dict(),
-        "deep_attestation": result.stage_result.deep_attestation_pin.to_dict(),
-        "exercise_receipt": result.receipt_pin.to_dict(),
-        "failed_receipt": result.receipt.failed_receipt_artifact.to_dict(),
-        "failpoint": result.receipt.fail_after,
-        "phase_one": result.receipt.phase_one_artifact.to_dict(),
-        "publish_authorized": False,
-        "reused": result.reused,
-        "run_kind": result.stage_result.loaded.run_spec.run_kind.value,
-        "run_spec_id": result.receipt.run_spec_id,
-        "state": "awaiting_review",
-    }
-
-
 def _add_data_root(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--data-root", required=True)
+
+
+def _add_delta_inputs(parser: argparse.ArgumentParser) -> None:
+    _add_data_root(parser)
+    _add_pin(parser, "config", required=False)
+    for label in ("parent-completion", "parent-deep-attestation", "i2-receipt"):
+        _add_pin(parser, label, required=False)
+    parser.add_argument("--run-available-session")
+    for field in (
+        "rss-bytes-hard-cap",
+        "disk-free-bytes-hard-floor",
+        "temporary-bytes-hard-cap",
+        "output-bytes-hard-cap",
+        "output-rows-hard-cap",
+    ):
+        parser.add_argument(f"--{field}", type=int)
 
 
 def _add_pin(

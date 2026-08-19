@@ -3078,13 +3078,8 @@ def _validate_materialized_delta(
     fallback_counts: Mapping[str, int],
 ) -> None:
     _validate_delta_qa(materialized.qa)
-    if fallback_counts != {
-        "gate_b_reference_unattempted": 16,
-        "provider_composite_override_scope_expired": 1,
-    }:
-        raise I3DeltaIOError(
-            "2026-07-10 fail-closed identity inventory differs from 16 Gate-B misses and SOR"
-        )
+    if any(type(value) is not int or value < 0 for value in fallback_counts.values()):
+        raise I3DeltaIOError("delta unresolved-reason counts are malformed")
     if len(materialized.universe_rows) != len(target_rows):
         raise I3DeltaIOError("delta materialization omitted or duplicated membership")
     output_by_ticker = {str(row["ticker"]): row for row in materialized.universe_rows}
@@ -3109,28 +3104,34 @@ def _validate_materialized_delta(
         if pending_reason in {
             "gate_b_reference_unattempted",
             "provider_composite_override_scope_expired",
-        } and (
-            row["backtest_identity_eligible"] is not False
-            or row["identity_quality_liquidation_signal"] is not False
-            or row["position_continuity_status"]
-            != "identity_uncertain_no_new_trade_no_forced_exit_run_incomplete"
-            or any(
-                row[name] is not None
-                for name in (
-                    "asset_id",
-                    "share_class_id",
-                    "issuer_id",
-                    "canonical_composite_figi",
-                    "canonical_share_class_figi",
-                    "canonical_cik_normalized",
-                    "alias_segment_id",
-                    "alias_resolution_version_id",
-                    "asset_master_version_id",
-                    "issuer_master_version_id",
+        }:
+            violations: list[str] = []
+            if row["backtest_identity_eligible"] is not False:
+                violations.append("new_trade_eligible")
+            if row["identity_quality_liquidation_signal"] is not False:
+                violations.append("forced_liquidation")
+            if (
+                row["position_continuity_status"]
+                != "identity_uncertain_no_new_trade_no_forced_exit_run_incomplete"
+            ):
+                violations.append("position_continuity")
+            # These are the only fields that can make an unresolved membership
+            # participate in the tradable identity graph.  Issuer/CIK and other
+            # descriptive lineage may remain present for research continuity;
+            # backtest_identity_eligible is the new-entry gate.
+            for name in (
+                "alias_segment_id",
+                "alias_resolution_version_id",
+                "asset_master_version_id",
+                "issuer_master_version_id",
+            ):
+                if row[name] is not None:
+                    violations.append(name)
+            if violations:
+                raise I3DeltaIOError(
+                    "unresolved membership violates factor-safety gates: "
+                    f"ticker={source['ticker']}, fields={','.join(violations)}"
                 )
-            )
-        ):
-            raise I3DeltaIOError("fail-closed delta row retained tradeable identity")
     prior_terminal = {item.map_key: item for item in parent.checkpoint.terminal_row_versions}
     output_terminal = {item.map_key: item for item in materialized.terminal_rows}
     if not set(prior_terminal).issubset(output_terminal):
@@ -3715,11 +3716,6 @@ def _verify_prepared_delta_physical_semantics(
         gate_b_by_composite=loaded.gate_b_by_composite,
         registries=loaded.registries,
     )
-    if fallback_counts != {
-        "gate_b_reference_unattempted": 16,
-        "provider_composite_override_scope_expired": 1,
-    }:
-        raise I3DeltaIOError("delta replay fallback inventory differs")
     lookback_rows: list[dict[str, object]] = []
     for pin in loaded.binding.parent_boundary_partitions:
         lookback_rows.extend(

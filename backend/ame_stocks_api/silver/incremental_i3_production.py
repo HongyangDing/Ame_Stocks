@@ -96,7 +96,6 @@ from ame_stocks_api.silver.incremental_i3_production_semantics import (
 )
 
 _CONTROL_ROOT = "manifests/silver/identity/s7-5-native-v2-staging"
-_DELTA_RUN_SPEC_ROOT = f"{_CONTROL_ROOT}/run-specs"
 _LOCK_ROOT = "locks/silver/identity/s7-5-native-v2-staging"
 _TEMP_ROOT = "tmp/silver-identity-s7-5-native-v2-staging"
 _OUTPUT_ROOT = "silver/schema=v2/identity/native_v2_staging"
@@ -1766,36 +1765,23 @@ def validate_production_delta_run_spec_artifact_path(
     *,
     run_spec_id: str | None = None,
 ) -> str:
-    """Validate the module-owned DELTA RunSpec locator before staging reads.
+    """Validate DELTA RunSpec identity without prescribing a storage directory.
 
-    The path shape is rejected before any artifact is opened.  Once the exact
-    RunSpec has been parsed, ``run_spec_id`` closes the embedded path identity.
-    BASE staging deliberately does not use this DELTA-only locator contract.
+    ``ArtifactPin`` already binds normalized path, bytes and SHA-256.  Requiring
+    an additional hard-coded directory shape did not improve factor correctness
+    and made harmless moves/copies fail.  The logical RunSpec ID remains checked
+    after parsing; its physical locator is intentionally not semantic.
     """
 
     if not isinstance(pin, ArtifactPin):
         raise I3ProductionStageError("DELTA RunSpec artifact pin is invalid")
-    prefix = f"{_DELTA_RUN_SPEC_ROOT}/run_spec_id="
-    suffix = "/run-spec.json"
-    if not pin.path.startswith(prefix) or not pin.path.endswith(suffix):
-        raise I3ProductionStageError("DELTA RunSpec artifact path is not module-owned canonical")
-    embedded_id = pin.path[len(prefix) : -len(suffix)]
-    if (
-        len(embedded_id) != 64
-        or any(character not in "0123456789abcdef" for character in embedded_id)
-        or "/" in embedded_id
-    ):
-        raise I3ProductionStageError("DELTA RunSpec artifact path is not module-owned canonical")
     if run_spec_id is not None and (
         not isinstance(run_spec_id, str)
         or len(run_spec_id) != 64
         or any(character not in "0123456789abcdef" for character in run_spec_id)
-        or embedded_id != run_spec_id
     ):
-        raise I3ProductionStageError(
-            "DELTA RunSpec artifact path does not match its exact RunSpec ID"
-        )
-    return embedded_id
+        raise I3ProductionStageError("DELTA RunSpec ID is invalid")
+    return run_spec_id or pin.sha256
 
 
 def _require_interruption_capability(

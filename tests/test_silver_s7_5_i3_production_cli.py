@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -36,58 +37,18 @@ def _delta_run_spec_pin(label: str) -> tuple[ArtifactPin, str]:
     )
 
 
-def test_parser_exposes_prepare_stage_verify_and_retry_commands() -> None:
+def test_parser_exposes_one_command_factor_delta_path() -> None:
     parser = cli.build_parser()
     command_action = next(action for action in parser._actions if action.dest == "command")
     assert set(command_action.choices) == {
-        "exercise-delta-retry",
         "prepare-base",
         "prepare-delta",
+        "run-delta",
         "stage-base",
         "verify-base",
         "stage-delta",
         "verify-delta",
     }
-
-
-def test_exercise_delta_retry_reports_durable_pending_phase(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    run_spec, _ = _delta_run_spec_pin("interrupted")
-    phase = _pin("phase-one")
-    failed = _pin("failed-receipt")
-
-    def exercise(root, pin, *, fail_after):
-        assert root == tmp_path
-        assert pin == run_spec
-        assert fail_after == cli.FAILED_RECEIPT_DURABLE_BEFORE_COMPLETION
-        raise cli.I3ProductionInterruptedRetryPending(
-            phase_one_artifact=phase,
-            failed_receipt_artifact=failed,
-        )
-
-    monkeypatch.setattr(cli, "exercise_i3_production_interrupted_retry", exercise)
-    code = cli.main(
-        [
-            "exercise-delta-retry",
-            "--data-root",
-            str(tmp_path),
-            "--run-spec-path",
-            run_spec.path,
-            "--run-spec-sha256",
-            run_spec.sha256,
-            "--run-spec-bytes",
-            str(run_spec.bytes),
-        ]
-    )
-    assert code == 75
-    output = json.loads(capsys.readouterr().out)
-    assert output["state"] == "interrupted_retry_pending"
-    assert output["phase_one"] == phase.to_dict()
-    assert output["failed_receipt"] == failed.to_dict()
-    assert output["publish_authorized"] is False
 
 
 def test_prepare_delta_direct_mode_stores_only_exact_control_config(
@@ -368,33 +329,105 @@ def test_stage_delta_fails_closed_when_real_adapter_is_absent(
         cli._stage_delta(tmp_path, run_spec_pin)
 
 
-@pytest.mark.parametrize(
-    "path",
-    (
-        "manifests/latest/i3/delta/run-spec.json",
-        "manifests/silver/identity/s7-5-native-v2-staging/copied/run-spec.json",
-    ),
-)
-def test_stage_delta_cli_rejects_noncanonical_run_spec_before_loading(
+def test_stage_delta_accepts_any_exact_run_spec_locator(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    path: str,
 ) -> None:
+    from ame_stocks_api.silver import incremental_i3_delta_io as delta_io
+
+    path = "controls/operator-chosen-delta-run-spec.json"
     pin = ArtifactPin(
         path=path,
         sha256=stable_digest({"fixture": "copied-delta-run-spec"}),
         bytes=10,
     )
-    loads: list[ArtifactPin] = []
+    run_spec = SimpleNamespace(run_kind=I3ProductionRunKind.DELTA)
+    materializer = object()
+    expected = object()
+    monkeypatch.setattr(cli, "_load_run_spec", lambda _root, observed: run_spec)
+    monkeypatch.setattr(
+        delta_io,
+        "load_production_delta_materializer",
+        lambda *, data_root, run_spec: materializer,
+    )
+    monkeypatch.setattr(
+        cli,
+        "stage_i3_production_delta",
+        lambda root, observed, *, materializer: expected,
+    )
+    assert cli._stage_delta(tmp_path, pin) is expected
 
-    def forbidden_load(_root: Path, observed: ArtifactPin):
-        loads.append(observed)
-        raise AssertionError("CLI loaded a noncanonical DELTA RunSpec")
 
-    monkeypatch.setattr(cli, "_load_run_spec", forbidden_load)
-    with pytest.raises(cli.I3ProductionStageError, match="module-owned canonical"):
-        cli._stage_delta(tmp_path, pin)
-    assert loads == []
+def test_run_delta_prepares_stages_and_marks_factor_ready(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config = _pin("delta-config")
+    run_spec_pin, run_spec_id = _delta_run_spec_pin("factor-run")
+    completion = _pin("delta-completion")
+    deep = _pin("delta-deep")
+    sentinel = _pin("S7_5_COMPLETE")
+    prepared = SimpleNamespace(
+        config_artifact=config,
+        run_spec_artifact=run_spec_pin,
+        run_spec=SimpleNamespace(
+            run_spec_id=run_spec_id,
+            run_available_session=date(2026, 8, 17),
+        ),
+    )
+    loaded = SimpleNamespace(
+        checkpoint=SimpleNamespace(checkpoint_id=stable_digest({"checkpoint": "delta"})),
+        gate_a_manifest=SimpleNamespace(release_id=stable_digest({"gate-a": "delta"})),
+        manifest=SimpleNamespace(release_id=stable_digest({"native": "delta"})),
+        run_spec=SimpleNamespace(run_kind=I3ProductionRunKind.DELTA, run_spec_id=run_spec_id),
+    )
+    staged = SimpleNamespace(
+        completion_pin=completion,
+        deep_attestation_pin=deep,
+        loaded=loaded,
+        reused=False,
+    )
+    summary = SimpleNamespace(
+        to_dict=lambda: {
+            "terminal_session": "2026-07-10",
+            "universe_row_count": 36000,
+        }
+    )
+    ready = SimpleNamespace(summary=summary, sentinel_artifact=sentinel)
+    ready_config_pin = _pin("factor-ready-config")
+    monkeypatch.setattr(cli, "_prepare_delta", lambda *_args: prepared)
+    monkeypatch.setattr(cli, "_stage_delta", lambda *_args: staged)
+    monkeypatch.setattr(
+        cli,
+        "prepare_s75_completion",
+        lambda root, ready_config: (ready_config, ready_config_pin),
+    )
+    monkeypatch.setattr(
+        cli,
+        "stage_s75_completion",
+        lambda root, pin: ready,
+    )
+
+    code = cli.main(
+        [
+            "run-delta",
+            "--data-root",
+            str(tmp_path),
+            "--config-path",
+            config.path,
+            "--config-sha256",
+            config.sha256,
+            "--config-bytes",
+            str(config.bytes),
+        ]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["s7_5_state"] == "factor_ready_for_s8"
+    assert payload["s8_started"] is False
+    assert payload["s7_5_completion"] == sentinel.to_dict()
+    assert payload["factor_summary"]["terminal_session"] == "2026-07-10"
 
 
 def test_verify_cli_requires_exact_completion_and_deep_attestation_pins(
