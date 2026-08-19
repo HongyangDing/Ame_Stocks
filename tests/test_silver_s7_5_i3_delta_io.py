@@ -395,6 +395,21 @@ def _eligible_row(session: date, run_spec) -> dict[str, object]:
     return _production_lineage(row, run_spec)
 
 
+def _new_eligible_row(session: date, run_spec) -> dict[str, object]:
+    row = _legacy_row(
+        session,
+        ticker="NEWIPO",
+        observed_composite="BBG000000003",
+        observed_share="BBG000000004",
+        canonical_share="BBG000000004",
+        policy_bundle=run_spec.identity_policy_bundle,
+        source_label=f"NEWIPO-{session.isoformat()}",
+    )
+    row["source_selection_status"] = "selected_exact_source_record"
+    row["membership_source_available_session"] = RUN_AVAILABLE
+    return _production_lineage(row, run_spec)
+
+
 def _pending_row(
     ticker: str,
     *,
@@ -822,6 +837,7 @@ def _integration_fixture(root: Path):
         sorted(
             (
                 _eligible_row(TARGET_SESSION, base_spec),
+                _new_eligible_row(TARGET_SESSION, base_spec),
                 *(
                     _pending_row(ticker, run_spec=base_spec)
                     for ticker in ("ALA", *(f"NEW{i:02d}" for i in range(15)))
@@ -1389,6 +1405,60 @@ def test_unresolved_factor_gate_allows_issuer_lineage_and_variable_review_counts
             parent=parent,
             fallback_counts=counts,
         )
+
+
+def test_new_eligible_alias_without_prior_segment_uses_target_evidence_date(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(delta_io, "_validate_delta_qa", lambda _qa: None)
+    source = {
+        "ticker": "NEWIPO",
+        "backtest_identity_eligible": True,
+        "active_on_date": True,
+        "observed_cik_normalized": "0000000001",
+        "observed_composite_figi": "BBG000000003",
+        "observed_share_class_figi": "BBG000000004",
+        "selected_source_record_id": _digest("new-ipo-source-record"),
+        "identity_evidence_available_session": RUN_AVAILABLE,
+    }
+    segment_id = _digest("new-ipo-alias-segment")
+    resolution = SimpleNamespace(
+        evidence_available_session=RUN_AVAILABLE,
+        resolution_available_session=RUN_AVAILABLE,
+        evidence_cutoff_session=RUN_AVAILABLE,
+        identity_cutoff_session=RUN_AVAILABLE,
+    )
+    state = SimpleNamespace(
+        segment=SimpleNamespace(ticker="NEWIPO", alias_segment_id=segment_id),
+        resolution=resolution,
+    )
+    output = {
+        **source,
+        "identity_quality_liquidation_signal": False,
+    }
+    materialized = SimpleNamespace(
+        qa={},
+        universe_rows=(output,),
+        terminal_rows=(),
+        open_aliases=(state,),
+    )
+    parent = SimpleNamespace(
+        checkpoint=SimpleNamespace(
+            terminal_row_versions=(),
+            open_aliases=(),
+            identity_policy_bundle=SimpleNamespace(
+                bundle_available_session=RUN_AVAILABLE,
+                policy_cutoff_session=RUN_AVAILABLE,
+            ),
+        )
+    )
+
+    delta_io._validate_materialized_delta(
+        materialized=materialized,
+        target_rows=(source,),
+        parent=parent,
+        fallback_counts={},
+    )
 
 
 def test_expired_sor_requires_exact_terminal_scope_and_effective_precedence(

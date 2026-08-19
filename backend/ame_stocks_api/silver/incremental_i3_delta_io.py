@@ -3156,13 +3156,13 @@ def _validate_materialized_delta(
             and prior.segment.alias_segment_id == state.segment.alias_segment_id
             else None
         )
-        expected_evidence = max(
-            target_evidence,
-            *(
-                ()
-                if same_segment_prior is None
-                else (same_segment_prior.resolution.evidence_available_session,)
-            ),
+        expected_evidence = (
+            target_evidence
+            if same_segment_prior is None
+            else max(
+                target_evidence,
+                same_segment_prior.resolution.evidence_available_session,
+            )
         )
         expected_resolution_available = max(
             policy.bundle_available_session,
