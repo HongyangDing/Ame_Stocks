@@ -1,17 +1,18 @@
-"""Exact, bounded production IO for the first native-v2 I3 clean DELTA.
+"""Exact, bounded production IO for one native-v2 I3 clean daily DELTA.
 
-This module advances the authenticated 2026-07-09 compact BASE by exactly one
-XNYS session, 2026-07-10.  It never discovers a source directory or resolves a
-``latest`` pointer.  The source window is the closed three-session boundary
-2026-07-08..2026-07-10: the first two rows come from exact native-v2 parent
-partitions and the target comes from the sole authenticated I2 receipt.
+Each run advances an authenticated BASE or DELTA by exactly one XNYS session.
+It never discovers a source directory or resolves an arbitrary ``latest``
+pointer.  The source window is the target plus the parent's terminal two
+partitions; the target comes from the sole authenticated I2 receipt.
 
 The three versioned tables preserve their complete parent rowset prefix and
 append one immutable Parquet segment each.  ``universe_daily`` preserves its
 complete dataset-index prefix and appends one immutable target partition.
-Missing Gate-B coverage and an expired provider-Composite override are explicit
-fail-closed identity outcomes: membership and observed evidence remain, while
-canonical identity, alias/master references and backtest eligibility are null.
+Missing Gate-B coverage is an explicit fail-closed identity outcome.  An
+expired provider-Composite override can continue only when the immediately
+preceding resolved row and the new observed provider tuple are identical;
+otherwise it also fails closed.  This keeps known stable identities usable
+without extending a dated override to changed provider evidence.
 
 The returned nominal prepared bundle carries a process-local, module-sealed
 attestation.  The production executor must require the verifier in this module
@@ -61,10 +62,9 @@ from ame_stocks_api.silver.calendar_artifact import load_xnys_calendar_artifact
 from ame_stocks_api.silver.contracts import ReleaseManifest, arrow_schema_digest
 from ame_stocks_api.silver.identity_registry_workflow import (
     LoadedRegistryReleaseSet,
-    RegistryCandidateManifest,
     RegistryReleaseManifest,
     RegistryReleasePin,
-    load_registry_release,
+    load_registry_release_set,
 )
 from ame_stocks_api.silver.incremental_contract import ArtifactPin, RowVersionOperation
 from ame_stocks_api.silver.incremental_i3_checkpoint import (
@@ -78,6 +78,8 @@ from ame_stocks_api.silver.incremental_i3_checkpoint import (
     ResolvedPartitionState,
     S4TerminalPartitionPin,
     TerminalRowVersionState,
+    i3_checkpoint_storage_bytes,
+    i3_checkpoint_storage_pin,
     i3_resolved_state_digest,
 )
 from ame_stocks_api.silver.incremental_i3_contract import (
@@ -160,13 +162,10 @@ I3_PRODUCTION_DELTA_CANONICAL_PROJECTION_RULE_VERSION: Final = (
 I3_PRODUCTION_DELTA_ROW_CHANGE_ATTESTATION_RULE_VERSION: Final = (
     "s7_5_i3_production_delta_row_change_attestation_v1"
 )
-I3_PRODUCTION_DELTA_CONFIG_RULE_VERSION: Final = "s7_5_i3_production_delta_config_v1"
-PRODUCTION_FIRST_DELTA_SESSION: Final = date(2026, 7, 10)
-PRODUCTION_FIRST_DELTA_PARENT_SESSION: Final = date(2026, 7, 9)
-PRODUCTION_DELTA_BOUNDARY_SESSIONS: Final = (
-    date(2026, 7, 8),
-    PRODUCTION_FIRST_DELTA_PARENT_SESSION,
-    PRODUCTION_FIRST_DELTA_SESSION,
+I3_PRODUCTION_DELTA_CONFIG_RULE_VERSION: Final = "s7_5_i3_production_delta_config_v2"
+I3_PRODUCTION_DAILY_RULE_VERSION: Final = "s7_5_i3_generic_adjacent_daily_delta_v1"
+I3_PRODUCTION_STABLE_OVERRIDE_CONTINUATION_RULE_VERSION: Final = (
+    "s7_5_i3_stable_provider_override_continuation_v1"
 )
 
 _SMALL_TABLES: Final = I3_V2_TABLE_ORDER[:-1]
@@ -202,21 +201,56 @@ _VERSION_SHAPE: Final[Mapping[str, tuple[str, str, str, str]]] = {
 }
 _MINIMUM_DELTA_DISK_RESERVE: Final = 2 * 1024**3
 _PRODUCTION_CONTROL_ROOT: Final = "manifests/silver/identity/s7-5-native-v2-staging"
-_PRODUCTION_FIRST_DELTA_I2_RECEIPT_PATH: Final = (
-    "manifests/silver/incremental/s4/assets/"
-    "session_year=2026/session_date=2026-07-10/run-receipt.json"
-)
-_SOR_OVERRIDE_TICKER: Final = "SOR"
-_SOR_OVERRIDE_OBSERVED_COMPOSITE: Final = "BBG000KMY6N2"
-_SOR_OVERRIDE_OBSERVED_SHARE_CLASS: Final = "BBG01RK6N5G9"
-_SOR_OVERRIDE_CANONICAL_COMPOSITE: Final = "BBG01RK6N4M5"
-_SOR_OVERRIDE_VALID_FROM: Final = date(2025, 1, 2)
-_SOR_OVERRIDE_VALID_THROUGH: Final = PRODUCTION_FIRST_DELTA_PARENT_SESSION
-_SOR_OVERRIDE_SOURCE_ROW_COUNT: Final = 379
+
+
+def production_i2_receipt_path(session: date) -> str:
+    """Return the sole canonical I2 receipt path for one session."""
+
+    if type(session) is not date:
+        raise I3DeltaIOError("I2 receipt session must be a native date")
+    return (
+        "manifests/silver/incremental/s4/assets/"
+        f"session_year={session.year:04d}/session_date={session.isoformat()}/run-receipt.json"
+    )
+
+
+def _session_from_i2_receipt_path(relative: str) -> date:
+    if not isinstance(relative, str):
+        raise I3DeltaIOError("I2 receipt path is invalid")
+    prefix = "manifests/silver/incremental/s4/assets/"
+    parts = PurePosixPath(relative).parts
+    if not relative.startswith(prefix) or len(parts) < 3 or parts[-1] != "run-receipt.json":
+        raise I3DeltaIOError("I2 receipt path is not canonical")
+    year_part = parts[-3]
+    session_part = parts[-2]
+    if not year_part.startswith("session_year=") or not session_part.startswith("session_date="):
+        raise I3DeltaIOError("I2 receipt path is not session-partitioned")
+    raw = session_part.removeprefix("session_date=")
+    try:
+        session = date.fromisoformat(raw)
+    except ValueError as exc:
+        raise I3DeltaIOError("I2 receipt path session is invalid") from exc
+    if (
+        session.isoformat() != raw
+        or year_part != f"session_year={session.year:04d}"
+        or relative != production_i2_receipt_path(session)
+    ):
+        raise I3DeltaIOError("I2 receipt path is not canonical")
+    return session
 
 
 class I3DeltaIOError(RuntimeError):
-    """Raised when the exact first-delta trust boundary fails closed."""
+    """Raised when the exact daily-delta boundary fails closed."""
+
+
+def _validate_transitive_control_replay_bytes(value: object) -> int:
+    """Validate the legacy envelope field; new daily runs always record zero."""
+
+    if type(value) is not int or value < 0:
+        raise I3DeltaIOError("delta transitive control replay bytes are invalid")
+    if value > I3_PRODUCTION_DELTA_TRANSITIVE_CONTROL_REPLAY_BYTES_CAP:
+        raise I3DeltaIOError("delta transitive control replay exceeds the module-owned byte cap")
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,23 +306,26 @@ class I3ProductionDeltaInputBinding:
             if not isinstance(value, ArtifactPin):
                 raise I3DeltaIOError(f"{label} is invalid")
             _explicit_path(value.path)
+        if type(self.requested_sessions) is not tuple or len(self.requested_sessions) != 3:
+            raise I3DeltaIOError("delta source window must contain three sessions")
         if (
             type(self.i2_partitions) is not tuple
             or tuple(item.table_name for item in self.i2_partitions)
             != tuple(sorted(S4_TERMINAL_TABLE_ORDER))
-            or any(
-                item.session_date != PRODUCTION_FIRST_DELTA_SESSION for item in self.i2_partitions
-            )
+            or any(item.session_date != self.requested_sessions[-1] for item in self.i2_partitions)
         ):
             raise I3DeltaIOError("delta I2 partition set differs from the exact three tables")
         if (
             type(self.parent_boundary_partitions) is not tuple
-            or tuple(item.session_date for item in self.parent_boundary_partitions)
-            != PRODUCTION_DELTA_BOUNDARY_SESSIONS[:2]
+            or len(self.parent_boundary_partitions) != 2
         ):
-            raise I3DeltaIOError("delta parent boundary is not exactly 2026-07-08..09")
-        if self.requested_sessions != PRODUCTION_DELTA_BOUNDARY_SESSIONS:
-            raise I3DeltaIOError("delta source window is not exactly 2026-07-08..10")
+            raise I3DeltaIOError("delta parent boundary must contain two exact sessions")
+        if tuple(
+            item.session_date for item in self.parent_boundary_partitions
+        ) != self.requested_sessions[:2] or self.requested_sessions != tuple(
+            sorted(set(self.requested_sessions))
+        ):
+            raise I3DeltaIOError("delta source window is not one sorted three-session boundary")
         for value, label in (
             (self.parent_output_bytes, "delta parent output bytes"),
             (self.parent_output_rows, "delta parent output rows"),
@@ -355,6 +392,7 @@ class I3ProductionDeltaInputBinding:
             "policy_snapshot_id": self.policy_snapshot_id,
             "requested_sessions": [item.isoformat() for item in self.requested_sessions],
             "rule_version": I3_PRODUCTION_DELTA_INPUT_BINDING_RULE_VERSION,
+            "daily_rule_version": I3_PRODUCTION_DAILY_RULE_VERSION,
             "run_spec_id": self.run_spec_id,
             "source_binding_artifact": self.source_binding_artifact.to_dict(),
             "source_binding_id": self.source_binding_id,
@@ -421,7 +459,7 @@ class I3ProductionDeltaRunConfig:
     i2_receipt_artifact: ArtifactPin
     run_available_session: date
     resource_caps: I3ProductionResourceCaps
-    parent_authority: I3ProductionParentAuthority = I3ProductionParentAuthority.MIGRATION_SHADOW
+    parent_authority: I3ProductionParentAuthority = I3ProductionParentAuthority.EXACT_STAGING
     parent_pointer_event_artifact: ArtifactPin | None = None
 
     def __post_init__(self) -> None:
@@ -433,24 +471,25 @@ class I3ProductionDeltaRunConfig:
             if not isinstance(value, ArtifactPin):
                 raise I3DeltaIOError(f"delta {label} is invalid")
             _explicit_path(value.path)
-        if (
-            type(self.run_available_session) is not date
-            or self.run_available_session < PRODUCTION_FIRST_DELTA_SESSION
+        if type(
+            self.run_available_session
+        ) is not date or self.run_available_session < _session_from_i2_receipt_path(
+            self.i2_receipt_artifact.path
         ):
             raise I3DeltaIOError("delta run availability is invalid")
         if not isinstance(self.resource_caps, I3ProductionResourceCaps):
             raise I3DeltaIOError("delta resource caps are invalid")
         if not isinstance(self.parent_authority, I3ProductionParentAuthority):
             raise I3DeltaIOError("delta parent authority is invalid")
-        if self.parent_authority is I3ProductionParentAuthority.MIGRATION_SHADOW:
+        if self.parent_authority in {
+            I3ProductionParentAuthority.EXACT_STAGING,
+            I3ProductionParentAuthority.MIGRATION_SHADOW,
+        }:
             if self.parent_pointer_event_artifact is not None:
-                raise I3DeltaIOError("migration-shadow delta cannot carry a pointer event")
-        elif not isinstance(self.parent_pointer_event_artifact, ArtifactPin):
-            raise I3DeltaIOError("published-daily delta requires an exact pointer event")
+                raise I3DeltaIOError("exact-staging delta cannot carry a pointer event")
         else:
-            _explicit_path(self.parent_pointer_event_artifact.path)
-        if self.i2_receipt_artifact.path != _PRODUCTION_FIRST_DELTA_I2_RECEIPT_PATH:
-            raise I3DeltaIOError("delta I2 receipt path differs from the fixed target control")
+            raise I3DeltaIOError("delta parent authority is unsupported")
+        _session_from_i2_receipt_path(self.i2_receipt_artifact.path)
 
     @property
     def config_id(self) -> str:
@@ -597,8 +636,8 @@ class DeltaMaterializationAttestation:
             raise I3DeltaIOError("delta attestation checkpoint artifact is invalid")
         if self.canonical_projection_difference_count != 0:
             raise I3DeltaIOError("delta attestation cannot authorize projection differences")
-        if self.terminal_session != PRODUCTION_FIRST_DELTA_SESSION:
-            raise I3DeltaIOError("delta attestation targets another session")
+        if type(self.terminal_session) is not date:
+            raise I3DeltaIOError("delta attestation terminal is invalid")
         if self.availability_session < self.terminal_session:
             raise I3DeltaIOError("delta attestation availability precedes its terminal")
 
@@ -618,6 +657,7 @@ class DeltaMaterializationAttestation:
             "resource_observation_digest": self.resource_observation_digest,
             "row_change_index_digest": self.row_change_index_digest,
             "rule_version": I3_PRODUCTION_DELTA_MATERIALIZATION_ATTESTATION_RULE_VERSION,
+            "daily_rule_version": I3_PRODUCTION_DAILY_RULE_VERSION,
             "run_kind": I3ProductionRunKind.DELTA.value,
             "run_spec_id": self.run_spec_id,
             "source_digest": self.source_digest,
@@ -674,13 +714,6 @@ class _RegistryDeclaredExpansion:
     transitive_control_replay_bytes: int
 
 
-@dataclass(frozen=True, slots=True)
-class _OpaqueReplaySubtree:
-    subtree_id: str
-    replay_bytes: int
-    control_artifacts: tuple[ArtifactPin, ...]
-
-
 _DELTA_ATTESTATION_SEAL: Final = object()
 _MINTED_DELTA_ATTESTATIONS: Final[
     weakref.WeakValueDictionary[int, DeltaMaterializationAttestation]
@@ -716,7 +749,13 @@ class ProductionDeltaMaterializer:
 def load_production_delta_materializer(
     *, data_root: Path, run_spec: I3ProductionRunSpec
 ) -> ProductionDeltaMaterializer:
-    """CLI loader that preflights exact pins before returning the bounded seam."""
+    """Return the official bounded seam after a cheap direct-pin preflight.
+
+    Parent, I2, source, calendar, and registry authorities are replayed once by
+    ``prepare_production_delta`` while the executor holds the run lock.  Doing
+    that work here as well made every daily run validate the same immutable
+    tree twice before writing a single row.
+    """
 
     _require_delta_controls(run_spec, parent=None)
     root = data_root.expanduser().resolve()
@@ -725,14 +764,6 @@ def load_production_delta_materializer(
         run_spec.resource_caps,
         _delta_run_spec_direct_artifacts(run_spec),
     )
-    parent = load_i3_production_parent_shallow_exact(root, run_spec)
-    if parent is None:
-        raise I3DeltaIOError("production DELTA loader did not authenticate a parent")
-    _preflight_delta_input_envelope(
-        data_root=root,
-        run_spec=run_spec,
-        parent=parent,
-    )
     return ProductionDeltaMaterializer(run_spec.run_spec_id)
 
 
@@ -740,7 +771,7 @@ def store_i3_production_delta_config(
     data_root: Path,
     config: I3ProductionDeltaRunConfig,
 ) -> ArtifactPin:
-    """Immutably persist one canonical, explicit first-DELTA input config."""
+    """Immutably persist one canonical, explicit daily-DELTA input config."""
 
     if not isinstance(config, I3ProductionDeltaRunConfig):
         raise I3DeltaIOError("production DELTA config is not typed")
@@ -870,11 +901,16 @@ def build_production_delta_run_spec(
         != f"{expected_parent_control_root}/deep-verification-attestation.json"
     ):
         raise I3DeltaIOError("parent completion/deep paths are not canonical production controls")
+    if parent_spec.run_kind not in {
+        I3ProductionRunKind.BASE,
+        I3ProductionRunKind.DELTA,
+    }:
+        raise I3DeltaIOError("production DELTA parent kind is unsupported")
     if (
-        parent_spec.run_kind is not I3ProductionRunKind.BASE
-        or parent_spec.terminal_session != PRODUCTION_FIRST_DELTA_PARENT_SESSION
+        config.parent_authority is I3ProductionParentAuthority.MIGRATION_SHADOW
+        and parent_spec.run_kind is not I3ProductionRunKind.BASE
     ):
-        raise I3DeltaIOError("first production DELTA requires the exact 2026-07-09 BASE")
+        raise I3DeltaIOError("legacy migration-shadow authority is BASE-only")
 
     native_content = _read_exact_artifact(root, output_set.release_manifest_artifact)
     native = NativeV2ReleaseManifest.from_dict(_strict_json(native_content))
@@ -891,13 +927,14 @@ def build_production_delta_run_spec(
 
     i2_content = _read_exact_artifact(root, config.i2_receipt_artifact)
     i2_receipt = S4SessionRunReceipt.from_dict(_strict_json(i2_content))
+    target_session = _session_from_i2_receipt_path(config.i2_receipt_artifact.path)
     if (
         _canonical_json_bytes(i2_receipt.to_dict()) != i2_content
-        or i2_receipt.session_date != PRODUCTION_FIRST_DELTA_SESSION
-        or config.i2_receipt_artifact.path != _PRODUCTION_FIRST_DELTA_I2_RECEIPT_PATH
+        or i2_receipt.session_date != target_session
+        or target_session <= parent_spec.terminal_session
         or i2_receipt.receipt_available_session > config.run_available_session
     ):
-        raise I3DeltaIOError("delta I2 receipt differs from the fixed target boundary")
+        raise I3DeltaIOError("delta I2 receipt does not advance the exact parent")
     i2_pin = I3ProductionI2ReceiptPin(
         session_date=i2_receipt.session_date,
         receipt_id=i2_receipt.receipt_id,
@@ -906,7 +943,7 @@ def build_production_delta_run_spec(
     )
     candidate = I3ProductionRunSpec(
         run_kind=I3ProductionRunKind.DELTA,
-        terminal_session=PRODUCTION_FIRST_DELTA_SESSION,
+        terminal_session=target_session,
         source_cutoff_session=parent_spec.source_cutoff_session,
         run_available_session=config.run_available_session,
         native_v2_migration_id=parent_spec.native_v2_migration_id,
@@ -948,13 +985,11 @@ def _delta_parent_boundary(
     parent_index = parent_universe.dataset_index
     if parent_index is None:
         raise I3DeltaIOError("authenticated parent lost its universe dataset index")
-    by_session = {item.session_date: item for item in parent_index.partitions}
-    try:
-        boundary = tuple(by_session[session] for session in PRODUCTION_DELTA_BOUNDARY_SESSIONS[:2])
-    except KeyError as exc:
-        raise I3DeltaIOError("parent does not contain the exact 2026-07-08..09 boundary") from exc
-    if parent_index.partitions[-2:] != boundary:
-        raise I3DeltaIOError("parent boundary is not the terminal two-session prefix")
+    if len(parent_index.partitions) < 2:
+        raise I3DeltaIOError("parent does not contain two lookback sessions")
+    boundary = parent_index.partitions[-2:]
+    if boundary[-1].session_date != parent.run_spec.terminal_session:
+        raise I3DeltaIOError("parent boundary does not end at its terminal session")
     return boundary
 
 
@@ -1072,58 +1107,70 @@ def _expand_i2_declared_artifacts(
         or i2_spec.source_binding.source_binding_id != receipt.source_binding_id
     ):
         raise I3DeltaIOError("I2 preflight RunSpec differs from its receipt")
-    if i2_spec.parent_frontier.parent_kind is not S4ParentKind.BASE_RELEASE:
-        raise I3DeltaIOError("first production DELTA I2 parent is not the exact BASE frontier")
     parent_content = _read_exact_artifact(root, i2_spec.parent_frontier.artifact)
-    parent_frontier = S4BaseFrontier.from_dict(_strict_json(parent_content))
-    if (
-        _canonical_json_bytes(parent_frontier.to_dict()) != parent_content
-        or parent_frontier.frontier_id != i2_spec.parent_frontier.terminal_receipt_id
-        or parent_frontier.terminal_session != PRODUCTION_FIRST_DELTA_PARENT_SESSION
-    ):
-        raise I3DeltaIOError("I2 preflight BASE frontier differs from its exact pin")
-    base_release_content = _read_exact_artifact(
-        root,
-        parent_frontier.base_release_set_artifact,
-    )
-    base_release = AssetReleaseSet.from_dict(_strict_json(base_release_content))
-    if base_release.release_set_id != parent_frontier.base_release_set_id:
-        raise I3DeltaIOError("I2 preflight BASE release set differs from its frontier")
     expanded: list[ArtifactPin] = [
         receipt.run_spec_artifact,
         receipt.qa_details_artifact,
         *(item.artifact for item in receipt.partition_receipts),
         i2_spec.calendar_artifact,
         i2_spec.parent_frontier.artifact,
-        parent_frontier.base_release_set_artifact,
         *i2_spec.reference_binding.dependency_pins,
-        _artifact_pin_from_path_sha(
-            root,
-            base_release.intent_path,
-            base_release.intent_sha256,
-        ),
-        _artifact_pin_from_path_sha(
-            root,
-            base_release.group_approval_path,
-            base_release.group_approval_sha256,
-        ),
-        ArtifactPin(
-            path=base_release.publish_plan_path,
-            sha256=base_release.publish_plan_sha256,
-            bytes=base_release.publish_plan_bytes,
-        ),
     ]
-    expanded.extend(
-        _artifact_pin_from_path_sha(
+    if i2_spec.parent_frontier.parent_kind is S4ParentKind.BASE_RELEASE:
+        parent_frontier = S4BaseFrontier.from_dict(_strict_json(parent_content))
+        if (
+            _canonical_json_bytes(parent_frontier.to_dict()) != parent_content
+            or parent_frontier.frontier_id != i2_spec.parent_frontier.terminal_receipt_id
+            or parent_frontier.terminal_session != i2_spec.parent_frontier.terminal_session
+        ):
+            raise I3DeltaIOError("I2 preflight BASE frontier differs from its exact pin")
+        base_release_content = _read_exact_artifact(
             root,
-            (
-                "manifests/silver/full-run-plans/"
-                f"{member.table}/plan_id={member.full_run_plan_id}/manifest.json"
-            ),
-            member.full_run_plan_sha256,
+            parent_frontier.base_release_set_artifact,
         )
-        for member in base_release.members
-    )
+        base_release = AssetReleaseSet.from_dict(_strict_json(base_release_content))
+        if base_release.release_set_id != parent_frontier.base_release_set_id:
+            raise I3DeltaIOError("I2 preflight BASE release set differs from its frontier")
+        expanded.extend(
+            (
+                parent_frontier.base_release_set_artifact,
+                _artifact_pin_from_path_sha(
+                    root,
+                    base_release.intent_path,
+                    base_release.intent_sha256,
+                ),
+                _artifact_pin_from_path_sha(
+                    root,
+                    base_release.group_approval_path,
+                    base_release.group_approval_sha256,
+                ),
+                ArtifactPin(
+                    path=base_release.publish_plan_path,
+                    sha256=base_release.publish_plan_sha256,
+                    bytes=base_release.publish_plan_bytes,
+                ),
+            )
+        )
+        expanded.extend(
+            _artifact_pin_from_path_sha(
+                root,
+                (
+                    "manifests/silver/full-run-plans/"
+                    f"{member.table}/plan_id={member.full_run_plan_id}/manifest.json"
+                ),
+                member.full_run_plan_sha256,
+            )
+            for member in base_release.members
+        )
+    else:
+        parent_receipt = S4SessionRunReceipt.from_dict(_strict_json(parent_content))
+        if (
+            _canonical_json_bytes(parent_receipt.to_dict()) != parent_content
+            or parent_receipt.receipt_id != i2_spec.parent_frontier.terminal_receipt_id
+            or parent_receipt.session_date != i2_spec.parent_frontier.terminal_session
+        ):
+            raise I3DeltaIOError("I2 preflight session frontier differs from its exact pin")
+        expanded.append(parent_receipt.run_spec_artifact)
     expanded.extend(
         _artifact_pin_from_path_sha(root, item.path, item.sha256)
         for item in i2_spec.source_binding.inventory.upstream_manifests
@@ -1158,381 +1205,22 @@ def _expand_i2_declared_artifacts(
     return _unique_artifact_pins(tuple(expanded))
 
 
-def _artifact_pin_from_mapping(value: object, label: str) -> ArtifactPin:
-    if not isinstance(value, Mapping):
-        raise I3DeltaIOError(f"{label} is not an exact artifact mapping")
-    try:
-        pin = ArtifactPin(
-            path=value["path"],
-            sha256=value["sha256"],
-            bytes=value["bytes"],
-        )
-    except (KeyError, TypeError, ValueError) as exc:
-        raise I3DeltaIOError(f"{label} exact artifact fields are invalid") from exc
-    _explicit_path(pin.path)
-    return pin
-
-
-def _require_mapping(value: object, label: str) -> Mapping[str, object]:
-    if not isinstance(value, Mapping):
-        raise I3DeltaIOError(f"{label} must be an object")
-    return value
-
-
-def _native_nonnegative_int(value: object, label: str) -> int:
-    if type(value) is not int or value < 0:
-        raise I3DeltaIOError(f"{label} must be a nonnegative native integer")
-    return value
-
-
-def _validate_transitive_control_replay_bytes(value: object) -> int:
-    replay_bytes = _native_nonnegative_int(
-        value,
-        "delta transitive control replay bytes",
-    )
-    if replay_bytes > I3_PRODUCTION_DELTA_TRANSITIVE_CONTROL_REPLAY_BYTES_CAP:
-        raise I3DeltaIOError("delta transitive control replay exceeds the module-owned byte cap")
-    return replay_bytes
-
-
-def _canonical_control_document(
-    root: Path,
-    pin: ArtifactPin,
-    label: str,
-) -> tuple[Mapping[str, object], bytes]:
-    content = _read_exact_artifact(root, pin)
-    document = _strict_json(content)
-    canonical = (
-        json.dumps(
-            document,
-            allow_nan=False,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-        + b"\n"
-    )
-    if canonical != content:
-        raise I3DeltaIOError(f"{label} is not canonical JSON")
-    return document, content
-
-
-def _binding_artifact(binding: object, label: str) -> ArtifactPin:
-    try:
-        pin = ArtifactPin(
-            path=binding.path,
-            sha256=binding.sha256,
-            bytes=binding.bytes,
-        )
-    except (AttributeError, TypeError, ValueError) as exc:
-        raise I3DeltaIOError(f"{label} exact binding is invalid") from exc
-    _explicit_path(pin.path)
-    return pin
-
-
-def _exact_group_opaque_replay_subtree(
-    root: Path,
-    source_by_role: Mapping[str, object],
-) -> _OpaqueReplaySubtree:
-    """Authenticate one exact-group tree through its aggregate completion."""
-
-    from ame_stocks_api.silver.identity_exact_group_history_runner import (
-        S7ExactGroupHistoryCandidate,
-        S7ExactGroupHistoryCompletion,
-    )
-
-    candidate_binding = source_by_role["source_exact_group_candidate_manifest"]
-    completion_binding = source_by_role["source_exact_group_completion_manifest"]
-    candidate_pin = _binding_artifact(candidate_binding, "exact-group candidate")
-    completion_pin = _binding_artifact(completion_binding, "exact-group completion")
-    _validate_transitive_control_replay_bytes(candidate_pin.bytes)
-    candidate_document, candidate_content = _canonical_control_document(
-        root,
-        candidate_pin,
-        "exact-group candidate",
-    )
-    _validate_transitive_control_replay_bytes(candidate_pin.bytes + completion_pin.bytes)
-    completion_document, completion_content = _canonical_control_document(
-        root,
-        completion_pin,
-        "exact-group completion",
-    )
-    try:
-        candidate = S7ExactGroupHistoryCandidate.from_dict(candidate_document)
-        completion = S7ExactGroupHistoryCompletion.from_dict(completion_document)
-    except (RuntimeError, TypeError, ValueError) as exc:
-        raise I3DeltaIOError("exact-group aggregate controls are invalid") from exc
-    expected_candidate_path = f"{candidate.relative_directory}/manifest.json"
-    if (
-        candidate.content != candidate_content
-        or completion.content != completion_content
-        or candidate_binding.artifact_id != candidate.candidate_id
-        or completion_binding.artifact_id != completion.completion_id
-        or candidate_pin.path != expected_candidate_path
-        or candidate_pin.sha256 != candidate.sha256
-        or completion_pin.sha256 != completion.sha256
-        or completion.candidate_id != candidate.candidate_id
-        or completion.candidate_path != candidate_pin.path
-        or completion.candidate_sha256 != candidate_pin.sha256
-        or completion.output_artifacts != candidate.artifacts
-    ):
-        raise I3DeltaIOError("exact-group candidate/completion aggregate binding differs")
-    expected_tree_bytes = candidate_pin.bytes + sum(item.bytes for item in candidate.artifacts)
-    if completion.output_bytes != expected_tree_bytes:
-        raise I3DeltaIOError("exact-group completion tree byte aggregate differs")
-    replay_bytes = _validate_transitive_control_replay_bytes(
-        completion.output_bytes + completion_pin.bytes
-    )
-    return _OpaqueReplaySubtree(
-        subtree_id=completion.completion_id,
-        replay_bytes=replay_bytes,
-        control_artifacts=_unique_artifact_pins((candidate_pin, completion_pin)),
-    )
-
-
-_GATE_C_OUTPUT_ROLES: Final = frozenset(
-    {
-        "bounded_examples",
-        "daily_reason_counts",
-        "interval_data",
-        "qa",
-        "reviewed_foreign_source_evidence",
-    }
-)
-_GATE_C_REGISTRY_LOADER_SOURCE_REF_ROLES: Final = frozenset(
-    {
-        "detector_preview",
-        "detector_preview_completion",
-        "gate_a_candidate",
-        "gate_a_completion",
-        "gate_b_candidate",
-        "gate_b_data",
-        "reviewed_case_evidence",
-        "reviewed_external_evidence",
-    }
-)
-
-
-def _gate_c_opaque_replay_subtree(
-    root: Path,
-    source_by_role: Mapping[str, object],
-) -> _OpaqueReplaySubtree:
-    """Authenticate one Gate-C output set without enumerating its leaf paths."""
-
-    candidate_binding = source_by_role["source_gate_c_candidate_manifest"]
-    completion_binding = source_by_role["source_gate_c_completion_manifest"]
-    candidate_pin = _binding_artifact(candidate_binding, "Gate-C candidate")
-    completion_pin = _binding_artifact(completion_binding, "Gate-C completion")
-    _validate_transitive_control_replay_bytes(candidate_pin.bytes)
-    candidate, _ = _canonical_control_document(root, candidate_pin, "Gate-C candidate")
-    _validate_transitive_control_replay_bytes(candidate_pin.bytes + completion_pin.bytes)
-    completion, _ = _canonical_control_document(root, completion_pin, "Gate-C completion")
-
-    completion_payload = dict(completion)
-    completion_id = _digest(
-        completion_payload.pop("completion_id", None),
-        "Gate-C completion ID",
-    )
-    candidate_payload = dict(candidate)
-    candidate_manifest_id = _digest(
-        candidate_payload.pop("manifest_id", None),
-        "Gate-C candidate manifest ID",
-    )
-    candidate_id = _digest(candidate.get("candidate_id"), "Gate-C candidate ID")
-    if (
-        stable_digest(completion_payload) != completion_id
-        or stable_digest(candidate_payload) != candidate_manifest_id
-        or completion_binding.artifact_id != completion_id
-        or candidate_binding.artifact_id != candidate_id
-    ):
-        raise I3DeltaIOError("Gate-C aggregate control identity differs")
-
-    candidate_ref = _require_mapping(completion.get("candidate"), "Gate-C candidate ref")
-    if (
-        candidate_ref.get("candidate_id") != candidate_id
-        or candidate_ref.get("manifest_id") != candidate_manifest_id
-        or candidate_ref.get("path") != candidate_pin.path
-        or candidate_ref.get("sha256") != candidate_pin.sha256
-        or candidate_ref.get("bytes") != candidate_pin.bytes
-    ):
-        raise I3DeltaIOError("Gate-C completion names another candidate")
-
-    candidate_outputs = _require_mapping(candidate.get("outputs"), "Gate-C outputs")
-    completion_outputs = _require_mapping(
-        completion.get("outputs"),
-        "Gate-C completion outputs",
-    )
-    if set(candidate_outputs) != _GATE_C_OUTPUT_ROLES or completion_outputs != candidate_outputs:
-        raise I3DeltaIOError("Gate-C output aggregate role set differs")
-    output_pins = tuple(
-        _artifact_pin_from_mapping(value, f"Gate-C {role} output")
-        for role, value in sorted(candidate_outputs.items())
-    )
-    output_bytes = sum(item.bytes for item in output_pins)
-    _validate_transitive_control_replay_bytes(
-        output_bytes + candidate_pin.bytes + completion_pin.bytes
-    )
-    candidate_resources = _require_mapping(
-        candidate.get("resource_measurements"),
-        "Gate-C candidate resources",
-    )
-    completion_resources = _require_mapping(
-        completion.get("resource_measurements"),
-        "Gate-C completion resources",
-    )
-    if (
-        completion_resources != candidate_resources
-        or _native_nonnegative_int(
-            candidate_resources.get("output_bytes"),
-            "Gate-C aggregate output bytes",
-        )
-        != output_bytes
-    ):
-        raise I3DeltaIOError("Gate-C output byte aggregate differs")
-
-    source_refs = _require_mapping(
-        candidate.get("registry_loader_source_refs"),
-        "Gate-C registry-loader source refs",
-    )
-    if set(source_refs) != _GATE_C_REGISTRY_LOADER_SOURCE_REF_ROLES or any(
-        not isinstance(value, Mapping) for value in source_refs.values()
-    ):
-        raise I3DeltaIOError("Gate-C registry-loader source-ref schema differs")
-    detector_preview = _require_mapping(
-        source_refs["detector_preview"],
-        "Gate-C detector preview",
-    )
-    detector_preview_pin = _artifact_pin_from_mapping(
-        detector_preview,
-        "Gate-C detector preview",
-    )
-    _digest(
-        detector_preview.get("preview_artifact_id"),
-        "Gate-C detector preview ID",
-    )
-    _validate_transitive_control_replay_bytes(
-        output_bytes + candidate_pin.bytes + completion_pin.bytes + detector_preview_pin.bytes
-    )
-
-    plan_ref = _require_mapping(completion.get("plan"), "Gate-C plan ref")
-    authorization_ref = _require_mapping(
-        completion.get("authorization"),
-        "Gate-C authorization ref",
-    )
-    try:
-        plan_pin = _artifact_pin_from_path_sha(
-            root,
-            str(plan_ref["path"]),
-            str(plan_ref["sha256"]),
-        )
-        authorization_pin = _artifact_pin_from_path_sha(
-            root,
-            str(authorization_ref["path"]),
-            str(authorization_ref["sha256"]),
-        )
-    except KeyError as exc:
-        raise I3DeltaIOError("Gate-C aggregate control ref is incomplete") from exc
-    controls = _unique_artifact_pins(
-        (
-            candidate_pin,
-            completion_pin,
-            plan_pin,
-            authorization_pin,
-            detector_preview_pin,
-        )
-    )
-    replay_bytes = _validate_transitive_control_replay_bytes(
-        output_bytes + sum(item.bytes for item in controls)
-    )
-    plan, _ = _canonical_control_document(root, plan_pin, "Gate-C plan")
-    authorization, _ = _canonical_control_document(
-        root,
-        authorization_pin,
-        "Gate-C authorization",
-    )
-    if plan.get("plan_id") != plan_ref.get("plan_id") or authorization.get(
-        "authorization_id"
-    ) != authorization_ref.get("authorization_id"):
-        raise I3DeltaIOError("Gate-C plan/authorization aggregate binding differs")
-
-    return _OpaqueReplaySubtree(
-        subtree_id=completion_id,
-        replay_bytes=replay_bytes,
-        control_artifacts=controls,
-    )
-
-
-def _registry_opaque_replay_subtree(
-    root: Path,
-    candidate: RegistryCandidateManifest,
-) -> _OpaqueReplaySubtree:
-    source_by_role = {item.role: item for item in candidate.source_artifacts}
-    roles = set(source_by_role)
-    if roles == {
-        "source_exact_group_candidate_manifest",
-        "source_exact_group_completion_manifest",
-    }:
-        return _exact_group_opaque_replay_subtree(root, source_by_role)
-    if roles == {
-        "source_gate_c_candidate_manifest",
-        "source_gate_c_completion_manifest",
-    }:
-        return _gate_c_opaque_replay_subtree(root, source_by_role)
-    raise I3DeltaIOError("registry replay source roles are unknown or incomplete")
-
-
-def _expand_registry_ingress_artifacts(
-    root: Path,
-    candidate: RegistryCandidateManifest,
-) -> tuple[ArtifactPin, ...]:
-    ingress = candidate.production_ingress_artifact
-    if ingress is None:
-        return ()
-    ingress_pin = ArtifactPin(path=ingress.path, sha256=ingress.sha256, bytes=ingress.bytes)
-    ingress_document = _strict_json(_read_exact_artifact(root, ingress_pin))
-    import_pin = _artifact_pin_from_mapping(
-        ingress_document.get("evidence_import_artifact"),
-        "registry evidence import",
-    )
-    import_document = _strict_json(_read_exact_artifact(root, import_pin))
-    manifest_pin = _artifact_pin_from_mapping(
-        import_document.get("manifest"),
-        "registry external evidence manifest",
-    )
-    raw_from_import = tuple(
-        _artifact_pin_from_mapping(item, "registry imported raw evidence")
-        for item in _mapping_array(
-            import_document.get("raw_artifacts"),
-            "registry imported raw evidence",
-        )
-    )
-    evidence_document = _strict_json(_read_exact_artifact(root, manifest_pin))
-    raw_from_manifest = tuple(
-        _artifact_pin_from_mapping(item, "registry manifest raw evidence")
-        for item in _mapping_array(
-            evidence_document.get("artifacts"),
-            "registry manifest raw evidence",
-        )
-    )
-    imported = {item.path: item for item in raw_from_import}
-    if any(imported.get(item.path) != item for item in raw_from_manifest):
-        raise I3DeltaIOError("registry evidence import and manifest raw pins differ")
-    return _unique_artifact_pins(
-        (ingress_pin, import_pin, manifest_pin, *raw_from_import, *raw_from_manifest)
-    )
-
-
 def _expand_registry_declared_artifacts(
     root: Path,
     pins: Sequence[RegistryReleasePin],
     *,
     run_spec: I3ProductionRunSpec,
 ) -> _RegistryDeclaredExpansion:
-    """Expand exact controls and authenticate opaque replay-subtree aggregates."""
+    """Read each exact release manifest once and declare its direct members.
+
+    The authoritative five-release loader performs the complete control,
+    evidence, row, and lineage replay under one shared historical cache later
+    in the same input-binding pass.  Preflight deliberately does not replay
+    those trees a second time.
+    """
 
     expanded: list[ArtifactPin] = []
     transition_count: int | None = None
-    opaque_subtrees: dict[str, _OpaqueReplaySubtree] = {}
     for pin in pins:
         manifest_pin = ArtifactPin(
             path=pin.manifest_path,
@@ -1542,7 +1230,8 @@ def _expand_registry_declared_artifacts(
         manifest_content = _read_exact_artifact(root, manifest_pin)
         manifest = RegistryReleaseManifest.from_dict(_strict_json(manifest_content))
         if (
-            manifest.registry_name != pin.registry_name
+            _canonical_json_bytes(manifest.to_dict()) != manifest_content
+            or manifest.registry_name != pin.registry_name
             or manifest.release_id != pin.release_id
             or manifest.relative_path != pin.manifest_path
             or manifest.release_available_session != pin.release_available_session
@@ -1550,21 +1239,19 @@ def _expand_registry_declared_artifacts(
             raise I3DeltaIOError("registry preflight manifest differs from its exact pin")
         if manifest.registry_name == "asset_transition":
             transition_count = manifest.row_count
-        candidate_pin = ArtifactPin(
-            path=manifest.candidate.path,
-            sha256=manifest.candidate.sha256,
-            bytes=manifest.candidate.bytes,
-        )
-        candidate_content = _read_exact_artifact(root, candidate_pin)
-        candidate = RegistryCandidateManifest.from_dict(_strict_json(candidate_content))
-        if (
-            candidate.candidate_id != manifest.candidate.object_id
-            or candidate.relative_path != manifest.candidate.path
-            or candidate.registry_name != manifest.registry_name
-        ):
-            raise I3DeltaIOError("registry preflight candidate differs from its exact pin")
         release_dir = PurePosixPath(manifest.release_directory)
-        member_pins = (
+        direct_members = (
+            manifest_pin,
+            *(
+                ArtifactPin(path=item.path, sha256=item.sha256, bytes=item.bytes)
+                for item in (
+                    manifest.candidate,
+                    manifest.plan,
+                    manifest.request,
+                    manifest.approval_receipt,
+                    manifest.publish_intent,
+                )
+            ),
             ArtifactPin(
                 path=(release_dir / manifest.rows_path).as_posix(),
                 sha256=manifest.rows_sha256,
@@ -1579,58 +1266,20 @@ def _expand_registry_declared_artifacts(
                 for item in manifest.decisions
             ),
         )
-        control_pins = tuple(
-            ArtifactPin(path=item.path, sha256=item.sha256, bytes=item.bytes)
-            for item in (
-                manifest.candidate,
-                manifest.plan,
-                manifest.request,
-                manifest.approval_receipt,
-                manifest.publish_intent,
+        if manifest.production_ingress_artifact is not None:
+            ingress = manifest.production_ingress_artifact
+            direct_members = (
+                *direct_members,
+                ArtifactPin(path=ingress.path, sha256=ingress.sha256, bytes=ingress.bytes),
             )
-        )
-        candidate_inputs = tuple(
-            ArtifactPin(path=item.path, sha256=item.sha256, bytes=item.bytes)
-            for item in (
-                *candidate.source_artifacts,
-                *candidate.evidence_artifacts,
-                *candidate.authorization_artifacts,
-                *(
-                    (candidate.production_ingress_artifact,)
-                    if candidate.production_ingress_artifact
-                    else ()
-                ),
-            )
-        )
-        ingress_inputs = _expand_registry_ingress_artifacts(root, candidate)
-        opaque_subtree = _registry_opaque_replay_subtree(root, candidate)
-        prior_subtree = opaque_subtrees.get(opaque_subtree.subtree_id)
-        if prior_subtree is not None and prior_subtree != opaque_subtree:
-            raise I3DeltaIOError(
-                "one registry replay subtree identity carries conflicting aggregates"
-            )
-        opaque_subtrees[opaque_subtree.subtree_id] = opaque_subtree
-        replay_bytes = sum(item.replay_bytes for item in opaque_subtrees.values())
-        _validate_transitive_control_replay_bytes(replay_bytes)
-        expanded.extend(
-            (
-                manifest_pin,
-                *control_pins,
-                *member_pins,
-                *candidate_inputs,
-                *ingress_inputs,
-                *opaque_subtree.control_artifacts,
-            )
-        )
+        expanded.extend(direct_members)
         _check_live_resources(root, run_spec)
     if transition_count is None:
         raise I3DeltaIOError("registry preflight lacks asset-transition authority")
     return _RegistryDeclaredExpansion(
         artifacts=_unique_artifact_pins(tuple(expanded)),
         asset_transition_decision_count=transition_count,
-        transitive_control_replay_bytes=_validate_transitive_control_replay_bytes(
-            sum(item.replay_bytes for item in opaque_subtrees.values())
-        ),
+        transitive_control_replay_bytes=0,
     )
 
 
@@ -1659,7 +1308,7 @@ def _preflight_delta_input_envelope(
         or i2_receipt.receipt_id != i2_expected.receipt_id
         or i2_receipt.session_date != i2_expected.session_date
         or i2_receipt.receipt_available_session != i2_expected.receipt_available_session
-        or i2_receipt.session_date != PRODUCTION_FIRST_DELTA_SESSION
+        or i2_receipt.session_date != run_spec.terminal_session
     ):
         raise I3DeltaIOError("delta preflight I2 receipt differs from its exact pin")
     minimum_disk = min(minimum_disk, _check_live_resources(root, run_spec))
@@ -1799,13 +1448,18 @@ def load_production_delta_input_binding(
     if calendar_pin != run_spec.calendar.artifact:
         raise I3DeltaIOError("delta calendar exact pin differs")
     try:
-        target_index = sessions.index(PRODUCTION_FIRST_DELTA_SESSION)
+        target_index = sessions.index(run_spec.terminal_session)
     except ValueError as exc:
         raise I3DeltaIOError("delta target session is absent from the exact calendar") from exc
-    if target_index < 2 or sessions[target_index - 2 : target_index + 1] != (
-        PRODUCTION_DELTA_BOUNDARY_SESSIONS
+    requested_sessions = sessions[target_index - 2 : target_index + 1]
+    if (
+        target_index < 2
+        or len(requested_sessions) != 3
+        or requested_sessions[-2] != loaded_parent.run_spec.terminal_session
+        or tuple(item.session_date for item in envelope.parent_boundary_partitions)
+        != requested_sessions[:2]
     ):
-        raise I3DeltaIOError("delta calendar does not reproduce the fixed three-session window")
+        raise I3DeltaIOError("delta calendar does not reproduce the adjacent three-session window")
 
     parent_boundary = envelope.parent_boundary_partitions
 
@@ -1819,7 +1473,7 @@ def load_production_delta_input_binding(
         or i2_receipt != envelope.i2_receipt
         or i2_receipt.receipt_id != i2_expected.receipt_id
         or i2_receipt.receipt_available_session != i2_expected.receipt_available_session
-        or i2_receipt.session_date != PRODUCTION_FIRST_DELTA_SESSION
+        or i2_receipt.session_date != run_spec.terminal_session
     ):
         raise I3DeltaIOError("module-owned I2 loader returned another exact receipt")
     _verify_i2_parent_frontier(run_spec, loaded_parent, i2_run)
@@ -1853,21 +1507,12 @@ def load_production_delta_input_binding(
         )
         for item in run_spec.identity_policy_bundle.registry_releases
     )
-    _validate_transitive_control_replay_bytes(envelope.transitive_control_replay_bytes)
-    loaded_releases = []
-    for registry_pin in registry_pins:
-        _check_live_resources(root, run_spec)
-        loaded_releases.append(
-            load_registry_release(
-                root,
-                registry_pin,
-                revalidate_current_runtime=False,
-            )
-        )
-        _validate_transitive_control_replay_bytes(envelope.transitive_control_replay_bytes)
-        _check_live_resources(root, run_spec)
-    registries = LoadedRegistryReleaseSet(tuple(loaded_releases))
-    registries.validate_all_composite_scopes_are_exclusive()
+    registries = load_registry_release_set(
+        root,
+        registry_pins,
+        revalidate_current_runtime=False,
+    )
+    _check_live_resources(root, run_spec)
     policy_snapshot = load_production_identity_policy_snapshot(
         registries,
         run_spec.identity_policy_bundle,
@@ -1894,7 +1539,7 @@ def load_production_delta_input_binding(
         i2_receipt_artifact=i2_expected.artifact,
         i2_partitions=i2_receipt.partition_receipts,
         parent_boundary_partitions=parent_boundary,
-        requested_sessions=PRODUCTION_DELTA_BOUNDARY_SESSIONS,
+        requested_sessions=requested_sessions,
         source_binding_id=source_binding.source_binding_id,
         source_binding_artifact=source_artifact,
         gate_b_manifest_artifact=gate_b_manifest,
@@ -1926,7 +1571,7 @@ def prepare_production_delta(
     parent: LoadedI3ProductionStaging,
     workspace: Path,
 ) -> DeltaPreparedMaterialization:
-    """Materialize the immutable 2026-07-10 clean append from exact controls."""
+    """Materialize one immutable adjacent-session clean append from exact controls."""
 
     started = time.monotonic()
     root = data_root.expanduser().resolve()
@@ -1964,7 +1609,7 @@ def prepare_production_delta(
         raise I3DeltaIOError("target I2 membership row count changed")
     target_source = target_source.sort_by([("ticker", "ascending")])
     source_rows = tuple(dict(row) for row in target_source.to_pylist())
-    if any(row["session_date"] != PRODUCTION_FIRST_DELTA_SESSION for row in source_rows) or tuple(
+    if any(row["session_date"] != run_spec.terminal_session for row in source_rows) or tuple(
         str(row["ticker"]) for row in source_rows
     ) != tuple(sorted({str(row["ticker"]) for row in source_rows})):
         raise I3DeltaIOError("target I2 membership is not session-pure/sorted/unique")
@@ -1984,12 +1629,17 @@ def prepare_production_delta(
         observation,
         versions,
     )
+    parent_terminal_rows = _stable_continuation_parents(
+        lookback_rows,
+        terminal_session=parent.run_spec.terminal_session,
+    )
     target_rows, fallback_counts = _resolve_target_rows(
         source_rows,
         run_spec=run_spec,
         source_binding=loaded.source_binding,
         gate_b_by_composite=loaded.gate_b_by_composite,
         registries=loaded.registries,
+        parent_terminal_rows=parent_terminal_rows,
     )
     lookback_rows.extend(target_rows)
     minimum_disk = min(minimum_disk, _check_live_resources(root, run_spec))
@@ -1998,7 +1648,7 @@ def prepare_production_delta(
         materialized = _materialize_delta_day(
             target_rows=target_rows,
             lookback_rows=tuple(lookback_rows),
-            target_session=PRODUCTION_FIRST_DELTA_SESSION,
+            target_session=run_spec.terminal_session,
             calendar=loaded.calendar_sessions,
             availability_session=run_spec.run_available_session,
             policy=run_spec.identity_policy_bundle,
@@ -2050,7 +1700,7 @@ def prepare_production_delta(
             work
             / table_name
             / "segments"
-            / f"session_date={PRODUCTION_FIRST_DELTA_SESSION.isoformat()}"
+            / f"session_date={run_spec.terminal_session.isoformat()}"
             / "part-000.parquet",
         )
         artifact = write_i3_migration_parquet_no_clobber(
@@ -2121,7 +1771,7 @@ def prepare_production_delta(
         root,
         work
         / "universe_daily"
-        / f"session_date={PRODUCTION_FIRST_DELTA_SESSION.isoformat()}"
+        / f"session_date={run_spec.terminal_session.isoformat()}"
         / "part-000.parquet",
     )
     universe_artifact = write_i3_migration_parquet_no_clobber(
@@ -2135,7 +1785,7 @@ def prepare_production_delta(
         artifact=universe_artifact,
         table_name="universe_daily",
         row_count=universe_table.num_rows,
-        session_date=PRODUCTION_FIRST_DELTA_SESSION,
+        session_date=run_spec.terminal_session,
     )
     projection_difference_count = _canonical_projection_difference_count(
         target_rows,
@@ -2285,14 +1935,17 @@ def prepare_production_delta(
         resolved_partition_map=resolved_partition_map,
         terminal_row_versions=terminal_rows,
     )
-    checkpoint_relative = _workspace_relative(root, work / "checkpoint.json")
+    checkpoint_relative = _workspace_relative(root, work / "checkpoint.json.gz")
     checkpoint_artifact = _write_bytes_no_clobber(
         root,
         checkpoint_relative,
-        checkpoint.canonical_bytes(),
+        i3_checkpoint_storage_bytes(checkpoint, path=checkpoint_relative),
         run_spec=run_spec,
     )
-    if checkpoint_artifact != checkpoint.exact_pin(path=checkpoint_relative):
+    if checkpoint_artifact != i3_checkpoint_storage_pin(
+        checkpoint,
+        path=checkpoint_relative,
+    ):
         raise I3DeltaIOError("delta checkpoint bytes changed during write")
 
     output_bytes = _workspace_file_bytes(work)
@@ -2362,24 +2015,46 @@ def _resolve_target_rows(
     source_binding: streaming.S7StreamingSourceBinding,
     gate_b_by_composite: Mapping[str, Mapping[str, object]],
     registries: LoadedRegistryReleaseSet,
+    parent_terminal_rows: Mapping[str, Mapping[str, object]],
 ) -> tuple[tuple[dict[str, object], ...], Mapping[str, int]]:
     rows: list[dict[str, object]] = []
     missing_gate_b = 0
     expired_override = 0
+    continued_override = 0
     for source in source_rows:
         observed = source.get("composite_figi")
         gate_missing = isinstance(observed, str) and observed not in gate_b_by_composite
-        override_expired = (
-            not gate_missing
-            and isinstance(observed, str)
-            and _expired_provider_override_subject(
+        expired_decision_id = (
+            None
+            if gate_missing
+            else _expired_provider_override_decision(
                 source,
                 registries=registries,
                 cutoff_session=source_binding.cutoff_session,
                 source_s4_release_set_id=source_binding.s4_release_set_id,
             )
         )
-        if gate_missing or override_expired:
+        prior = parent_terminal_rows.get(str(source.get("ticker")))
+        stable_continuation = (
+            expired_decision_id is not None
+            and prior is not None
+            and _stable_override_observation(source, prior)
+        )
+        override_expired = (
+            not gate_missing and expired_decision_id is not None and not stable_continuation
+        )
+        if stable_continuation:
+            gate_row = gate_b_by_composite.get(str(observed))
+            projection = _continued_override_projection(
+                source,
+                prior=prior,
+                decision_id=expired_decision_id,
+                run_spec=run_spec,
+                gate_row=gate_row,
+                registries=registries,
+            )
+            continued_override += 1
+        elif gate_missing or override_expired:
             gate_row = gate_b_by_composite.get(str(observed)) if not gate_missing else None
             projection = _pending_projection(
                 source,
@@ -2425,17 +2100,18 @@ def _resolve_target_rows(
     return ordered, {
         "gate_b_reference_unattempted": missing_gate_b,
         "provider_composite_override_scope_expired": expired_override,
+        "provider_composite_override_stable_continuation": continued_override,
     }
 
 
-def _expired_provider_override_subject(
+def _expired_provider_override_decision(
     source: Mapping[str, object],
     *,
     registries: LoadedRegistryReleaseSet,
     cutoff_session: date,
     source_s4_release_set_id: str,
-) -> bool:
-    """Detect a known override subject whose exact source/date scope has ended."""
+) -> str | None:
+    """Return one expired exact provider override matching the observed tuple."""
 
     release = registries.by_name("provider_composite_override")
     source_id = _digest(source.get("selected_source_record_id"), "target source record ID")
@@ -2447,79 +2123,196 @@ def _expired_provider_override_subject(
         source_id in release.source_scopes[decision_id].source_record_ids
         for decision_id in effective_ids
     ):
-        return False
-    if not _is_exact_expired_sor_target(source):
-        return False
+        return None
+    ticker = source.get("ticker")
+    market = source.get("market")
+    locale = source.get("locale")
+    observed = source.get("composite_figi")
+    if not all(isinstance(value, str) and value for value in (ticker, market, locale, observed)):
+        return None
     candidates = tuple(
         decision_id
         for decision_id in effective_ids
         if (
-            release.decision_rows[decision_id].get("provider_id") == "massive"
-            and release.decision_rows[decision_id].get("provider_market") == "stocks"
-            and release.decision_rows[decision_id].get("provider_locale") == "us"
-            and release.decision_rows[decision_id].get("observed_ticker") == _SOR_OVERRIDE_TICKER
-            and release.decision_rows[decision_id].get("observed_composite_figi")
-            == _SOR_OVERRIDE_OBSERVED_COMPOSITE
+            release.decision_rows[decision_id].get("provider_market") == market
+            and release.decision_rows[decision_id].get("provider_locale") == locale
+            and release.decision_rows[decision_id].get("observed_ticker") == ticker
+            and release.decision_rows[decision_id].get("observed_composite_figi") == observed
             and type(release.decision_rows[decision_id].get("valid_through_session")) is date
             and release.decision_rows[decision_id]["valid_through_session"] < target
+            and release.decision_rows[decision_id].get("source_s4_release_set_id")
+            == source_s4_release_set_id
         )
     )
+    if not candidates:
+        return None
     if len(candidates) != 1:
-        raise I3DeltaIOError("exact SOR expired-override subject is absent or ambiguous")
-    decision_id = candidates[0]
-    row = release.decision_rows[decision_id]
-    scope = release.source_scopes[decision_id]
-    expected_decision = {
-        "canonical_composite_figi": _SOR_OVERRIDE_CANONICAL_COMPOSITE,
-        "canonical_composite_market_code": "US",
-        "observed_composite_market_code": "US",
-        "source_s4_release_set_id": source_s4_release_set_id,
-        "valid_from_session": _SOR_OVERRIDE_VALID_FROM,
-        "valid_through_session": _SOR_OVERRIDE_VALID_THROUGH,
-    }
-    if (
-        any(row.get(key) != value for key, value in expected_decision.items())
-        or row.get("scoped_source_record_count") != _SOR_OVERRIDE_SOURCE_ROW_COUNT
-    ):
-        raise I3DeltaIOError("exact SOR override decision boundary changed")
-    scope_rows = tuple(scope.rows)
-    if (
-        len(scope_rows) != _SOR_OVERRIDE_SOURCE_ROW_COUNT
-        or min(item.session_date for item in scope_rows) != _SOR_OVERRIDE_VALID_FROM
-        or max(item.session_date for item in scope_rows) != _SOR_OVERRIDE_VALID_THROUGH
-        or any(
-            item.provider_id != "massive"
-            or item.provider_market != "stocks"
-            or item.provider_locale != "us"
-            or item.ticker != _SOR_OVERRIDE_TICKER
-            or item.observed_composite_figi != _SOR_OVERRIDE_OBSERVED_COMPOSITE
-            or item.source_s4_release_set_id != source_s4_release_set_id
-            for item in scope_rows
-        )
-    ):
-        raise I3DeltaIOError("exact SOR override source scope changed")
-    terminal_rows = tuple(
-        item for item in scope_rows if item.session_date == _SOR_OVERRIDE_VALID_THROUGH
-    )
-    if len(terminal_rows) != 1:
-        raise I3DeltaIOError("exact SOR override lacks one terminal source row")
-    terminal = terminal_rows[0]
-    if terminal.observed_share_class_figi != source.get(
-        "share_class_figi"
-    ) or terminal.primary_exchange_mic != source.get("primary_exchange_mic"):
-        raise I3DeltaIOError("SOR target does not continue the exact terminal observed row")
-    return True
+        raise I3DeltaIOError("expired provider override subject is ambiguous")
+    return candidates[0]
 
 
-def _is_exact_expired_sor_target(source: Mapping[str, object]) -> bool:
+def _stable_override_observation(
+    source: Mapping[str, object],
+    prior: Mapping[str, object],
+) -> bool:
+    """Require the exact provider identity tuple to remain unchanged."""
+
     return (
-        source.get("session_date") == PRODUCTION_FIRST_DELTA_SESSION
-        and source.get("ticker") == _SOR_OVERRIDE_TICKER
-        and source.get("market") == "stocks"
-        and source.get("locale") == "us"
-        and source.get("composite_figi") == _SOR_OVERRIDE_OBSERVED_COMPOSITE
-        and source.get("share_class_figi") == _SOR_OVERRIDE_OBSERVED_SHARE_CLASS
+        prior.get("backtest_identity_eligible") is True
+        and isinstance(prior.get("identity_resolution_status"), str)
+        and str(prior["identity_resolution_status"]).startswith("resolved")
+        and isinstance(prior.get("provider_composite_override_id"), str)
+        and prior.get("active_on_date") is True
         and source.get("active_on_date") is True
+        and all(
+            source.get(source_name) == prior.get(prior_name)
+            for source_name, prior_name in (
+                ("ticker", "ticker"),
+                ("composite_figi", "observed_composite_figi"),
+                ("share_class_figi", "observed_share_class_figi"),
+                ("cik", "observed_cik_normalized"),
+                ("primary_exchange_mic", "primary_exchange_mic"),
+                ("type_code", "type_code"),
+            )
+        )
+    )
+
+
+def _stable_continuation_parents(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    terminal_session: date,
+) -> Mapping[str, Mapping[str, object]]:
+    """Select terminal resolved rows, with one bootstrap recovery exception.
+
+    The shipped 2026-07-10 bootstrap intentionally made expired provider
+    overrides unresolved.  When that terminal row is explicitly that safe
+    outcome, the immediately preceding resolved row can seed one recovery.  No
+    other unresolved reason or longer gap is eligible.
+    """
+
+    grouped: dict[str, list[Mapping[str, object]]] = {}
+    for row in rows:
+        ticker = row.get("ticker")
+        session = row.get("session_date")
+        if isinstance(ticker, str) and type(session) is date:
+            grouped.setdefault(ticker, []).append(row)
+    selected: dict[str, Mapping[str, object]] = {}
+    for ticker, ticker_rows in grouped.items():
+        ordered = sorted(ticker_rows, key=lambda item: item["session_date"])
+        terminal = next(
+            (item for item in reversed(ordered) if item["session_date"] == terminal_session),
+            None,
+        )
+        if terminal is None:
+            continue
+        if terminal.get("backtest_identity_eligible") is True:
+            selected[ticker] = terminal
+            continue
+        bootstrap_safe = (
+            terminal.get("identity_resolution_method") == "provider_figi_bounce_pending_unresolved"
+            and terminal.get("identity_disposition") == "pending_unresolved"
+            and terminal.get("identity_quality_liquidation_signal") is False
+        )
+        prior = next(
+            (
+                item
+                for item in reversed(ordered)
+                if item["session_date"] < terminal_session
+                and item.get("backtest_identity_eligible") is True
+            ),
+            None,
+        )
+        if (
+            bootstrap_safe
+            and prior is not None
+            and _stable_override_observation(
+                {
+                    "ticker": terminal.get("ticker"),
+                    "composite_figi": terminal.get("observed_composite_figi"),
+                    "share_class_figi": terminal.get("observed_share_class_figi"),
+                    "cik": terminal.get("observed_cik_normalized"),
+                    "primary_exchange_mic": terminal.get("primary_exchange_mic"),
+                    "type_code": terminal.get("type_code"),
+                    "active_on_date": terminal.get("active_on_date"),
+                },
+                prior,
+            )
+        ):
+            selected[ticker] = prior
+    return selected
+
+
+def _continued_override_projection(
+    source: Mapping[str, object],
+    *,
+    prior: Mapping[str, object],
+    decision_id: str,
+    run_spec: I3ProductionRunSpec,
+    gate_row: Mapping[str, object] | None,
+    registries: LoadedRegistryReleaseSet,
+) -> streaming.ResolutionProjection:
+    """Continue only a resolved, byte-identical observed provider identity."""
+
+    if prior.get("provider_composite_override_id") != decision_id:
+        raise I3DeltaIOError("stable override parent names another provider decision")
+    source_available = source.get("source_available_session")
+    prior_available = prior.get("identity_evidence_available_session")
+    gate_available = None if gate_row is None else gate_row.get("source_available_session")
+    if type(source_available) is not date or type(prior_available) is not date:
+        raise I3DeltaIOError("stable override evidence availability is invalid")
+    evidence = max(
+        source_available,
+        prior_available,
+        registries.by_name("provider_composite_override").release_available_session,
+        run_spec.identity_policy_bundle.bundle_available_session,
+        *((gate_available,) if type(gate_available) is date else ()),
+    )
+    if evidence > run_spec.run_available_session:
+        raise I3DeltaIOError("stable override evidence exceeds run availability")
+    selected = _digest(source.get("selected_source_record_id"), "continued source record ID")
+    return streaming.ResolutionProjection(
+        selected_source_record_id=selected,
+        observed_composite_market_code=_optional_text(prior.get("observed_composite_market_code")),
+        observed_asset_id=canonical_asset_id(str(source["composite_figi"])),
+        canonical_composite_figi=_optional_text(prior.get("canonical_composite_figi")),
+        canonical_composite_market_code=_optional_text(
+            prior.get("canonical_composite_market_code")
+        ),
+        canonical_share_class_figi=_optional_text(prior.get("canonical_share_class_figi")),
+        canonical_cik_normalized=_optional_text(prior.get("canonical_cik_normalized")),
+        asset_id=_optional_text(prior.get("asset_id")),
+        share_class_id=_optional_text(prior.get("share_class_id")),
+        issuer_id=_optional_text(prior.get("issuer_id")),
+        identity_resolution_status="resolved",
+        identity_resolution_method=str(prior["identity_resolution_method"]),
+        identity_disposition=str(prior["identity_disposition"]),
+        identity_case_id=_optional_text(prior.get("identity_case_id")),
+        identity_case_available_session=prior.get("identity_case_available_session"),
+        identity_adjudication_id=_optional_text(prior.get("identity_adjudication_id")),
+        cross_market_scope_id=_optional_text(prior.get("cross_market_scope_id")),
+        cross_market_adjudication_id=_optional_text(prior.get("cross_market_adjudication_id")),
+        cross_market_adjudication_available_session=prior.get(
+            "cross_market_adjudication_available_session"
+        ),
+        cross_market_classification_status=str(prior["cross_market_classification_status"]),
+        identity_case_resolution_role=_optional_text(prior.get("identity_case_resolution_role")),
+        adjudication_available_session=prior.get("adjudication_available_session"),
+        backtest_identity_eligible=True,
+        current_reference_factor_eligible=False,
+        security_type_scope=str(prior["security_type_scope"]),
+        identity_evidence_available_session=evidence,
+        provider_composite_override_id=decision_id,
+        provider_composite_override_available_session=registries.by_name(
+            "provider_composite_override"
+        ).release_available_session,
+        share_class_adjudication_id=_optional_text(prior.get("share_class_adjudication_id")),
+        share_class_adjudication_available_session=prior.get(
+            "share_class_adjudication_available_session"
+        ),
+        asset_transition_ids=tuple(prior.get("asset_transition_ids") or ()),
+        composite_registry_match_count=1,
+        composite_registry_collision=False,
     )
 
 
@@ -2548,8 +2341,8 @@ def _pending_projection(
         disposition = "pending_cross_market_review"
         cross_status = "not_classified"
     elif reason == "provider_composite_override_scope_expired":
-        if gate_row is None or not _is_exact_expired_sor_target(source):
-            raise I3DeltaIOError("expired provider override is not the exact SOR boundary")
+        if gate_row is None:
+            raise I3DeltaIOError("expired provider override lacks Gate-B evidence")
         classification = gate_row.get("classification")
         gate_available = gate_row.get("source_available_session")
         if (
@@ -2617,7 +2410,7 @@ def _build_delta_resolved_row(
     fallback_reason: str | None,
 ) -> dict[str, object]:
     session = source.get("session_date")
-    if session != PRODUCTION_FIRST_DELTA_SESSION:
+    if session != run_spec.terminal_session:
         raise I3DeltaIOError("resolved target row belongs to another session")
     ticker = source.get("ticker")
     if not isinstance(ticker, str) or not ticker:
@@ -3445,6 +3238,55 @@ def verify_delta_materialization_attestation(
     )
 
 
+def verify_delta_materialization_seal(
+    *,
+    run_spec: I3ProductionRunSpec,
+    parent: LoadedI3ProductionStaging,
+    prepared: I3ProductionPreparedMaterialization,
+) -> DeltaMaterializationAttestation:
+    """Verify the live official capability without replaying immutable inputs.
+
+    The official materializer already replayed the exact parent, I2, calendar,
+    source, and five-registry set before minting this process-local seal.  The
+    executor rechecks every output-bearing field here; its durable completion
+    verifier independently replays the stored authorities after the write.
+    """
+
+    attestation = _require_module_sealed_delta_attestation(prepared)
+    deep = parent.deep_attestation
+    if deep is None:
+        raise I3DeltaIOError("delta materialization parent lacks a deep attestation")
+    resource_digest = stable_digest(
+        {
+            "observation": prepared.resource_observation.to_dict(),
+            "rule_version": "s7_5_i3_production_delta_resource_observation_v1",
+        }
+    )
+    if (
+        attestation.run_spec_id != run_spec.run_spec_id
+        or attestation.source_digest != prepared.source_digest
+        or attestation.transform_semantics_digest != run_spec.transform_semantics_digest
+        or attestation.parent_release_id != parent.manifest.release_id
+        or attestation.parent_checkpoint_id != parent.checkpoint.checkpoint_id
+        or attestation.parent_deep_attestation_id != deep.deep_attestation_id
+        or attestation.table_output_set_digest != _delta_table_output_set_digest(prepared)
+        or attestation.row_change_index_digest != _delta_row_change_digest(prepared)
+        or attestation.native_manifest_id != prepared.native_manifest.release_id
+        or attestation.native_manifest_artifact != prepared.native_manifest_artifact
+        or attestation.checkpoint_id != prepared.checkpoint.checkpoint_id
+        or attestation.checkpoint_artifact != prepared.checkpoint_artifact
+        or attestation.canonical_projection_difference_count
+        != prepared.canonical_projection_difference_count
+        or attestation.resource_observation_digest != resource_digest
+        or attestation.terminal_session != run_spec.terminal_session
+        or attestation.availability_session != run_spec.run_available_session
+    ):
+        raise I3DeltaIOError(
+            "delta materialization seal differs from its RunSpec, parent, or outputs"
+        )
+    return attestation
+
+
 def _delta_source_digest(
     run_spec: I3ProductionRunSpec,
     binding: I3ProductionDeltaInputBinding,
@@ -3680,7 +3522,7 @@ def _verify_prepared_delta_physical_semantics(
         parent_dataset is None
         or child_dataset is None
         or child_dataset.partitions[:-1] != parent_dataset.partitions
-        or child_dataset.partitions[-1].session_date != PRODUCTION_FIRST_DELTA_SESSION
+        or child_dataset.partitions[-1].session_date != run_spec.terminal_session
     ):
         raise I3DeltaIOError("delta universe dataset prefix/suffix differs")
     output_rows = readback_i3_migration_parquet_exact(
@@ -3688,7 +3530,7 @@ def _verify_prepared_delta_physical_semantics(
         artifact=child_dataset.partitions[-1].artifact,
         table_name="universe_daily",
         row_count=child_dataset.partitions[-1].row_count,
-        session_date=PRODUCTION_FIRST_DELTA_SESSION,
+        session_date=run_spec.terminal_session,
     ).to_pylist()
     source_receipt = _i2_partition(loaded.binding.i2_partitions, "universe_source_daily")
     source_rows = (
@@ -3709,16 +3551,9 @@ def _verify_prepared_delta_physical_semantics(
         observation_rows,
         version_rows,
     )
-    target_rows, fallback_counts = _resolve_target_rows(
-        source_rows,
-        run_spec=run_spec,
-        source_binding=loaded.source_binding,
-        gate_b_by_composite=loaded.gate_b_by_composite,
-        registries=loaded.registries,
-    )
     lookback_rows: list[dict[str, object]] = []
     for pin in loaded.binding.parent_boundary_partitions:
-        lookback_rows.extend(
+        partition_rows = tuple(
             dict(row)
             for row in readback_i3_migration_parquet_exact(
                 data_root=root,
@@ -3728,12 +3563,25 @@ def _verify_prepared_delta_physical_semantics(
                 session_date=pin.session_date,
             ).to_pylist()
         )
+        lookback_rows.extend(partition_rows)
+    parent_rows_by_ticker = _stable_continuation_parents(
+        lookback_rows,
+        terminal_session=parent.run_spec.terminal_session,
+    )
+    target_rows, fallback_counts = _resolve_target_rows(
+        source_rows,
+        run_spec=run_spec,
+        source_binding=loaded.source_binding,
+        gate_b_by_composite=loaded.gate_b_by_composite,
+        registries=loaded.registries,
+        parent_terminal_rows=parent_rows_by_ticker,
+    )
     lookback_rows.extend(dict(row) for row in target_rows)
     try:
         materialized = _materialize_delta_day(
             target_rows=target_rows,
             lookback_rows=tuple(lookback_rows),
-            target_session=PRODUCTION_FIRST_DELTA_SESSION,
+            target_session=run_spec.terminal_session,
             calendar=loaded.calendar_sessions,
             availability_session=run_spec.run_available_session,
             policy=run_spec.identity_policy_bundle,
@@ -3837,12 +3685,11 @@ def _require_delta_controls(
         raise I3DeltaIOError("delta adapter requires an exact typed RunSpec")
     if (
         run_spec.run_kind is not I3ProductionRunKind.DELTA
-        or run_spec.terminal_session != PRODUCTION_FIRST_DELTA_SESSION
         or run_spec.transform_semantics_digest != I3_PRODUCTION_TRANSFORM_SEMANTICS_DIGEST
         or len(run_spec.i2_receipts) != 1
-        or run_spec.i2_receipts[0].session_date != PRODUCTION_FIRST_DELTA_SESSION
+        or run_spec.i2_receipts[0].session_date != run_spec.terminal_session
     ):
-        raise I3DeltaIOError("adapter is bounded to the exact 2026-07-10 production DELTA")
+        raise I3DeltaIOError("adapter requires one exact target-session production DELTA")
     if parent is None:
         return
     if type(parent) is not LoadedI3ProductionStaging:
@@ -3856,9 +3703,9 @@ def _require_delta_controls(
         path=parent_output_set.release_manifest_artifact.path,
     )
     if (
-        parent.run_spec.run_kind is not I3ProductionRunKind.BASE
-        or parent.run_spec.terminal_session != PRODUCTION_FIRST_DELTA_PARENT_SESSION
-        or parent.checkpoint.last_session != PRODUCTION_FIRST_DELTA_PARENT_SESSION
+        parent.run_spec.run_kind not in {I3ProductionRunKind.BASE, I3ProductionRunKind.DELTA}
+        or parent.run_spec.terminal_session >= run_spec.terminal_session
+        or parent.checkpoint.last_session != parent.run_spec.terminal_session
         or run_spec.parent_release != parent_release
         or run_spec.parent_checkpoint_artifact != parent_output_set.checkpoint_artifact
         or run_spec.parent_gate_a_manifest != parent_output_set.gate_a_manifest_pin
@@ -3869,7 +3716,7 @@ def _require_delta_controls(
         or run_spec.identity_policy_bundle != parent.run_spec.identity_policy_bundle
         or run_spec.calendar != parent.run_spec.calendar
     ):
-        raise I3DeltaIOError("delta RunSpec differs from its authenticated BASE parent")
+        raise I3DeltaIOError("delta RunSpec differs from its authenticated exact parent")
 
 
 def _verify_i2_parent_frontier(
@@ -3877,26 +3724,38 @@ def _verify_i2_parent_frontier(
     parent: LoadedI3ProductionStaging,
     i2_run: object,
 ) -> None:
-    prior_frontier = parent.run_spec.i2_base_frontier
     spec = getattr(i2_run, "run_spec", None)
     receipt = getattr(i2_run, "receipt", None)
     frontier = getattr(spec, "parent_frontier", None)
     source_binding = getattr(spec, "source_binding", None)
     if (
-        prior_frontier is None
-        or frontier is None
+        frontier is None
         or receipt is None
         or source_binding is None
-        or frontier.parent_kind is not S4ParentKind.BASE_RELEASE
-        or frontier.terminal_session != PRODUCTION_FIRST_DELTA_PARENT_SESSION
-        or frontier.terminal_receipt_id != prior_frontier.frontier_id
-        or frontier.artifact != prior_frontier.artifact
         or receipt.parent_frontier_id != frontier.parent_frontier_id
-        or source_binding.session_date != PRODUCTION_FIRST_DELTA_SESSION
-        or receipt.session_date != PRODUCTION_FIRST_DELTA_SESSION
+        or frontier.terminal_session != parent.run_spec.terminal_session
+        or source_binding.session_date != run_spec.terminal_session
+        or receipt.session_date != run_spec.terminal_session
         or run_spec.i2_receipts[0].receipt_id != receipt.receipt_id
     ):
-        raise I3DeltaIOError("I2 receipt does not advance the authenticated BASE frontier")
+        raise I3DeltaIOError("I2 receipt does not advance the authenticated parent frontier")
+    if parent.run_spec.run_kind is I3ProductionRunKind.BASE:
+        prior_frontier = parent.run_spec.i2_base_frontier
+        if (
+            prior_frontier is None
+            or frontier.parent_kind is not S4ParentKind.BASE_RELEASE
+            or frontier.terminal_receipt_id != prior_frontier.frontier_id
+            or frontier.artifact != prior_frontier.artifact
+        ):
+            raise I3DeltaIOError("first I2 receipt does not advance the BASE frontier")
+    else:
+        prior_receipt = parent.run_spec.i2_receipts[0]
+        if (
+            frontier.parent_kind is not S4ParentKind.SESSION_RECEIPT
+            or frontier.terminal_receipt_id != prior_receipt.receipt_id
+            or frontier.artifact != prior_receipt.artifact
+        ):
+            raise I3DeltaIOError("I2 receipt does not advance the prior session receipt")
 
 
 def _verify_parquet_metadata(
@@ -4304,12 +4163,6 @@ def _date_from_json(value: object, label: str) -> date:
     return result
 
 
-def _mapping_array(value: object, label: str) -> tuple[Mapping[str, object], ...]:
-    if not isinstance(value, list) or any(not isinstance(item, Mapping) for item in value):
-        raise I3DeltaIOError(f"{label} must be an array of objects")
-    return tuple(value)
-
-
 def _canonical_json_bytes(value: object) -> bytes:
     return (
         json.dumps(
@@ -4427,10 +4280,8 @@ def _prepared_output_artifacts(
 
 
 __all__ = [
+    "I3_PRODUCTION_DAILY_RULE_VERSION",
     "I3_PRODUCTION_DELTA_CONFIG_RULE_VERSION",
-    "PRODUCTION_DELTA_BOUNDARY_SESSIONS",
-    "PRODUCTION_FIRST_DELTA_PARENT_SESSION",
-    "PRODUCTION_FIRST_DELTA_SESSION",
     "DeltaMaterializationAttestation",
     "DeltaPreparedMaterialization",
     "I3DeltaIOError",
@@ -4446,6 +4297,8 @@ __all__ = [
     "load_production_delta_materializer",
     "prepare_i3_production_delta_run_spec",
     "prepare_production_delta",
+    "production_i2_receipt_path",
     "store_i3_production_delta_config",
     "verify_delta_materialization_attestation",
+    "verify_delta_materialization_seal",
 ]

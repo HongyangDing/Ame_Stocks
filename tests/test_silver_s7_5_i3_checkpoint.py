@@ -32,6 +32,9 @@ from ame_stocks_api.silver.incremental_i3_checkpoint import (
     S4TerminalPartitionPin,
     TerminalRowVersionState,
     UnresolvedSubjectState,
+    i3_checkpoint_storage_bytes,
+    i3_checkpoint_storage_payload,
+    i3_checkpoint_storage_pin,
     i3_resolved_state_digest,
     load_i3_checkpoint_exact,
     load_native_v2_parent_release_exact,
@@ -766,6 +769,46 @@ def test_checkpoint_rejects_single_byte_tamper_before_parse() -> None:
             lambda path: tampered,
             expected_release_family=NATIVE_V2_FIXTURE_RELEASE_FAMILY,
         )
+
+
+def test_checkpoint_gzip_storage_is_deterministic_exact_and_backward_compatible() -> None:
+    checkpoint = _checkpoint()
+    gzip_path = "manifests/silver/i3/checkpoint.json.gz"
+    first = i3_checkpoint_storage_bytes(checkpoint, path=gzip_path)
+    second = i3_checkpoint_storage_bytes(checkpoint, path=gzip_path)
+    assert first == second
+    assert len(first) < len(checkpoint.canonical_bytes())
+    assert i3_checkpoint_storage_payload(first, path=gzip_path) == checkpoint.canonical_bytes()
+
+    pin = i3_checkpoint_storage_pin(checkpoint, path=gzip_path)
+    assert pin.bytes == len(first)
+    assert hashlib.sha256(first).hexdigest() == pin.sha256
+    manifest_content = _parent_manifest(
+        checkpoint.identity_policy_bundle,
+        resolved_state_digest=checkpoint.resolved_state_digest,
+    ).canonical_bytes()
+    policy_content = checkpoint.identity_policy_bundle.canonical_bytes()
+    contents = {
+        pin.path: first,
+        checkpoint.parent_release.manifest.path: manifest_content,
+        checkpoint.identity_policy_bundle_artifact.path: policy_content,
+    }
+    assert (
+        load_i3_checkpoint_exact(
+            pin,
+            contents.__getitem__,
+            expected_release_family=NATIVE_V2_FIXTURE_RELEASE_FAMILY,
+        )
+        == checkpoint
+    )
+
+    json_path = "manifests/silver/i3/checkpoint.json"
+    assert i3_checkpoint_storage_bytes(checkpoint, path=json_path) == checkpoint.canonical_bytes()
+
+    altered = bytearray(first)
+    altered[-1] ^= 1
+    with pytest.raises(I3CheckpointError, match="gzip"):
+        i3_checkpoint_storage_payload(bytes(altered), path=gzip_path)
 
 
 @pytest.mark.parametrize(

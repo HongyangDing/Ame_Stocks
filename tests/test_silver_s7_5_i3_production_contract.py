@@ -780,20 +780,6 @@ def test_delta_run_spec_from_dict_rejects_temporary_parent_authority_pins(
         I3ProductionRunSpec.from_dict(value)
 
 
-def test_published_delta_from_dict_rejects_temporary_pointer_event() -> None:
-    published = replace(
-        _delta_run_spec(),
-        parent_authority=I3ProductionParentAuthority.PUBLISHED_DAILY,
-        parent_pointer_event_artifact=_pin(
-            "manifests/silver/incremental/i6/shadow-pointer/event.json"
-        ),
-    )
-    value = json.loads(json.dumps(published.to_dict()))
-    value["parent_pointer_event_artifact"]["path"] = "tmp/pointer-event.json"
-    with pytest.raises(I3ProductionContractError, match="temporary parent"):
-        I3ProductionRunSpec.from_dict(value)
-
-
 def test_run_spec_rejects_operator_declared_transform_and_migration_semantics() -> None:
     spec = _run_spec()
     with pytest.raises(I3ProductionContractError, match="module-owned rule bundle"):

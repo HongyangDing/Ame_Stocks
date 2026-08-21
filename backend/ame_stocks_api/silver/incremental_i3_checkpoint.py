@@ -8,6 +8,7 @@ reader; every byte is authenticated before strict JSON parsing.
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import re
@@ -1938,6 +1939,50 @@ class I3CheckpointState:
         return checkpoint
 
 
+def i3_checkpoint_storage_bytes(checkpoint: I3CheckpointState, *, path: str) -> bytes:
+    """Serialize a checkpoint as legacy JSON or deterministic gzip JSON."""
+
+    if not isinstance(checkpoint, I3CheckpointState):
+        raise I3CheckpointError("checkpoint storage requires typed state")
+    content = checkpoint.canonical_bytes()
+    if path.endswith(".json.gz"):
+        return gzip.compress(content, compresslevel=6, mtime=0)
+    if path.endswith(".json"):
+        return content
+    raise I3CheckpointError("checkpoint storage path must end in .json or .json.gz")
+
+
+def i3_checkpoint_storage_payload(content: bytes, *, path: str) -> bytes:
+    """Return canonical JSON payload bytes from either supported storage form."""
+
+    if type(content) is not bytes:
+        raise I3CheckpointError("checkpoint storage content must be bytes")
+    if path.endswith(".json.gz"):
+        try:
+            payload = gzip.decompress(content)
+        except (OSError, EOFError) as exc:
+            raise I3CheckpointError("checkpoint gzip payload is invalid") from exc
+        if gzip.compress(payload, compresslevel=6, mtime=0) != content:
+            raise I3CheckpointError("checkpoint gzip bytes are not deterministic canonical form")
+        return payload
+    if path.endswith(".json"):
+        return content
+    raise I3CheckpointError("checkpoint storage path must end in .json or .json.gz")
+
+
+def i3_checkpoint_storage_pin(
+    checkpoint: I3CheckpointState,
+    *,
+    path: str,
+) -> ArtifactPin:
+    content = i3_checkpoint_storage_bytes(checkpoint, path=path)
+    return ArtifactPin(
+        path=path,
+        sha256=hashlib.sha256(content).hexdigest(),
+        bytes=len(content),
+    )
+
+
 class ExactPinReadCache:
     """Process-local exact-byte cache with fail-closed path identity."""
 
@@ -1979,7 +2024,8 @@ def load_i3_checkpoint_exact(
     if expected_release_family != NATIVE_V2_FIXTURE_RELEASE_FAMILY:
         raise I3CheckpointError("expected native-v2 release family is invalid")
     exact_cache = cache or ExactPinReadCache()
-    content = exact_cache.read(pin, reader)
+    stored = exact_cache.read(pin, reader)
+    content = i3_checkpoint_storage_payload(stored, path=pin.path)
     document = _strict_json_document(content)
     checkpoint = I3CheckpointState.from_dict(document)
     if checkpoint.canonical_bytes() != content:
@@ -2294,6 +2340,9 @@ __all__ = [
     "S4TerminalPartitionPin",
     "TerminalRowVersionState",
     "UnresolvedSubjectState",
+    "i3_checkpoint_storage_bytes",
+    "i3_checkpoint_storage_payload",
+    "i3_checkpoint_storage_pin",
     "i3_resolved_state_digest",
     "load_i3_checkpoint_exact",
     "load_native_v2_parent_release_exact",

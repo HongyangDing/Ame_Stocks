@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import replace
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,20 +19,7 @@ from ame_stocks_api.silver import incremental_i3_production as production_execut
 from ame_stocks_api.silver import incremental_i3_production_contract as production_contract
 from ame_stocks_api.silver.asset_contract import ASSET_CONTRACTS
 from ame_stocks_api.silver.asset_incremental_contract import S4SessionPartitionReceipt
-from ame_stocks_api.silver.identity_exact_group_history_contract import (
-    EXACT_GROUP_HISTORY_FIXED_TICKERS,
-)
-from ame_stocks_api.silver.identity_exact_group_history_runner import (
-    ExactGroupHistoryOutputRef,
-    S7ExactGroupHistoryCandidate,
-    S7ExactGroupHistoryCompletion,
-    exact_group_history_completion_path,
-)
-from ame_stocks_api.silver.identity_registry_workflow import (
-    ExactSourceRow,
-    ExactSourceScope,
-    RegistryReleasePin,
-)
+from ame_stocks_api.silver.identity_registry_workflow import RegistryReleasePin
 from ame_stocks_api.silver.incremental_contract import (
     ArtifactPin,
     ControlObjectKind,
@@ -147,198 +134,6 @@ def _delta_config() -> delta_io.I3ProductionDeltaRunConfig:
     )
 
 
-def _gate_c_aggregate_fixture(
-    root: Path,
-    *,
-    output_bytes: tuple[int, ...] = (11, 12, 13, 14, 15),
-    declared_output_bytes: int | None = None,
-    detector_preview_bytes: int = 7,
-) -> dict[str, SimpleNamespace]:
-    plan_id = _digest("gate-c-plan")
-    authorization_id = _digest("gate-c-authorization")
-    plan = _write_bytes(
-        root,
-        "controls/gate-c/plan.json",
-        delta_io._canonical_json_bytes({"plan_id": plan_id}),
-    )
-    authorization = _write_bytes(
-        root,
-        "controls/gate-c/authorization.json",
-        delta_io._canonical_json_bytes({"authorization_id": authorization_id}),
-    )
-    roles = tuple(sorted(delta_io._GATE_C_OUTPUT_ROLES))
-    assert len(roles) == len(output_bytes)
-    outputs = {
-        role: {
-            "bytes": size,
-            "path": f"opaque/gate-c/{role}.parquet",
-            "sha256": _digest(f"gate-c-output-{role}"),
-        }
-        for role, size in zip(roles, output_bytes, strict=True)
-    }
-    measured = sum(output_bytes) if declared_output_bytes is None else declared_output_bytes
-    candidate_id = _digest("gate-c-candidate")
-    candidate_payload = {
-        "artifact_type": "s7_full_market_sequence_candidate",
-        "candidate_id": candidate_id,
-        "outputs": outputs,
-        "registry_loader_source_refs": {
-            "detector_preview": {
-                "bytes": detector_preview_bytes,
-                "path": "opaque/gate-c/detector-preview.json",
-                "preview_artifact_id": _digest("gate-c-detector-preview"),
-                "sha256": _digest("gate-c-detector-preview-sha"),
-            },
-            "detector_preview_completion": {},
-            "gate_a_candidate": {},
-            "gate_a_completion": {},
-            "gate_b_candidate": {},
-            "gate_b_data": {},
-            "reviewed_case_evidence": {},
-            "reviewed_external_evidence": {},
-        },
-        "resource_measurements": {"output_bytes": measured},
-    }
-    candidate_manifest_id = stable_digest(candidate_payload)
-    candidate = _write_bytes(
-        root,
-        "controls/gate-c/candidate.json",
-        delta_io._canonical_json_bytes({**candidate_payload, "manifest_id": candidate_manifest_id}),
-    )
-    completion_payload = {
-        "artifact_type": "s7_full_market_sequence_execution_completion",
-        "authorization": {
-            "authorization_id": authorization_id,
-            "path": authorization.path,
-            "sha256": authorization.sha256,
-        },
-        "candidate": {
-            "bytes": candidate.bytes,
-            "candidate_id": candidate_id,
-            "manifest_id": candidate_manifest_id,
-            "path": candidate.path,
-            "sha256": candidate.sha256,
-        },
-        "outputs": outputs,
-        "plan": {
-            "path": plan.path,
-            "plan_id": plan_id,
-            "sha256": plan.sha256,
-        },
-        "resource_measurements": {"output_bytes": measured},
-    }
-    completion_id = stable_digest(completion_payload)
-    completion = _write_bytes(
-        root,
-        "controls/gate-c/completion.json",
-        delta_io._canonical_json_bytes({**completion_payload, "completion_id": completion_id}),
-    )
-    return {
-        "source_gate_c_candidate_manifest": SimpleNamespace(
-            artifact_id=candidate_id,
-            path=candidate.path,
-            sha256=candidate.sha256,
-            bytes=candidate.bytes,
-        ),
-        "source_gate_c_completion_manifest": SimpleNamespace(
-            artifact_id=completion_id,
-            path=completion.path,
-            sha256=completion.sha256,
-            bytes=completion.bytes,
-        ),
-    }
-
-
-def _exact_group_aggregate_fixture(
-    root: Path,
-    *,
-    tree_byte_delta: int = 0,
-) -> dict[str, SimpleNamespace]:
-    artifacts = tuple(
-        ExactGroupHistoryOutputRef(
-            role=role,
-            path=f"{role.replace(':', '-')}.json",
-            sha256=_digest(f"exact-group-output-{role}"),
-            bytes=10,
-            media_type=(
-                "application/vnd.apache.parquet" if role == "review_slots" else "application/json"
-            ),
-            row_count=1 if role == "review_slots" else None,
-        )
-        for role in (
-            "review_slots",
-            "group_sequences",
-            "qa",
-            "bounded_examples",
-            *(f"group_evidence:{ticker}" for ticker in EXACT_GROUP_HISTORY_FIXED_TICKERS),
-        )
-    )
-    fields = {
-        "plan_id": _digest("exact-group-plan"),
-        "plan_sha256": _digest("exact-group-plan-sha"),
-        "approval_id": _digest("exact-group-approval"),
-        "approval_sha256": _digest("exact-group-approval-sha"),
-        "request_event_id": _digest("exact-group-request"),
-        "request_event_sha256": _digest("exact-group-request-sha"),
-        "execution_intent_id": _digest("exact-group-intent"),
-        "execution_intent_path": "controls/exact-group/intent.json",
-        "execution_intent_sha256": _digest("exact-group-intent-sha"),
-    }
-    candidate = S7ExactGroupHistoryCandidate(
-        **fields,
-        source_binding_id=_digest("exact-group-source-binding"),
-        source_binding_sha256=_digest("exact-group-source-binding-sha"),
-        source_artifact_set_digest=_digest("exact-group-source-set"),
-        normalized_source_artifact_set_digest=_digest("exact-group-normalized-source-set"),
-        review_scope_set_id=_digest("exact-group-review-scope"),
-        artifacts=artifacts,
-        evidence_manifest_ids=tuple(_digest(f"exact-group-evidence-{index}") for index in range(3)),
-        created_at_utc=datetime(2026, 7, 20, tzinfo=UTC),
-    )
-    candidate_pin = _write_bytes(
-        root,
-        f"{candidate.relative_directory}/manifest.json",
-        candidate.content,
-    )
-    completion = S7ExactGroupHistoryCompletion(
-        **fields,
-        candidate_id=candidate.candidate_id,
-        candidate_path=candidate_pin.path,
-        candidate_sha256=candidate_pin.sha256,
-        output_artifacts=candidate.artifacts,
-        completed_at_utc=datetime(2026, 7, 21, tzinfo=UTC),
-        source_artifact_count=1,
-        source_row_count=1,
-        source_bytes=1,
-        output_slot_row_count=1,
-        peak_rss_bytes=1,
-        wall_clock_seconds=1.0,
-        output_bytes=candidate_pin.bytes + sum(item.bytes for item in artifacts) + tree_byte_delta,
-    )
-    completion_pin = _write_bytes(
-        root,
-        exact_group_history_completion_path(
-            completion.plan_id,
-            completion.approval_id,
-        ),
-        completion.content,
-    )
-    return {
-        "source_exact_group_candidate_manifest": SimpleNamespace(
-            artifact_id=candidate.candidate_id,
-            path=candidate_pin.path,
-            sha256=candidate_pin.sha256,
-            bytes=candidate_pin.bytes,
-        ),
-        "source_exact_group_completion_manifest": SimpleNamespace(
-            artifact_id=completion.completion_id,
-            path=completion_pin.path,
-            sha256=completion_pin.sha256,
-            bytes=completion_pin.bytes,
-        ),
-    }
-
-
 def _write_parquet(
     root: Path,
     relative: str,
@@ -380,7 +175,12 @@ def _production_lineage(row: dict[str, object], run_spec) -> dict[str, object]:
     return result
 
 
-def _eligible_row(session: date, run_spec) -> dict[str, object]:
+def _eligible_row(
+    session: date,
+    run_spec,
+    *,
+    membership_available: date | None = None,
+) -> dict[str, object]:
     row = _legacy_row(
         session,
         ticker="AAPL",
@@ -388,14 +188,17 @@ def _eligible_row(session: date, run_spec) -> dict[str, object]:
         source_label=f"AAPL-{session.isoformat()}",
     )
     row["source_selection_status"] = "selected_exact_source_record"
-    if session == TARGET_SESSION:
-        # Match production: the 2026-07-10 source partition became usable on
-        # 2026-08-05, after the 2026-07-29 registry decision cutoff.
-        row["membership_source_available_session"] = RUN_AVAILABLE
+    if membership_available is not None:
+        row["membership_source_available_session"] = membership_available
     return _production_lineage(row, run_spec)
 
 
-def _new_eligible_row(session: date, run_spec) -> dict[str, object]:
+def _new_eligible_row(
+    session: date,
+    run_spec,
+    *,
+    membership_available: date = RUN_AVAILABLE,
+) -> dict[str, object]:
     row = _legacy_row(
         session,
         ticker="NEWIPO",
@@ -406,7 +209,7 @@ def _new_eligible_row(session: date, run_spec) -> dict[str, object]:
         source_label=f"NEWIPO-{session.isoformat()}",
     )
     row["source_selection_status"] = "selected_exact_source_record"
-    row["membership_source_available_session"] = RUN_AVAILABLE
+    row["membership_source_available_session"] = membership_available
     return _production_lineage(row, run_spec)
 
 
@@ -415,18 +218,19 @@ def _pending_row(
     *,
     run_spec,
     sor_expired: bool = False,
+    session: date = TARGET_SESSION,
 ) -> dict[str, object]:
     observed = "BBG000KMY6N2" if sor_expired else "BBG000B9XRY4"
     observed_share = "BBG01RK6N5G9" if sor_expired else "BBG001S5N8V8"
     row = _legacy_row(
-        TARGET_SESSION,
+        session,
         ticker=ticker,
         eligible=False,
         observed_composite=observed,
         observed_share=observed_share,
         observed_market="US" if sor_expired else None,
         policy_bundle=run_spec.identity_policy_bundle,
-        source_label=f"{ticker}-{TARGET_SESSION.isoformat()}",
+        source_label=f"{ticker}-{session.isoformat()}",
     )
     row.update(
         {
@@ -499,6 +303,11 @@ def _default_row(schema: pa.Schema, session: date) -> dict[str, object]:
 
 
 def _i2_rows(target_rows: tuple[dict[str, object], ...]):
+    sessions = {row["session_date"] for row in target_rows}
+    if len(sessions) != 1:
+        raise AssertionError("I2 fixture rows must belong to one session")
+    session = next(iter(sessions))
+    assert type(session) is date
     source_rows: list[dict[str, object]] = []
     observation_rows: list[dict[str, object]] = []
     version_rows: list[dict[str, object]] = []
@@ -508,12 +317,12 @@ def _i2_rows(target_rows: tuple[dict[str, object], ...]):
         name = "Apple Inc." if ticker == "AAPL" else f"{ticker} Inc."
         source = _default_row(
             ASSET_CONTRACTS["universe_source_daily"].arrow_schema,
-            TARGET_SESSION,
+            session,
         )
         source.update(
             {
-                "session_year": TARGET_SESSION.year,
-                "session_date": TARGET_SESSION,
+                "session_year": session.year,
+                "session_date": session,
                 "ticker": ticker,
                 "active_on_date": True,
                 "type_code": target["type_code"],
@@ -535,17 +344,17 @@ def _i2_rows(target_rows: tuple[dict[str, object], ...]):
                 "selection_rule_version": "fixture-selection-v1",
                 "reference_time_scope": target["membership_time_scope"],
                 "metadata_time_scope": target["metadata_time_scope"],
-                "source_available_session": TARGET_SESSION,
+                "source_available_session": session,
             }
         )
         observation = _default_row(
             ASSET_CONTRACTS["asset_observation_daily"].arrow_schema,
-            TARGET_SESSION,
+            session,
         )
         observation.update(
             {
-                "session_year": TARGET_SESSION.year,
-                "session_date": TARGET_SESSION,
+                "session_year": session.year,
+                "session_date": session,
                 "requested_active": True,
                 "provider_active": True,
                 "ticker": ticker,
@@ -560,7 +369,7 @@ def _i2_rows(target_rows: tuple[dict[str, object], ...]):
                 "share_class_figi": source["share_class_figi"],
                 "delisted_at_utc": source["delisted_at_utc"],
                 "last_updated_at_utc": source["last_updated_at_utc"],
-                "source_available_session": TARGET_SESSION,
+                "source_available_session": session,
                 "source_record_id": source_id,
             }
         )
@@ -575,20 +384,24 @@ def _partition_receipt(
     rows: list[dict[str, object]],
     *,
     source_binding_id: str,
+    session: date,
 ) -> S4SessionPartitionReceipt:
+    sessions = {row["session_date"] for row in rows}
+    if sessions not in (set(), {session}):
+        raise AssertionError("I2 partition fixture must belong to one session")
     contract = ASSET_CONTRACTS[table_name]
     artifact = _write_parquet(
         root,
         (
-            f"silver/s4/incremental/{table_name}/session_year=2026/"
-            "session_date=2026-07-10/part-000.parquet"
+            f"silver/s4/incremental/{table_name}/session_year={session.year}/"
+            f"session_date={session.isoformat()}/part-000.parquet"
         ),
         schema=contract.arrow_schema,
         rows=rows,
     )
     return S4SessionPartitionReceipt(
         table_name=table_name,
-        session_date=TARGET_SESSION,
+        session_date=session,
         artifact=artifact,
         row_count=len(rows),
         contract_id=contract.contract_id,
@@ -836,7 +649,11 @@ def _integration_fixture(root: Path):
     target_rows = tuple(
         sorted(
             (
-                _eligible_row(TARGET_SESSION, base_spec),
+                _eligible_row(
+                    TARGET_SESSION,
+                    base_spec,
+                    membership_available=RUN_AVAILABLE,
+                ),
                 _new_eligible_row(TARGET_SESSION, base_spec),
                 *(
                     _pending_row(ticker, run_spec=base_spec)
@@ -860,6 +677,7 @@ def _integration_fixture(root: Path):
             table_name,
             rows_by_table[table_name],
             source_binding_id=source_binding_id,
+            session=TARGET_SESSION,
         )
         for table_name in S4_TERMINAL_TABLE_ORDER
     )
@@ -1027,7 +845,7 @@ def test_selected_i2_join_rejects_version_and_observation_tampering() -> None:
             terminal_session=PARENT_SESSION,
         ),
     )
-    target = (_eligible_row(TARGET_SESSION, spec),)
+    target = (_eligible_row(TARGET_SESSION, spec, membership_available=RUN_AVAILABLE),)
     sources, observations, versions = _i2_rows(target)
 
     metadata = delta_io._reference_metadata_by_selected_source(
@@ -1088,7 +906,7 @@ def test_selected_i2_join_requires_complete_sparse_multi_version_groups() -> Non
             terminal_session=PARENT_SESSION,
         ),
     )
-    target = (_eligible_row(TARGET_SESSION, spec),)
+    target = (_eligible_row(TARGET_SESSION, spec, membership_available=RUN_AVAILABLE),)
     sources, observations, _ = _i2_rows(target)
     selected_source_id = str(target[0]["selected_source_record_id"])
     rejected_source_id = _digest("multi-version-rejected-source")
@@ -1246,75 +1064,77 @@ def test_pending_projectors_are_closed_for_gate_b_miss_and_expired_sor() -> None
     ):
         projection = delta_io._pending_projection(
             source,
-            run_spec=replace(
-                spec,
-                run_kind=I3ProductionRunKind.DELTA,
-                terminal_session=TARGET_SESSION,
-                i2_base_frontier=None,
-                i2_receipts=(
-                    I3ProductionI2ReceiptPin(
-                        session_date=TARGET_SESSION,
-                        receipt_id=_digest("pending-i2"),
-                        artifact=ArtifactPin(
-                            path="manifests/s4/pending-i2.json",
-                            sha256=_digest("pending-i2-bytes"),
-                            bytes=10,
+            run_spec=(
+                delta_spec := replace(
+                    spec,
+                    run_kind=I3ProductionRunKind.DELTA,
+                    terminal_session=TARGET_SESSION,
+                    i2_base_frontier=None,
+                    i2_receipts=(
+                        I3ProductionI2ReceiptPin(
+                            session_date=TARGET_SESSION,
+                            receipt_id=_digest("pending-i2"),
+                            artifact=ArtifactPin(
+                                path="manifests/s4/pending-i2.json",
+                                sha256=_digest("pending-i2-bytes"),
+                                bytes=10,
+                            ),
+                            receipt_available_session=date(2026, 8, 4),
                         ),
-                        receipt_available_session=date(2026, 8, 4),
                     ),
-                ),
-                parent_release=NativeV2ParentReleasePin.from_manifest(
-                    NativeV2ReleaseManifest(
-                        release_family=NATIVE_V2_RELEASE_FAMILY,
-                        terminal_session=PARENT_SESSION,
+                    parent_release=NativeV2ParentReleasePin.from_manifest(
+                        NativeV2ReleaseManifest(
+                            release_family=NATIVE_V2_RELEASE_FAMILY,
+                            terminal_session=PARENT_SESSION,
+                            release_available_session=RUN_AVAILABLE,
+                            native_v2_migration_id=spec.native_v2_migration_id,
+                            identity_policy_bundle_id=(
+                                spec.identity_policy_bundle.identity_policy_bundle_id
+                            ),
+                            transform_semantics_digest=spec.transform_semantics_digest,
+                            resolved_state_digest=_digest("pending-parent-state"),
+                            output_artifacts=tuple(
+                                NativeV2OutputArtifact(
+                                    table_name=name,
+                                    session_date=PARENT_SESSION,
+                                    row_count=0,
+                                    contract_id=I3_V2_CONTRACTS[name].contract_id,
+                                    schema_digest=I3_V2_CONTRACTS[name].schema_digest,
+                                    artifact=ArtifactPin(
+                                        path=f"silver/i3/pending/{name}.json",
+                                        sha256=_digest(f"pending-{name}"),
+                                        bytes=10,
+                                    ),
+                                )
+                                for name in I3_V2_TABLE_ORDER
+                            ),
+                        ),
+                        path="manifests/i3/pending/native.json",
+                    ),
+                    parent_checkpoint_artifact=ArtifactPin(
+                        path="manifests/i3/pending/checkpoint.json",
+                        sha256=_digest("pending-checkpoint"),
+                        bytes=10,
+                    ),
+                    parent_gate_a_manifest=ManifestPin(
+                        release_id=_digest("pending-gate"),
+                        manifest_path="manifests/i3/pending/gate.json",
+                        manifest_sha256=_digest("pending-gate-bytes"),
+                        manifest_bytes=10,
                         release_available_session=RUN_AVAILABLE,
-                        native_v2_migration_id=spec.native_v2_migration_id,
-                        identity_policy_bundle_id=(
-                            spec.identity_policy_bundle.identity_policy_bundle_id
-                        ),
-                        transform_semantics_digest=spec.transform_semantics_digest,
-                        resolved_state_digest=_digest("pending-parent-state"),
-                        output_artifacts=tuple(
-                            NativeV2OutputArtifact(
-                                table_name=name,
-                                session_date=PARENT_SESSION,
-                                row_count=0,
-                                contract_id=I3_V2_CONTRACTS[name].contract_id,
-                                schema_digest=I3_V2_CONTRACTS[name].schema_digest,
-                                artifact=ArtifactPin(
-                                    path=f"silver/i3/pending/{name}.json",
-                                    sha256=_digest(f"pending-{name}"),
-                                    bytes=10,
-                                ),
-                            )
-                            for name in I3_V2_TABLE_ORDER
-                        ),
                     ),
-                    path="manifests/i3/pending/native.json",
-                ),
-                parent_checkpoint_artifact=ArtifactPin(
-                    path="manifests/i3/pending/checkpoint.json",
-                    sha256=_digest("pending-checkpoint"),
-                    bytes=10,
-                ),
-                parent_gate_a_manifest=ManifestPin(
-                    release_id=_digest("pending-gate"),
-                    manifest_path="manifests/i3/pending/gate.json",
-                    manifest_sha256=_digest("pending-gate-bytes"),
-                    manifest_bytes=10,
-                    release_available_session=RUN_AVAILABLE,
-                ),
-                parent_shadow_completion_artifact=ArtifactPin(
-                    path="manifests/i3/pending/completion.json",
-                    sha256=_digest("pending-completion"),
-                    bytes=10,
-                ),
-                parent_deep_attestation_artifact=ArtifactPin(
-                    path="manifests/i3/pending/deep.json",
-                    sha256=_digest("pending-deep"),
-                    bytes=10,
-                ),
-                parent_authority=I3ProductionParentAuthority.MIGRATION_SHADOW,
+                    parent_shadow_completion_artifact=ArtifactPin(
+                        path="manifests/i3/pending/completion.json",
+                        sha256=_digest("pending-completion"),
+                        bytes=10,
+                    ),
+                    parent_deep_attestation_artifact=ArtifactPin(
+                        path="manifests/i3/pending/deep.json",
+                        sha256=_digest("pending-deep"),
+                        bytes=10,
+                    ),
+                    parent_authority=I3ProductionParentAuthority.MIGRATION_SHADOW,
+                )
             ),
             gate_row=gate,
             reason=reason,
@@ -1322,7 +1142,7 @@ def test_pending_projectors_are_closed_for_gate_b_miss_and_expired_sor() -> None
         row = delta_io._build_delta_resolved_row(
             source,
             projection,
-            run_spec=spec,
+            run_spec=delta_spec,
             source_binding=binding,
             fallback_reason=reason,
         )
@@ -1461,137 +1281,101 @@ def test_new_eligible_alias_without_prior_segment_uses_target_evidence_date(
     )
 
 
-def test_expired_sor_requires_exact_terminal_scope_and_effective_precedence(
+def test_expired_provider_override_continues_only_an_unchanged_resolved_identity(
     tmp_path: Path,
 ) -> None:
     run_spec, _, _, target_rows = _integration_fixture(tmp_path)
     sources, _, _ = _i2_rows(target_rows)
     source = next(item for item in sources if item["ticker"] == "SOR")
     source_s4 = run_spec.s4_v1_source.object_id
-    dates = (
-        *(
-            delta_io._SOR_OVERRIDE_VALID_FROM + timedelta(days=index)
-            for index in range(delta_io._SOR_OVERRIDE_SOURCE_ROW_COUNT - 1)
-        ),
-        delta_io._SOR_OVERRIDE_VALID_THROUGH,
-    )
-    rows = tuple(
-        ExactSourceRow(
-            session_date=session,
-            source_record_id=_digest(f"old-sor-{index}"),
-            source_dataset="asset_observation_daily",
-            source_s4_release_set_id=source_s4,
-            provider_id="massive",
-            provider_market="stocks",
-            provider_locale="us",
-            ticker="SOR",
-            observed_composite_figi=delta_io._SOR_OVERRIDE_OBSERVED_COMPOSITE,
-            observed_share_class_figi=delta_io._SOR_OVERRIDE_OBSERVED_SHARE_CLASS,
-            primary_exchange_mic=source["primary_exchange_mic"],
-        )
-        for index, session in enumerate(dates)
-    )
-    scope = ExactSourceScope(rows=tuple(sorted(rows)))
-    old_id = _digest("old-sor-override")
+    decision_id = _digest("old-sor-override")
     decision = {
-        "provider_id": "massive",
         "provider_market": "stocks",
         "provider_locale": "us",
         "observed_ticker": "SOR",
-        "observed_composite_figi": delta_io._SOR_OVERRIDE_OBSERVED_COMPOSITE,
-        "canonical_composite_figi": delta_io._SOR_OVERRIDE_CANONICAL_COMPOSITE,
-        "observed_composite_market_code": "US",
-        "canonical_composite_market_code": "US",
+        "observed_composite_figi": source["composite_figi"],
+        "canonical_composite_figi": "BBG01RK6N4M5",
         "source_s4_release_set_id": source_s4,
-        "valid_from_session": delta_io._SOR_OVERRIDE_VALID_FROM,
-        "valid_through_session": delta_io._SOR_OVERRIDE_VALID_THROUGH,
-        "scoped_source_record_count": delta_io._SOR_OVERRIDE_SOURCE_ROW_COUNT,
+        "valid_through_session": PARENT_SESSION,
     }
-
-    def registry(release):
-        return SimpleNamespace(by_name=lambda name: release)
-
     release = SimpleNamespace(
-        decision_rows={old_id: decision},
-        source_scopes={old_id: scope},
-        effective_decision_ids=lambda *, cutoff_session: (old_id,),
+        decision_rows={decision_id: decision},
+        source_scopes={decision_id: SimpleNamespace(source_record_ids=frozenset())},
+        release_available_session=run_spec.identity_policy_bundle.bundle_available_session,
+        effective_decision_ids=lambda *, cutoff_session: (decision_id,),
     )
-    assert delta_io._expired_provider_override_subject(
-        source,
-        registries=registry(release),
-        cutoff_session=run_spec.source_cutoff_session,
-        source_s4_release_set_id=source_s4,
-    )
-
-    current_id = _digest("current-sor-override")
-    current_scope = ExactSourceScope(
-        rows=(
-            ExactSourceRow(
-                session_date=TARGET_SESSION,
-                source_record_id=source["selected_source_record_id"],
-                source_dataset="asset_observation_daily",
-                source_s4_release_set_id=source_s4,
-                provider_id="massive",
-                provider_market="stocks",
-                provider_locale="us",
-                ticker="SOR",
-                observed_composite_figi=source["composite_figi"],
-                observed_share_class_figi=source["share_class_figi"],
-                primary_exchange_mic=source["primary_exchange_mic"],
-            ),
-        )
-    )
-    release_with_current = SimpleNamespace(
-        decision_rows={old_id: decision},
-        source_scopes={old_id: scope, current_id: current_scope},
-        effective_decision_ids=lambda *, cutoff_session: (old_id, current_id),
-    )
-    assert not delta_io._expired_provider_override_subject(
-        source,
-        registries=registry(release_with_current),
-        cutoff_session=run_spec.source_cutoff_session,
-        source_s4_release_set_id=source_s4,
-    )
-
-    malformed_rows = (
-        *scope.rows[:-1],
-        replace(
-            scope.rows[-1],
-            primary_exchange_mic=("XNYS" if source["primary_exchange_mic"] == "XNAS" else "XNAS"),
-        ),
-    )
-    malformed = SimpleNamespace(
-        decision_rows={old_id: decision},
-        source_scopes={old_id: ExactSourceScope(rows=tuple(sorted(malformed_rows)))},
-        effective_decision_ids=lambda *, cutoff_session: (old_id,),
-    )
-    with pytest.raises(delta_io.I3DeltaIOError, match="terminal observed row"):
-        delta_io._expired_provider_override_subject(
+    registries = SimpleNamespace(by_name=lambda name: release)
+    assert (
+        delta_io._expired_provider_override_decision(
             source,
-            registries=registry(malformed),
+            registries=registries,
             cutoff_session=run_spec.source_cutoff_session,
             source_s4_release_set_id=source_s4,
         )
-
-    gate = {
-        "classification": "known_us",
-        "selected_market_code": "US",
-        "source_available_session": RUN_AVAILABLE,
-    }
-    projection = delta_io._pending_projection(
-        source,
-        run_spec=run_spec,
-        gate_row=gate,
-        reason="provider_composite_override_scope_expired",
+        == decision_id
     )
-    assert projection.identity_evidence_available_session == RUN_AVAILABLE
-    with pytest.raises(delta_io.I3DeltaIOError, match="exact US Gate-B"):
-        delta_io._pending_projection(
+
+    prior = _production_lineage(
+        _legacy_row(
+            PARENT_SESSION,
+            ticker="SOR",
+            observed_composite=str(source["composite_figi"]),
+            observed_share=str(source["share_class_figi"]),
+            canonical_composite="BBG01RK6N4M5",
+            canonical_share=str(source["share_class_figi"]),
+            provider_composite_override_id=decision_id,
+            identity_method="provider_composite_override_exact",
+            identity_disposition="confirmed_provider_composite_stale",
+            policy_bundle=run_spec.identity_policy_bundle,
+        ),
+        run_spec,
+    )
+    prior["primary_exchange_mic"] = source["primary_exchange_mic"]
+    assert delta_io._stable_override_observation(source, prior)
+    projection = delta_io._continued_override_projection(
+        source,
+        prior=prior,
+        decision_id=decision_id,
+        run_spec=run_spec,
+        gate_row={
+            "classification": "known_us",
+            "selected_market_code": "US",
+            "source_available_session": RUN_AVAILABLE,
+        },
+        registries=registries,
+    )
+    assert projection.backtest_identity_eligible is True
+    assert projection.canonical_composite_figi == "BBG01RK6N4M5"
+    assert projection.provider_composite_override_id == decision_id
+
+    changed = {**source, "share_class_figi": "BBG000000CHANGED"}
+    assert not delta_io._stable_override_observation(changed, prior)
+
+    unresolved_terminal = next(item for item in target_rows if item["ticker"] == "SOR")
+    recovered = delta_io._stable_continuation_parents(
+        (prior, unresolved_terminal),
+        terminal_session=TARGET_SESSION,
+    )
+    assert recovered["SOR"] is prior
+
+    current_scope = SimpleNamespace(
+        source_record_ids=frozenset({source["selected_source_record_id"]})
+    )
+    release_with_current = SimpleNamespace(
+        decision_rows=release.decision_rows,
+        source_scopes={decision_id: current_scope},
+        release_available_session=release.release_available_session,
+        effective_decision_ids=release.effective_decision_ids,
+    )
+    assert (
+        delta_io._expired_provider_override_decision(
             source,
-            run_spec=run_spec,
-            gate_row={**gate, "classification": "known_non_us"},
-            reason="provider_composite_override_scope_expired",
+            registries=SimpleNamespace(by_name=lambda name: release_with_current),
+            cutoff_session=run_spec.source_cutoff_session,
+            source_s4_release_set_id=source_s4,
         )
+        is None
+    )
 
 
 def test_delta_parquet_append_prefix_seal_tamper_and_no_clobber(
@@ -1703,6 +1487,14 @@ def test_delta_parquet_append_prefix_seal_tamper_and_no_clobber(
         prepared=prepared,
     )
     assert verified is prepared.delta_materialization_attestation
+    assert (
+        delta_io.verify_delta_materialization_seal(
+            run_spec=run_spec,
+            parent=parent,
+            prepared=prepared,
+        )
+        is prepared.delta_materialization_attestation
+    )
 
     first_row = prepared.row_versions[0]
     wrong_validator = replace(
@@ -1784,6 +1576,12 @@ def test_delta_parquet_append_prefix_seal_tamper_and_no_clobber(
         peak_rss_bytes=1,
         minimum_disk_free_bytes=run_spec.resource_caps.disk_free_bytes_hard_floor,
     )
+    with pytest.raises(delta_io.I3DeltaIOError, match="seal differs"):
+        delta_io.verify_delta_materialization_seal(
+            run_spec=run_spec,
+            parent=parent,
+            prepared=replace(prepared, resource_observation=forged_observation),
+        )
     with pytest.raises(delta_io.I3DeltaIOError, match="attestation differs"):
         delta_io.verify_delta_materialization_attestation(
             data_root=tmp_path,
@@ -1843,12 +1641,196 @@ def test_delta_parquet_append_prefix_seal_tamper_and_no_clobber(
         )
 
 
+def test_two_consecutive_daily_deltas_append_without_rewriting_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_spec, base_parent, first_loaded, first_target = _integration_fixture(tmp_path)
+    active_loaded = first_loaded
+    active_target = first_target
+    monkeypatch.setattr(delta_io, "_require_delta_controls", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        delta_io,
+        "load_production_delta_input_binding",
+        lambda **kwargs: active_loaded,
+    )
+    monkeypatch.setattr(
+        delta_io,
+        "_resolve_target_rows",
+        lambda *args, **kwargs: (active_target, {}),
+    )
+
+    first_workspace = tmp_path / "silver/i3/delta/day-one"
+    first_workspace.mkdir(parents=True)
+    first = delta_io.prepare_production_delta(
+        data_root=tmp_path,
+        run_spec=first_spec,
+        parent=base_parent,
+        workspace=first_workspace,
+    )
+    first_output_set = replace(
+        base_parent.receipt.output_set,
+        release_manifest_artifact=first.native_manifest_artifact,
+        checkpoint_artifact=first.checkpoint_artifact,
+        release_id=first.native_manifest.release_id,
+        checkpoint_id=first.checkpoint.checkpoint_id,
+        resolved_state_digest=first.checkpoint.resolved_state_digest,
+        resolved_content_digest=first.checkpoint.resolved_content_digest,
+        table_outputs=first.table_outputs,
+    )
+    first_completion = _dummy_pin(
+        tmp_path,
+        "manifests/i3/day-one/completion.json",
+        "day-one-completion",
+    )
+    first_deep = _dummy_pin(
+        tmp_path,
+        "manifests/i3/day-one/deep-verification-attestation.json",
+        "day-one-deep",
+    )
+    first_as_parent = SimpleNamespace(
+        run_spec=first_spec,
+        manifest=first.native_manifest,
+        checkpoint=first.checkpoint,
+        receipt=SimpleNamespace(output_set=first_output_set),
+        deep_attestation=SimpleNamespace(
+            deep_attestation_id=_digest("day-one-deep-id"),
+            completion_artifact=first_completion,
+        ),
+    )
+
+    second_session = date(2026, 7, 13)
+    second_target = tuple(
+        sorted(
+            (
+                _eligible_row(
+                    second_session,
+                    first_spec,
+                    membership_available=RUN_AVAILABLE,
+                ),
+                _new_eligible_row(
+                    second_session,
+                    first_spec,
+                    membership_available=RUN_AVAILABLE,
+                ),
+            ),
+            key=lambda row: str(row["ticker"]),
+        )
+    )
+    source_rows, observation_rows, version_rows = _i2_rows(second_target)
+    second_binding_id = _digest("day-two-i2-source-binding")
+    by_table = {
+        "asset_observation_daily": observation_rows,
+        "asset_observation_version": version_rows,
+        "universe_source_daily": source_rows,
+    }
+    second_partitions = tuple(
+        _partition_receipt(
+            tmp_path,
+            table_name,
+            by_table[table_name],
+            source_binding_id=second_binding_id,
+            session=second_session,
+        )
+        for table_name in S4_TERMINAL_TABLE_ORDER
+    )
+    second_receipt = _dummy_pin(
+        tmp_path,
+        delta_io.production_i2_receipt_path(second_session),
+        "day-two-i2-receipt",
+    )
+    second_i2 = I3ProductionI2ReceiptPin(
+        session_date=second_session,
+        receipt_id=_digest("day-two-i2-receipt-id"),
+        artifact=second_receipt,
+        receipt_available_session=RUN_AVAILABLE,
+    )
+    second_spec = replace(
+        first_spec,
+        terminal_session=second_session,
+        i2_receipts=(second_i2,),
+        parent_release=NativeV2ParentReleasePin.from_manifest(
+            first.native_manifest,
+            path=first.native_manifest_artifact.path,
+        ),
+        parent_checkpoint_artifact=first.checkpoint_artifact,
+        parent_gate_a_manifest=first_output_set.gate_a_manifest_pin,
+        parent_shadow_completion_artifact=first_completion,
+        parent_deep_attestation_artifact=first_deep,
+        parent_authority=I3ProductionParentAuthority.EXACT_STAGING,
+    )
+    boundary = first.table_outputs[-1].dataset_index.partitions[-2:]
+    declared = delta_io._unique_artifact_pins(
+        (
+            first_completion,
+            first_deep,
+            second_receipt,
+            first_loaded.binding.source_binding_artifact,
+            first_loaded.binding.gate_b_manifest_artifact,
+            first_loaded.binding.gate_b_data_artifact,
+            *(item.artifact for item in second_partitions),
+            *(item.artifact for item in boundary),
+        )
+    )
+    second_binding = replace(
+        first_loaded.binding,
+        run_spec_id=second_spec.run_spec_id,
+        parent_release_id=first.native_manifest.release_id,
+        parent_checkpoint_id=first.checkpoint.checkpoint_id,
+        parent_deep_attestation_id=_digest("day-one-deep-id"),
+        parent_completion_artifact=first_completion,
+        parent_deep_attestation_artifact=first_deep,
+        i2_receipt_id=second_i2.receipt_id,
+        i2_receipt_artifact=second_receipt,
+        i2_partitions=second_partitions,
+        parent_boundary_partitions=boundary,
+        requested_sessions=(PARENT_SESSION, TARGET_SESSION, second_session),
+        declared_input_artifacts=declared,
+        parent_output_bytes=first_output_set.total_output_bytes,
+        parent_output_rows=first_output_set.total_rows,
+    )
+    active_loaded = replace(
+        first_loaded,
+        binding=second_binding,
+        parent=first_as_parent,
+        i2_run=SimpleNamespace(receipt=SimpleNamespace(receipt_available_session=RUN_AVAILABLE)),
+        calendar_sessions=(*CALENDAR, second_session),
+    )
+    active_target = second_target
+
+    second_workspace = tmp_path / "silver/i3/delta/day-two"
+    second_workspace.mkdir(parents=True)
+    second = delta_io.prepare_production_delta(
+        data_root=tmp_path,
+        run_spec=second_spec,
+        parent=first_as_parent,
+        workspace=second_workspace,
+    )
+    for parent_output, child_output in zip(
+        first.table_outputs,
+        second.table_outputs,
+        strict=True,
+    ):
+        if child_output.dataset_index is not None:
+            assert child_output.dataset_index.partitions[:-1] == (
+                parent_output.dataset_index.partitions
+            )
+        else:
+            assert child_output.rowset_index.segments[:-1] == parent_output.rowset_index.segments
+    assert second.checkpoint.last_session == second_session
+    assert second.table_outputs[-1].dataset_index.partitions[-1].session_date == second_session
+    assert second.checkpoint_artifact.path.endswith("checkpoint.json.gz")
+    assert second.checkpoint_artifact.bytes < len(second.checkpoint.canonical_bytes())
+
+
 def test_input_binding_and_explicit_paths_are_bounded() -> None:
     with pytest.raises(delta_io.I3DeltaIOError, match="explicit"):
         delta_io._explicit_path("silver/i3/latest/receipt.json")
     with pytest.raises(delta_io.I3DeltaIOError, match="explicit"):
         delta_io._explicit_path("silver/i3/session_date=*/part.parquet")
-    assert delta_io.PRODUCTION_DELTA_BOUNDARY_SESSIONS == CALENDAR
+    assert delta_io.production_i2_receipt_path(TARGET_SESSION).endswith(
+        "session_year=2026/session_date=2026-07-10/run-receipt.json"
+    )
 
 
 def test_delta_config_is_canonical_immutable_idempotent_and_exact(tmp_path: Path) -> None:
@@ -1897,7 +1879,7 @@ def test_delta_config_rejects_tmp_latest_noncanonical_and_unknown_fields(
                 path="manifests/latest/deep.json",
             ),
         )
-    with pytest.raises(delta_io.I3DeltaIOError, match="fixed target control"):
+    with pytest.raises(delta_io.I3DeltaIOError, match="canonical"):
         replace(
             config,
             i2_receipt_artifact=replace(
@@ -1946,87 +1928,7 @@ def test_prepare_delta_run_spec_persists_idempotently_from_exact_config(
     assert observed == [config, config]
 
 
-def test_gate_c_aggregate_control_closes_bytes_before_leaf_replay(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    source_by_role = _gate_c_aggregate_fixture(tmp_path)
-    subtree = delta_io._gate_c_opaque_replay_subtree(tmp_path, source_by_role)
-    assert subtree.subtree_id == source_by_role["source_gate_c_completion_manifest"].artifact_id
-    assert subtree.replay_bytes == 65 + sum(item.bytes for item in subtree.control_artifacts)
-
-    inconsistent_root = tmp_path / "inconsistent"
-    inconsistent = _gate_c_aggregate_fixture(
-        inconsistent_root,
-        declared_output_bytes=66,
-    )
-    with pytest.raises(delta_io.I3DeltaIOError, match="byte aggregate differs"):
-        delta_io._gate_c_opaque_replay_subtree(inconsistent_root, inconsistent)
-
-    over_cap_root = tmp_path / "over-cap"
-    over_cap = _gate_c_aggregate_fixture(
-        over_cap_root,
-        output_bytes=(
-            delta_io.I3_PRODUCTION_DELTA_TRANSITIVE_CONTROL_REPLAY_BYTES_CAP,
-            1,
-            1,
-            1,
-            1,
-        ),
-    )
-    with pytest.raises(delta_io.I3DeltaIOError, match="module-owned byte cap"):
-        delta_io._gate_c_opaque_replay_subtree(over_cap_root, over_cap)
-
-    oversized_preview_root = tmp_path / "oversized-preview"
-    oversized_preview = _gate_c_aggregate_fixture(
-        oversized_preview_root,
-        detector_preview_bytes=(delta_io.I3_PRODUCTION_DELTA_TRANSITIVE_CONTROL_REPLAY_BYTES_CAP),
-    )
-    with pytest.raises(delta_io.I3DeltaIOError, match="module-owned byte cap"):
-        delta_io._gate_c_opaque_replay_subtree(
-            oversized_preview_root,
-            oversized_preview,
-        )
-
-    read_labels: list[str] = []
-    original_pin_from_path = delta_io._artifact_pin_from_path_sha
-    original_control_reader = delta_io._canonical_control_document
-
-    def oversized_plan(root: Path, path: str, sha256: str) -> ArtifactPin:
-        pin = original_pin_from_path(root, path, sha256)
-        if path == "controls/gate-c/plan.json":
-            return replace(
-                pin,
-                bytes=delta_io.I3_PRODUCTION_DELTA_TRANSITIVE_CONTROL_REPLAY_BYTES_CAP,
-            )
-        return pin
-
-    def observed_control_reader(root: Path, pin: ArtifactPin, label: str):
-        read_labels.append(label)
-        return original_control_reader(root, pin, label)
-
-    monkeypatch.setattr(delta_io, "_artifact_pin_from_path_sha", oversized_plan)
-    monkeypatch.setattr(delta_io, "_canonical_control_document", observed_control_reader)
-    with pytest.raises(delta_io.I3DeltaIOError, match="module-owned byte cap"):
-        delta_io._gate_c_opaque_replay_subtree(tmp_path, source_by_role)
-    assert "Gate-C plan" not in read_labels
-    assert "Gate-C authorization" not in read_labels
-
-
-def test_exact_group_aggregate_control_binds_candidate_tree_bytes(tmp_path: Path) -> None:
-    source_by_role = _exact_group_aggregate_fixture(tmp_path)
-    subtree = delta_io._exact_group_opaque_replay_subtree(tmp_path, source_by_role)
-    assert (
-        subtree.subtree_id == source_by_role["source_exact_group_completion_manifest"].artifact_id
-    )
-
-    tampered_root = tmp_path / "tampered"
-    tampered = _exact_group_aggregate_fixture(tampered_root, tree_byte_delta=1)
-    with pytest.raises(delta_io.I3DeltaIOError, match="tree byte aggregate differs"):
-        delta_io._exact_group_opaque_replay_subtree(tampered_root, tampered)
-
-
-def test_transitive_replay_cap_and_unknown_registry_source_fail_closed() -> None:
+def test_legacy_transitive_replay_field_remains_bounded() -> None:
     with pytest.raises(delta_io.I3DeltaIOError, match="module-owned byte cap"):
         delta_io._validate_transitive_control_replay_bytes(
             delta_io.I3_PRODUCTION_DELTA_TRANSITIVE_CONTROL_REPLAY_BYTES_CAP + 1
@@ -2067,8 +1969,16 @@ def test_loader_rejects_fixed_resource_floor_before_parent_read(
             run_spec=low_cap_spec,
         )
     assert parent_loader_called is False
+    original_preflight = delta_io._preflight_delta_entry_resources
+    monkeypatch.setattr(delta_io, "_preflight_delta_entry_resources", lambda *args: None)
+    materializer = delta_io.load_production_delta_materializer(
+        data_root=tmp_path,
+        run_spec=run_spec,
+    )
+    assert isinstance(materializer, delta_io.ProductionDeltaMaterializer)
+    assert parent_loader_called is False
     with pytest.raises(delta_io.I3DeltaIOError, match="temporary cap"):
-        delta_io._preflight_delta_entry_resources(
+        original_preflight(
             tmp_path,
             replace(
                 run_spec.resource_caps,
@@ -2077,11 +1987,6 @@ def test_loader_rejects_fixed_resource_floor_before_parent_read(
                 ),
             ),
             (),
-        )
-    with pytest.raises(delta_io.I3DeltaIOError, match="unknown or incomplete"):
-        delta_io._registry_opaque_replay_subtree(
-            Path("/does-not-matter"),
-            SimpleNamespace(source_artifacts=(SimpleNamespace(role="caller_supplied_unknown"),)),
         )
 
 

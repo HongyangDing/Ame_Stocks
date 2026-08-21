@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from collections.abc import Sequence
@@ -10,11 +11,14 @@ from datetime import date
 from pathlib import Path
 
 from ame_stocks_api.artifacts import safe_relative_path
+from ame_stocks_api.silver.asset_incremental_contract import S4SessionRunReceipt
+from ame_stocks_api.silver.calendar_artifact import load_xnys_calendar_artifact
 from ame_stocks_api.silver.incremental_contract import ArtifactPin
 from ame_stocks_api.silver.incremental_i3_delta_io import (
     I3ProductionDeltaRunConfig,
     PreparedI3ProductionDeltaRunSpec,
     prepare_i3_production_delta_run_spec,
+    production_i2_receipt_path,
     store_i3_production_delta_config,
 )
 from ame_stocks_api.silver.incremental_i3_migration_io import (
@@ -40,9 +44,11 @@ from ame_stocks_api.silver.incremental_i3_production_inputs import (
     store_i3_production_base_config,
 )
 from ame_stocks_api.silver.incremental_s75_completion_runtime import (
+    S75_CURRENT_MARKER_PATH,
     S75CompletionConfig,
     prepare_s75_completion,
     stage_s75_completion,
+    verify_s75_completion,
 )
 
 
@@ -271,11 +277,14 @@ def _prepare_delta(
         "output_rows_hard_cap",
     )
     direct_scalars = (args.run_available_session, *(getattr(args, item) for item in cap_fields))
+    no_direct_values = all(item is None for item in (*direct_pins, *direct_scalars))
     if config_pin is not None:
         if any(item is not None for item in (*direct_pins, *direct_scalars)):
             raise I3ProductionCliError(
                 "prepare-delta accepts either one exact config pin or direct exact inputs"
             )
+    elif no_direct_values:
+        config_pin = store_i3_production_delta_config(root, _automatic_delta_config(root))
     else:
         if any(item is None for item in (*direct_pins, *direct_scalars)):
             raise I3ProductionCliError(
@@ -301,6 +310,60 @@ def _prepare_delta(
         )
         config_pin = store_i3_production_delta_config(root, config)
     return prepare_i3_production_delta_run_spec(root, config_pin)
+
+
+def _automatic_delta_config(root: Path) -> I3ProductionDeltaRunConfig:
+    marker_path = safe_relative_path(root, S75_CURRENT_MARKER_PATH)
+    if not marker_path.is_file() or marker_path.is_symlink():
+        raise I3ProductionCliError("current S7.5 factor-ready marker is missing")
+    marker_content = marker_path.read_bytes()
+    current = verify_s75_completion(
+        root,
+        ArtifactPin(
+            path=S75_CURRENT_MARKER_PATH,
+            sha256=hashlib.sha256(marker_content).hexdigest(),
+            bytes=len(marker_content),
+        ),
+    )
+    calendar = load_xnys_calendar_artifact(
+        root,
+        calendar_artifact_id=current.run_spec.calendar.calendar_artifact_id,
+        expected_sha256=current.run_spec.calendar.artifact.sha256,
+    )
+    sessions = tuple(item.session_date for item in calendar.sessions)
+    try:
+        parent_index = sessions.index(current.run_spec.terminal_session)
+    except ValueError as exc:
+        raise I3ProductionCliError("current terminal session is absent from XNYS calendar") from exc
+    if parent_index + 1 >= len(sessions):
+        raise I3ProductionCliError("calendar has no next session after current S7.5 marker")
+    target = sessions[parent_index + 1]
+    receipt_relative = production_i2_receipt_path(target)
+    receipt_path = safe_relative_path(root, receipt_relative)
+    if not receipt_path.is_file() or receipt_path.is_symlink():
+        raise I3ProductionCliError(f"next S4/I2 session is not ready: {target.isoformat()}")
+    receipt_content = receipt_path.read_bytes()
+    try:
+        receipt = S4SessionRunReceipt.from_dict(json.loads(receipt_content))
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise I3ProductionCliError("next S4/I2 receipt is invalid") from exc
+    if receipt.session_date != target:
+        raise I3ProductionCliError("next S4/I2 receipt names another session")
+    receipt_pin = ArtifactPin(
+        path=receipt_relative,
+        sha256=hashlib.sha256(receipt_content).hexdigest(),
+        bytes=len(receipt_content),
+    )
+    return I3ProductionDeltaRunConfig(
+        parent_completion_artifact=current.config.delta_completion_artifact,
+        parent_deep_attestation_artifact=current.config.delta_deep_attestation_artifact,
+        i2_receipt_artifact=receipt_pin,
+        run_available_session=max(
+            current.run_spec.run_available_session,
+            receipt.receipt_available_session,
+        ),
+        resource_caps=current.run_spec.resource_caps,
+    )
 
 
 def _load_run_spec(root: Path, pin: ArtifactPin):

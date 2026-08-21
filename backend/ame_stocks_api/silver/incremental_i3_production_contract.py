@@ -69,6 +69,8 @@ from ame_stocks_api.silver.incremental_i3_checkpoint import (
     NativeV2OutputArtifact,
     NativeV2ParentReleasePin,
     NativeV2ReleaseManifest,
+    i3_checkpoint_storage_payload,
+    i3_checkpoint_storage_pin,
 )
 from ame_stocks_api.silver.incremental_i3_contract import (
     I3_V2_CONTRACT_ID_BY_TABLE,
@@ -198,8 +200,8 @@ class I3ProductionCompletionState(StrEnum):
 
 
 class I3ProductionParentAuthority(StrEnum):
+    EXACT_STAGING = "exact_staging"
     MIGRATION_SHADOW = "migration_shadow"
-    PUBLISHED_DAILY = "published_daily"
 
 
 class I3ProductionDependencyRole(StrEnum):
@@ -1422,20 +1424,16 @@ class I3ProductionRunSpec:
                 self.parent_deep_attestation_artifact,
                 "production parent deep attestation",
             )
-            if self.parent_authority is I3ProductionParentAuthority.MIGRATION_SHADOW:
+            if self.parent_authority in {
+                I3ProductionParentAuthority.EXACT_STAGING,
+                I3ProductionParentAuthority.MIGRATION_SHADOW,
+            }:
                 if self.parent_pointer_event_artifact is not None:
                     raise I3ProductionContractError(
-                        "migration-shadow parent cannot claim a published pointer event"
+                        "exact staging parent cannot claim a pointer event"
                     )
-            elif self.parent_pointer_event_artifact is None:
-                raise I3ProductionContractError(
-                    "published-daily parent requires an exact pointer event"
-                )
             else:
-                _artifact(
-                    self.parent_pointer_event_artifact,
-                    "production parent pointer event",
-                )
+                raise I3ProductionContractError("production parent authority is unsupported")
             if (
                 _fixture_path(self.parent_release.manifest.path)
                 or _fixture_path(self.parent_checkpoint_artifact.path)
@@ -3051,7 +3049,11 @@ def load_i3_production_parent_shallow_exact(
 
     manifest_content = _read_exact_root(root, output_set.release_manifest_artifact)
     manifest = NativeV2ReleaseManifest.from_dict(_strict_json_document(manifest_content))
-    checkpoint_content = _read_exact_checkpoint_root(root, output_set.checkpoint_artifact)
+    checkpoint_stored = _read_exact_checkpoint_root(root, output_set.checkpoint_artifact)
+    checkpoint_content = i3_checkpoint_storage_payload(
+        checkpoint_stored,
+        path=output_set.checkpoint_artifact.path,
+    )
     checkpoint = I3CheckpointState.from_dict(_strict_json_document(checkpoint_content))
     reproduced_native_parent = NativeV2ParentReleasePin.from_manifest(
         manifest, path=output_set.release_manifest_artifact.path
@@ -3065,7 +3067,7 @@ def load_i3_production_parent_shallow_exact(
         != manifest.output_artifacts
         or checkpoint.canonical_bytes() != checkpoint_content
         or checkpoint.checkpoint_id != output_set.checkpoint_id
-        or checkpoint.exact_pin(path=output_set.checkpoint_artifact.path)
+        or i3_checkpoint_storage_pin(checkpoint, path=output_set.checkpoint_artifact.path)
         != output_set.checkpoint_artifact
         or output_set.checkpoint_artifact != run_spec.parent_checkpoint_artifact
         or checkpoint.parent_release != reproduced_native_parent
@@ -3089,22 +3091,21 @@ def load_i3_production_parent_shallow_exact(
             ):
                 raise I3ProductionContractError("parent rowset index bytes differ")
 
-    if run_spec.parent_authority is I3ProductionParentAuthority.MIGRATION_SHADOW:
+    if run_spec.parent_authority in {
+        I3ProductionParentAuthority.EXACT_STAGING,
+        I3ProductionParentAuthority.MIGRATION_SHADOW,
+    }:
         if run_spec.parent_pointer_event_artifact is not None:
-            raise I3ProductionContractError("migration-shadow parent carries a pointer event")
-        if parent_spec.run_kind is not I3ProductionRunKind.BASE:
+            raise I3ProductionContractError("exact staging parent carries a pointer event")
+        if (
+            run_spec.parent_authority is I3ProductionParentAuthority.MIGRATION_SHADOW
+            and parent_spec.run_kind is not I3ProductionRunKind.BASE
+        ):
             raise I3ProductionContractError(
-                "migration-shadow authority is restricted to the first delta after base"
+                "legacy migration-shadow authority is restricted to the first delta after base"
             )
     else:
-        if run_spec.parent_pointer_event_artifact is None:
-            raise I3ProductionContractError("published parent omits its pointer event")
-        _verify_published_parent_pointer_exact(
-            root,
-            run_spec.parent_pointer_event_artifact,
-            parent_release_id=gate_manifest.release_id,
-            availability_cutoff_session=run_spec.run_available_session,
-        )
+        raise I3ProductionContractError("production parent authority is unsupported")
 
     candidate = _validate_i3_release_projection_after_row_attestation(
         gate_spec,
@@ -3200,232 +3201,6 @@ def _row_change_index_supersession_digest(
             "superseded_row_version_ids": list(row_version_ids),
         }
     )
-
-
-def _verify_published_parent_pointer_exact(
-    root: Path,
-    pin: ArtifactPin,
-    *,
-    parent_release_id: str,
-    availability_cutoff_session: date,
-) -> None:
-    """Verify one exact I6 shadow or research-top event and its approval body."""
-
-    from ame_stocks_api.silver.incremental_i5_lifecycle import (
-        GateBAction,
-        GateBApproval,
-        GateCAction,
-        GateCApproval,
-        IncrementalLifecycleError,
-        ShadowPointerEvent,
-        TopPointerEvent,
-    )
-
-    content = _read_exact_root(root, pin)
-    document = _strict_json_document(content)
-    if not isinstance(document, Mapping):
-        raise I3ProductionContractError("published parent pointer event must be an object")
-    rule = document.get("rule_version")
-    if rule == "s7_5_i6_shadow_pointer_event_v1":
-        item = _closed_mapping(
-            document,
-            {
-                "event_available_session",
-                "event_id",
-                "expected_previous_event_id",
-                "gate_b_approval_artifact",
-                "gate_b_approval_id",
-                "new_release_id",
-                "pointer_name",
-                "pointer_revision",
-                "previous_release_id",
-                "rule_version",
-            },
-            "shadow pointer event",
-        )
-        approval_pin = _artifact_from_dict(
-            item["gate_b_approval_artifact"], "Gate B approval artifact"
-        )
-        approval_content = _read_exact_root(root, approval_pin)
-        approval_item = _closed_mapping(
-            _strict_json_document(approval_content),
-            {
-                "approval_available_session",
-                "approval_id",
-                "approver_id",
-                "authorized_action",
-                "full_oracle_release_id",
-                "literal_version",
-                "receipt_id",
-                "shadow_release_id",
-                "spec_id",
-            },
-            "Gate B approval",
-        )
-        try:
-            approval = GateBApproval(
-                spec_id=_text(approval_item["spec_id"], "Gate B spec ID"),
-                receipt_id=_text(approval_item["receipt_id"], "Gate B receipt ID"),
-                shadow_release_id=_text(
-                    approval_item["shadow_release_id"], "Gate B shadow release"
-                ),
-                full_oracle_release_id=_text(
-                    approval_item["full_oracle_release_id"],
-                    "Gate B oracle release",
-                ),
-                approver_id=_text(approval_item["approver_id"], "Gate B approver"),
-                approval_available_session=_date_from_json(
-                    approval_item["approval_available_session"],
-                    "Gate B availability",
-                ),
-                authorized_action=GateBAction(
-                    _text(approval_item["authorized_action"], "Gate B action")
-                ),
-                literal_version=_text(approval_item["literal_version"], "Gate B literal version"),
-            )
-            event = ShadowPointerEvent(
-                gate_b_approval_id=_text(item["gate_b_approval_id"], "pointer Gate B approval ID"),
-                gate_b_approval_artifact=approval_pin,
-                expected_previous_event_id=_optional_text(
-                    item["expected_previous_event_id"], "prior pointer event ID"
-                ),
-                previous_release_id=_optional_text(
-                    item["previous_release_id"], "prior pointer release ID"
-                ),
-                new_release_id=_text(item["new_release_id"], "pointer release ID"),
-                pointer_revision=_integer(item["pointer_revision"], "pointer revision"),
-                event_available_session=_date_from_json(
-                    item["event_available_session"], "pointer availability"
-                ),
-                pointer_name=_text(item["pointer_name"], "pointer name"),
-            )
-        except (IncrementalLifecycleError, TypeError, ValueError) as exc:
-            raise I3ProductionContractError("shadow pointer event is invalid") from exc
-        if (
-            approval.to_dict() != approval_item
-            or approval_content != _canonical_json_bytes(approval.to_dict())
-            or approval.approval_id != event.gate_b_approval_id
-            or approval.shadow_release_id != parent_release_id
-            or event.new_release_id != parent_release_id
-            or event.event_available_session < approval.approval_available_session
-            or event.event_available_session > availability_cutoff_session
-            or event.to_dict() != item
-            or _canonical_json_bytes(event.to_dict()) != content
-        ):
-            raise I3ProductionContractError("shadow pointer event/approval differs")
-        return
-    if rule == "s7_5_i6_research_top_pointer_event_v1":
-        item = _closed_mapping(
-            document,
-            {
-                "event_available_session",
-                "event_id",
-                "expected_previous_event_id",
-                "gate_c_approval_artifact",
-                "gate_c_approval_id",
-                "new_release_id",
-                "pointer_name",
-                "pointer_revision",
-                "previous_release_id",
-                "rule_version",
-            },
-            "research-top pointer event",
-        )
-        approval_pin = _artifact_from_dict(
-            item["gate_c_approval_artifact"], "Gate C approval artifact"
-        )
-        approval_content = _read_exact_root(root, approval_pin)
-        approval_item = _closed_mapping(
-            _strict_json_document(approval_content),
-            {
-                "approval_available_session",
-                "approval_id",
-                "approver_id",
-                "authorized_action",
-                "expected_previous_pointer_event_id",
-                "expected_previous_pointer_revision",
-                "expected_previous_release_id",
-                "gate_b_approval_id",
-                "literal_version",
-                "pointer_name",
-                "rollback_receipt_id",
-                "shadow_pointer_event_id",
-                "target_pointer_revision",
-                "target_release_id",
-            },
-            "Gate C approval",
-        )
-        try:
-            approval = GateCApproval(
-                gate_b_approval_id=_text(approval_item["gate_b_approval_id"], "Gate C Gate B ID"),
-                shadow_pointer_event_id=_text(
-                    approval_item["shadow_pointer_event_id"],
-                    "Gate C shadow event ID",
-                ),
-                rollback_receipt_id=_text(
-                    approval_item["rollback_receipt_id"], "Gate C rollback receipt"
-                ),
-                expected_previous_pointer_event_id=_text(
-                    approval_item["expected_previous_pointer_event_id"],
-                    "Gate C prior event",
-                ),
-                expected_previous_release_id=_text(
-                    approval_item["expected_previous_release_id"],
-                    "Gate C prior release",
-                ),
-                expected_previous_pointer_revision=_integer(
-                    approval_item["expected_previous_pointer_revision"],
-                    "Gate C prior revision",
-                ),
-                target_pointer_revision=_integer(
-                    approval_item["target_pointer_revision"],
-                    "Gate C target revision",
-                ),
-                target_release_id=_text(
-                    approval_item["target_release_id"], "Gate C target release"
-                ),
-                approver_id=_text(approval_item["approver_id"], "Gate C approver"),
-                approval_available_session=_date_from_json(
-                    approval_item["approval_available_session"],
-                    "Gate C availability",
-                ),
-                authorized_action=GateCAction(
-                    _text(approval_item["authorized_action"], "Gate C action")
-                ),
-                literal_version=_text(approval_item["literal_version"], "Gate C literal version"),
-                pointer_name=_text(approval_item["pointer_name"], "Gate C pointer"),
-            )
-            event = TopPointerEvent(
-                gate_c_approval_id=_text(item["gate_c_approval_id"], "pointer Gate C approval ID"),
-                gate_c_approval_artifact=approval_pin,
-                expected_previous_event_id=_text(
-                    item["expected_previous_event_id"], "prior pointer event ID"
-                ),
-                previous_release_id=_text(item["previous_release_id"], "prior pointer release ID"),
-                new_release_id=_text(item["new_release_id"], "pointer release ID"),
-                pointer_revision=_integer(item["pointer_revision"], "pointer revision"),
-                event_available_session=_date_from_json(
-                    item["event_available_session"], "pointer availability"
-                ),
-                pointer_name=_text(item["pointer_name"], "pointer name"),
-            )
-        except (IncrementalLifecycleError, TypeError, ValueError) as exc:
-            raise I3ProductionContractError("research-top pointer event is invalid") from exc
-        if (
-            approval.to_dict() != approval_item
-            or approval_content != _canonical_json_bytes(approval.to_dict())
-            or approval.approval_id != event.gate_c_approval_id
-            or approval.target_release_id != parent_release_id
-            or approval.target_pointer_revision != event.pointer_revision
-            or event.new_release_id != parent_release_id
-            or event.event_available_session < approval.approval_available_session
-            or event.event_available_session > availability_cutoff_session
-            or event.to_dict() != item
-            or _canonical_json_bytes(event.to_dict()) != content
-        ):
-            raise I3ProductionContractError("research-top pointer event/approval differs")
-        return
-    raise I3ProductionContractError("published parent requires an I6 pointer event")
 
 
 def load_i3_production_staging_exact(
@@ -3561,7 +3336,11 @@ def load_i3_production_staging_exact(
     ):
         raise I3ProductionContractError("production manifest differs from RunSpec or OutputSet")
 
-    checkpoint_content = _read_exact_checkpoint_root(root, output_set.checkpoint_artifact)
+    checkpoint_stored = _read_exact_checkpoint_root(root, output_set.checkpoint_artifact)
+    checkpoint_content = i3_checkpoint_storage_payload(
+        checkpoint_stored,
+        path=output_set.checkpoint_artifact.path,
+    )
     checkpoint = I3CheckpointState.from_dict(_strict_json_document(checkpoint_content))
     if checkpoint.canonical_bytes() != checkpoint_content:
         raise I3ProductionContractError("production checkpoint is not canonical JSON")

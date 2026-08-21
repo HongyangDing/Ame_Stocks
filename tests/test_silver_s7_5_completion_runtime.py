@@ -120,6 +120,14 @@ def test_factor_ready_completion_uses_only_delta_and_target_partition(
     marker = runtime._read_canonical(tmp_path, result.sentinel_artifact, "marker")
     assert marker["state"] == "factor_ready_for_s8"
     assert marker["s8_started"] is False
+    immutable = (
+        tmp_path
+        / "manifests/silver/incremental/s7_5/factor-ready/completions"
+        / f"session_date={TARGET.isoformat()}"
+        / f"marker_id={marker['marker_id']}"
+        / "manifest.json"
+    )
+    assert immutable.read_bytes() == (tmp_path / result.sentinel_artifact.path).read_bytes()
     assert "i4_completion_artifact" not in marker
     assert "i5_completion_artifact" not in marker
     assert "i7_completion_artifact" not in marker

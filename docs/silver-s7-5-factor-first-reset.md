@@ -70,22 +70,30 @@ alias resolution version、asset/issuer master version 等会把行接入可交�
   reconciliation 的完成证明；
 - 13 项跨 I0–I7 completion ceremony。
 
-这些模块暂时保留，避免破坏已有审计记录，也可在 schema/policy 变化、历史 correction 或定期健康检查时
-按需运行；它们不在默认命令 `run-delta` 中。
+对应的 I4–I7 runner、pointer/cutover runtime、故障演练 runtime 及其专用测试已经从活动代码删除；
+删除前分别做了文本依赖扫描和 Python import 依赖扫描。已有 S7/S7.5 数据、发布 manifest 和历史决议
+仍原样保留，读取历史 release 所需的兼容解析逻辑也保留。换言之，删掉的是未进入因子主路径的执行框架，
+不是已处理的数据或 lineage。
 
 ## 单一入口与完成条件
 
 日常操作使用一个命令：
 
 ```text
-ame-silver-identity-incremental run-delta <exact parent/base/I2 inputs and resource caps>
+ame-silver-identity-incremental run-delta --data-root <data-root>
 ```
 
-命令依次 prepare、stage，并在目标分区通过上述六个硬门后写：
+命令从当前 S7.5 marker 精确取得 BASE/DELTA parent，按交易日历选择下一 session，读取该日已完成的
+S4 receipt，依次 prepare、stage，并在目标分区通过上述六个硬门后写：
 
 ```text
 manifests/silver/incremental/s7_5/S7_5_COMPLETE.json
 ```
+
+该文件是很小的 current pointer；每次完成的不可变 marker 保存在
+`factor-ready/completions/session_date=.../marker_id=.../manifest.json`。daily checkpoint 使用确定性 gzip，
+因此不会再为每个交易日重复写一个百兆级 JSON。五个 identity registry 的完整历史控制链只在正式输入
+绑定阶段共享缓存重放一次，不再在 materializer、stage 和 seal 验证中重复展开。
 
 S7.5 完成条件只有：
 

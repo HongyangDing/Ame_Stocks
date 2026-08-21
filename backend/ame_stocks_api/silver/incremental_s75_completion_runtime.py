@@ -4,13 +4,16 @@ S7.5 exists to make the identity tables usable by factor research. Its
 completion gate therefore checks the successful DELTA, the newly appended
 ``universe_daily`` partition, and only the invariants that can change research
 results. Correction drills, failure injection, pointer ceremonies, and
-periodic Full reconciliation remain maintenance tools, not S8 prerequisites.
+periodic Full reconciliation are not S8 prerequisites and are not part of the
+active daily runtime.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -39,7 +42,7 @@ from ame_stocks_api.silver.incremental_i3_production_contract import (
 S75_COMPLETION_RUNTIME_RULE_VERSION: Final = "s7_5_factor_ready_completion_v2"
 S75_COMPLETION_STATE: Final = "factor_ready_for_s8"
 _CONTROL_ROOT: Final = "manifests/silver/incremental/s7_5/factor-ready"
-_SENTINEL_PATH: Final = "manifests/silver/incremental/s7_5/S7_5_COMPLETE.json"
+S75_CURRENT_MARKER_PATH: Final = "manifests/silver/incremental/s7_5/S7_5_COMPLETE.json"
 _CONTINUITY_UNCERTAIN: Final = "identity_uncertain_no_new_trade_no_forced_exit_run_incomplete"
 
 
@@ -176,9 +179,14 @@ def stage_s75_completion(
     summary = _factor_summary(root, authority)
     document = _marker_document(config_artifact, config, authority, summary)
     content = _canonical(document)
-    sentinel_path = safe_relative_path(root, _SENTINEL_PATH)
-    reused = sentinel_path.is_file()
-    sentinel = _write(root, _SENTINEL_PATH, content)
+    immutable_relative = (
+        f"{_CONTROL_ROOT}/completions/session_date={summary.terminal_session.isoformat()}/"
+        f"marker_id={document['marker_id']}/manifest.json"
+    )
+    _write(root, immutable_relative, content)
+    sentinel_path = safe_relative_path(root, S75_CURRENT_MARKER_PATH)
+    reused = sentinel_path.is_file() and sentinel_path.read_bytes() == content
+    sentinel = _replace_current_marker(root, content)
     return S75CompletionResult(
         config=config,
         config_artifact=config_artifact,
@@ -197,7 +205,7 @@ def verify_s75_completion(
     """Recheck factor invariants from the pinned DELTA and target partition."""
 
     root = data_root.expanduser().resolve()
-    if sentinel_artifact.path != _SENTINEL_PATH:
+    if sentinel_artifact.path != S75_CURRENT_MARKER_PATH:
         raise S75CompletionRuntimeError("S7.5 completion marker path differs")
     marker = _closed(
         _read_canonical(root, sentinel_artifact, "S7.5 completion marker"),
@@ -420,6 +428,31 @@ def _write(root: Path, relative: str, content: bytes) -> ArtifactPin:
     )
 
 
+def _replace_current_marker(root: Path, content: bytes) -> ArtifactPin:
+    """Atomically advance the small current marker after immutable history exists."""
+
+    destination = safe_relative_path(root, S75_CURRENT_MARKER_PATH)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary_root = root / "tmp" / "s7-5-factor-ready"
+    temporary_root.mkdir(parents=True, exist_ok=True)
+    fd, raw_path = tempfile.mkstemp(prefix="S7_5_COMPLETE.", suffix=".tmp", dir=temporary_root)
+    temporary = Path(raw_path)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, destination)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return ArtifactPin(
+        path=S75_CURRENT_MARKER_PATH,
+        sha256=hashlib.sha256(content).hexdigest(),
+        bytes=len(content),
+    )
+
+
 def _read_path(root: Path, relative: str) -> bytes:
     path = safe_relative_path(root, relative)
     if not path.is_file():
@@ -485,6 +518,7 @@ def _date(value: object) -> date:
 __all__ = [
     "S75_COMPLETION_RUNTIME_RULE_VERSION",
     "S75_COMPLETION_STATE",
+    "S75_CURRENT_MARKER_PATH",
     "S75CompletionConfig",
     "S75CompletionResult",
     "S75CompletionRuntimeError",

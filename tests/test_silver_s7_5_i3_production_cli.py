@@ -11,7 +11,10 @@ import pytest
 from ame_stocks_api.artifacts import stable_digest
 from ame_stocks_api.cli import silver_identity_incremental as cli
 from ame_stocks_api.silver.incremental_contract import ArtifactPin
-from ame_stocks_api.silver.incremental_i3_production_contract import I3ProductionRunKind
+from ame_stocks_api.silver.incremental_i3_production_contract import (
+    I3ProductionResourceCaps,
+    I3ProductionRunKind,
+)
 
 
 def _pin(label: str) -> ArtifactPin:
@@ -49,6 +52,72 @@ def test_parser_exposes_one_command_factor_delta_path() -> None:
         "stage-delta",
         "verify-delta",
     }
+
+
+def test_automatic_delta_config_uses_current_marker_and_next_exact_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    marker_path = tmp_path / cli.S75_CURRENT_MARKER_PATH
+    marker_path.parent.mkdir(parents=True, exist_ok=True)
+    marker_path.write_bytes(b'{"current":true}\n')
+    parent_completion = _pin("current-parent-completion")
+    parent_deep = _pin("current-parent-deep")
+    caps = I3ProductionResourceCaps(
+        rss_bytes_hard_cap=3 * 1024**3,
+        disk_free_bytes_hard_floor=40 * 1024**3,
+        temporary_bytes_hard_cap=32 * 1024**3,
+        output_bytes_hard_cap=20 * 1024**3,
+        output_rows_hard_cap=100_000_000,
+    )
+    current = SimpleNamespace(
+        config=SimpleNamespace(
+            delta_completion_artifact=parent_completion,
+            delta_deep_attestation_artifact=parent_deep,
+        ),
+        run_spec=SimpleNamespace(
+            terminal_session=date(2026, 7, 10),
+            run_available_session=date(2026, 8, 3),
+            resource_caps=caps,
+            calendar=SimpleNamespace(
+                calendar_artifact_id=stable_digest({"calendar": "id"}),
+                artifact=SimpleNamespace(sha256=stable_digest({"calendar": "sha"})),
+            ),
+        ),
+    )
+    monkeypatch.setattr(cli, "verify_s75_completion", lambda root, pin: current)
+    monkeypatch.setattr(
+        cli,
+        "load_xnys_calendar_artifact",
+        lambda *args, **kwargs: SimpleNamespace(
+            sessions=(
+                SimpleNamespace(session_date=date(2026, 7, 10)),
+                SimpleNamespace(session_date=date(2026, 7, 13)),
+            )
+        ),
+    )
+    receipt_relative = cli.production_i2_receipt_path(date(2026, 7, 13))
+    receipt_path = tmp_path / receipt_relative
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.write_bytes(b'{"receipt":true}\n')
+    monkeypatch.setattr(
+        cli,
+        "S4SessionRunReceipt",
+        SimpleNamespace(
+            from_dict=lambda value: SimpleNamespace(
+                session_date=date(2026, 7, 13),
+                receipt_available_session=date(2026, 8, 4),
+            )
+        ),
+    )
+
+    config = cli._automatic_delta_config(tmp_path)
+
+    assert config.parent_completion_artifact == parent_completion
+    assert config.parent_deep_attestation_artifact == parent_deep
+    assert config.i2_receipt_artifact.path == receipt_relative
+    assert config.run_available_session == date(2026, 8, 4)
+    assert config.resource_caps is caps
 
 
 def test_prepare_delta_direct_mode_stores_only_exact_control_config(
@@ -121,7 +190,7 @@ def test_prepare_delta_direct_mode_stores_only_exact_control_config(
     assert config.parent_completion_artifact == completion
     assert config.parent_deep_attestation_artifact == deep
     assert config.i2_receipt_artifact == i2
-    assert config.parent_authority.value == "migration_shadow"
+    assert config.parent_authority.value == "exact_staging"
     assert config.parent_pointer_event_artifact is None
 
 
