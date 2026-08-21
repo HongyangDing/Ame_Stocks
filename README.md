@@ -7,7 +7,8 @@ can be inspected and reproduced.
 ## Current milestone
 
 The project has passed the **Bronze data checkpoint** for the catalog frozen on 2026-07-12 and is
-now at **Silver Phase 2 with S1–S6 published; S7 production ingress is fail-closed**:
+now at **Silver Phase 2 with S1–S7 complete and the S7.5 identity bedrock factor-ready; S8 has not
+started**:
 
 - ten years of full-market minute/day aggregate Flat Files and 29 required REST research
   datasets (31 dataset families in total) are stored immutably on the remote data volume;
@@ -21,8 +22,8 @@ now at **Silver Phase 2 with S1–S6 published; S7 production ingress is fail-cl
 - S1 exchanges, S2 ticker types, and the paired S3 condition-code tables are published through the
   immutable release-only reader with exact schema, QA, and zero-quarantine evidence;
 - S4 processed all 5,026 active/inactive Assets manifests, 72,038 pages, and 69,381,182 rows. Its
-  three full-scope tables were published as one atomic release set with scope
-  `identity_evidence_pending_s7`; they remain `backtest_identity_eligible=false`;
+  three full-scope tables were published as one atomic evidence release set and were subsequently
+  consumed by S7 identity resolution;
 - S5 binds a 15,173-identifier request inventory and 11,471 successful Bronze responses through one
   coverage receipt v2. It publishes 15,173 request-status rows and 12,895 valid ticker-change rows;
   the other 193 raw events are empty-target High quarantine records, not silently dropped rows;
@@ -31,18 +32,27 @@ now at **Silver Phase 2 with S1–S6 published; S7 production ingress is fail-cl
   passed release-only trust-chain and artifact verification. They are evidence only and also remain
   `backtest_identity_eligible=false`;
 - S6 published 30,570 retrospective Overview evidence rows plus 169 pending High quarantine rows;
-  permanent identity, ticker validity intervals, and a backtestable universe still require S7;
-- S7 completed one approved bounded S4 detector preview and stopped at `awaiting_review`: 19 cases,
-  89 suspected rows, 50 source artifacts, and 1,471,768 physically attested rows. External review then
-  confirmed that nine tickers contain same-Share-Class non-US Composite FIGIs in Massive US-locale
-  records: 79 rows are foreign observations and 10 are correct inverse-case US observations. The
-  revised proposal preserves all 19 cases and raw FIGI lineage, adds a separate exact-scope
-  `identity_cross_market_adjudication` registry, full-sequence market-consistency QA, and immutable
-  OpenFIGI/SEC/issuer evidence. The six-contract schema/evidence package was approved exactly on
-  2026-07-17, but the current external evidence classifies only 18 Composite FIGIs and therefore
-  cannot stand in for a full-market reference. The next fail-closed checkpoint only freezes a
-  full-history S4 Composite-inventory Plan and approval Request; no inventory scan, OpenFIGI lookup,
-  adjudication plan, four-table materialization, FullRunPlan, PublishPlan, or S7 release has run;
+  they were later consumed as evidence by S7 rather than promoted directly into a historical factor
+  universe;
+- S7 completed the immutable four-table identity materialization and the exact-scope registries for
+  cross-market Composite contamination, provider-stale Composite mappings, Share Class corrections,
+  and genuine asset transitions. In particular, SOR, XZO, and ANABV retain their observed lineage
+  while resolving to the reviewed canonical identities;
+- S7.5 freezes the historical native-v2 BASE through 2026-07-09 and appends the real 2026-07-10
+  DELTA without rewriting old partitions. The authoritative marker is
+  `/mnt/HC_Volume_106309665/american_stocks/manifests/silver/incremental/s7_5/S7_5_COMPLETE.json`;
+  it is `factor_ready_for_s8`, has `s8_started=false`, and binds run spec
+  `0260a08f441f07b045305c606b255f47ecab7c95dee69441f5921a60028b0f11`;
+- the 2026-07-10 target partition contains 36,162 membership rows: 14,539 are identity-eligible and
+  21,623 remain fail-closed. Among 12,991 active rows, 10,444 are eligible. The main remaining coverage
+  gap is 1,108 active provider-typed common-stock rows for which both S4 Assets and S6 Overview omit
+  Composite and Share Class FIGIs. They remain present in membership but cannot enter the tradable
+  identity graph until separately sourced evidence resolves them;
+- S7.5 is a downstream bedrock, not a best-effort hint: eligible rows must have one canonical asset,
+  Share Class, alias segment, and versioned asset master; unresolved or colliding rows cannot open new
+  positions; identity uncertainty cannot alter active/inactive state or trigger liquidation; and exact
+  target-partition bytes, schema, row count, and session must reproduce before the factor-ready marker
+  is accepted.
 
 The final strict full audit is
 `/mnt/HC_Volume_106309665/american_stocks/manifests/audits/bronze/full-2026-07-12-v9.json`
@@ -100,17 +110,16 @@ documented in
 [docs/silver-s5-ticker-events-schema-review.md](docs/silver-s5-ticker-events-schema-review.md). The
 published S6 evidence contract, lifecycle coverage, QA/quarantine results, and release are documented
 in [docs/silver-s6-ticker-overview-schema-review.md](docs/silver-s6-ticker-overview-schema-review.md).
-The current hard stop follows the completed S7 bounded detector preview and exact schema/evidence
-approval. Before a full market-consistency scan can be proposed, Gate A must freeze the authoritative
-Composite inventory from all 2,513 S4 sessions, and Gate B must attempt market classification for
-every valid inventory key. The Gate A request generator accepts only operational repository/data
-roots; it cannot accept caller-supplied rows, dates, tickers, source/artifact selection paths,
-releases, checksums, caps, or API credentials and has no approval or execution path.
-The three independent reference gates and their fail-closed unknown policy are documented in
-[docs/silver-s7-market-reference-prerequisite-plan.md](docs/silver-s7-market-reference-prerequisite-plan.md).
-The exact input binding, observed/canonical split, adjudication rules, contract digests, and approval
-wording are in
-[docs/silver-s7-identity-resolution-schema-review.md](docs/silver-s7-identity-resolution-schema-review.md).
+S7 and S7.5 are the identity bedrock for every later Silver and factor stage. The current operational
+boundary and the deliberately reduced set of factor-relevant hard gates are documented in
+[docs/silver-s7-5-factor-first-reset.md](docs/silver-s7-5-factor-first-reset.md). Normal daily identity
+updates use the single `ame-silver-identity-incremental run-delta` entry point; they append one session,
+preserve unresolved membership, and never silently rewrite historical partitions. The observed versus
+canonical identity split and the exact SOR/XZO/ANABV relation registries are documented in
+[docs/silver-s7-identity-relation-registry-design.md](docs/silver-s7-identity-relation-registry-design.md).
+`backtest_identity_eligible` remains only the identity-layer prerequisite for opening a position;
+security type, price/liquidity, entitlement/corporate-action, and strategy policy still determine
+final tradability. S8 `ipos` may now consume the explicit S7.5 marker, but S8 has not been run.
 For S4, the approved schemas are loaded by
 [asset_contract.py](backend/ame_stocks_api/silver/asset_contract.py); the manifest-bound reader and
 session-bounded pure transform live in
