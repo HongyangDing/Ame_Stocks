@@ -44,12 +44,14 @@ started**:
   it is `factor_ready_for_s8`, has `s8_started=false`, and binds run spec
   `0260a08f441f07b045305c606b255f47ecab7c95dee69441f5921a60028b0f11`;
 - the 2026-07-10 target partition contains 36,162 membership rows: 14,539 are identity-eligible and
-  21,623 remain fail-closed. Among 12,991 active rows, 10,444 are eligible. The main remaining coverage
-  gap is 1,108 active provider-typed common-stock rows for which both S4 Assets and S6 Overview omit
-  Composite and Share Class FIGIs. They remain present in membership but cannot enter the tradable
-  identity graph until separately sourced evidence resolves them. S7.5 now has a bounded
-  `backfill-missing-figi` path that captures OpenFIGI responses plus Nasdaq official listing
-  corroboration into a separate immutable overlay without rewriting those provider observations;
+  21,623 remain fail-closed. Among 12,991 active rows, 10,444 are eligible. Its original main coverage
+  gap was 1,108 active provider-typed common-stock rows for which both S4 Assets and S6 Overview omit
+  Composite and Share Class FIGIs. The bounded `backfill-missing-figi` run completed on 2026-08-21:
+  immutable release `2de5f9145e815a2958ba6d05c07d7bfd87d196a0cfda2217e0a564603574f315`
+  resolves 989 with one OpenFIGI Common Stock pair plus matching Nasdaq listing/MIC evidence. The other
+  119 remain fail-closed: 104 had no OpenFIGI result, 6 had no matching Common Stock result, 3 failed
+  listing/MIC corroboration, 1 was ambiguous, and 5 lacked CIK. The overlay does not rewrite provider
+  observations or the four native-v2 tables;
 - S7.5 is a downstream bedrock, not a best-effort hint: eligible rows must have one canonical asset,
   Share Class, alias segment, and versioned asset master; unresolved or colliding rows cannot open new
   positions; identity uncertainty cannot alter active/inactive state or trigger liquidation; and exact

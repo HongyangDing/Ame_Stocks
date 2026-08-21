@@ -142,3 +142,10 @@ release 只提供 separate canonical overlay，不改变 observed lineage、历�
 自动继承 release；新行只有在 exact ticker/MIC/CIK 仍一致且 source FIGI 仍为空时才应用。S8 及后续
 reader 必须从 verified `S75CompletionResult.external_figi_resolution` 读取这层 canonical identity，
 不能绕过 marker 自行查询互联网。
+
+2026-08-21 的首次正式运行以匿名 API 完成，1,108 个目标中 1,103 个具有可绑定 CIK 并实际查询；
+989 个通过全部接受条件。其余结果为 no-result 104、非 Common Stock matching result 6、Nasdaq
+listing/MIC 不一致 3、ambiguous 1，另有缺 CIK 5。正式 release ID 为
+`2de5f9145e815a2958ba6d05c07d7bfd87d196a0cfda2217e0a564603574f315`。运行前后 target
+Parquet SHA-256 均为 `2eb1ad8bdf8309dda6748301dcf675caf1e5673aae412fb74fbc5b7859ac3f5e`；
+幂等复跑返回 `reused=true`，没有新增 evidence/release 或改变 marker。
