@@ -3520,6 +3520,47 @@ def load_registry_release(
             _HISTORICAL_RUNTIME_REPLAY_CACHE.reset(token)
 
 
+def load_registry_release_roots(
+    data_root: Path,
+    pins: Sequence[RegistryReleasePin],
+) -> tuple[RegistryReleaseManifest, ...]:
+    """Exact-load only the immutable release roots for a materialized consumer.
+
+    Daily identity generation still uses :func:`load_registry_release_set` once
+    to replay decisions, scopes, evidence, and source lineage before it derives
+    rows.  A post-materialization verifier does not need to expand those same
+    historical trees again: its output bytes and policy decision were already
+    sealed by that generation pass.  This narrow loader rechecks the five
+    content-addressed release manifests, their canonical IDs, order, and
+    availability without rereading every historical member.
+    """
+
+    if tuple(item.registry_name for item in pins) != REGISTRY_ORDER:
+        raise RegistryWorkflowError("release pins must use the frozen five-registry order")
+    root = data_root.expanduser().resolve()
+    manifests: list[RegistryReleaseManifest] = []
+    for pin in pins:
+        content = _read_exact(
+            root,
+            pin.manifest_path,
+            expected_sha256=pin.manifest_sha256,
+            expected_bytes=pin.manifest_bytes,
+        )
+        manifest = RegistryReleaseManifest.from_dict(
+            _load_json(content, "registry release manifest")
+        )
+        if (
+            _canonical_bytes(manifest.to_dict()) != content
+            or manifest.registry_name != pin.registry_name
+            or manifest.release_id != pin.release_id
+            or manifest.relative_path != pin.manifest_path
+            or manifest.release_available_session != pin.release_available_session
+        ):
+            raise RegistryWorkflowError("release pin differs from exact manifest")
+        manifests.append(manifest)
+    return tuple(manifests)
+
+
 def _load_registry_release_in_scope(
     data_root: Path,
     pin: RegistryReleasePin,
@@ -6546,6 +6587,7 @@ __all__ = [
     "load_candidate_control",
     "load_decision_plan_control",
     "load_registry_release",
+    "load_registry_release_roots",
     "load_registry_release_set",
     "publish_release",
     "publish_release_under_standing_authority",

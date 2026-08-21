@@ -1417,6 +1417,118 @@ def test_release_pin_cannot_substitute_registry_or_availability() -> None:
         )
 
 
+def test_release_root_loader_rechecks_only_five_exact_canonical_manifests(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    available = date(2026, 7, 20)
+    pins: list[RegistryReleasePin] = []
+    for index, name in enumerate(REGISTRY_ORDER, start=1):
+        release_id = f"{index:064x}"
+        relative = f"registry={name}/release_id={release_id}/manifest.json"
+        document = {
+            "registry_name": name,
+            "release_available_session": available.isoformat(),
+            "release_id": release_id,
+            "relative_path": relative,
+        }
+        content = _canonical(document)
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        pins.append(
+            RegistryReleasePin(
+                registry_name=name,
+                release_id=release_id,
+                manifest_path=relative,
+                manifest_sha256=hashlib.sha256(content).hexdigest(),
+                manifest_bytes=len(content),
+                release_available_session=available,
+            )
+        )
+
+    class FakeManifest:
+        def __init__(self, value: dict[str, object]) -> None:
+            self.registry_name = value["registry_name"]
+            self.release_id = value["release_id"]
+            self.relative_path = value["relative_path"]
+            self.release_available_session = date.fromisoformat(
+                str(value["release_available_session"])
+            )
+            self._value = value
+
+        def to_dict(self) -> dict[str, object]:
+            return self._value
+
+    class FakeManifestParser:
+        @staticmethod
+        def from_dict(value: object) -> FakeManifest:
+            assert isinstance(value, dict)
+            return FakeManifest(value)
+
+    monkeypatch.setattr(registry_workflow, "RegistryReleaseManifest", FakeManifestParser)
+    roots = registry_workflow.load_registry_release_roots(tmp_path, tuple(pins))
+    assert tuple(item.registry_name for item in roots) == REGISTRY_ORDER
+
+    first_path = tmp_path / pins[0].manifest_path
+    first_path.write_bytes(first_path.read_bytes() + b"\n")
+    with pytest.raises(RegistryWorkflowError, match="byte count changed"):
+        registry_workflow.load_registry_release_roots(tmp_path, tuple(pins))
+
+
+def test_release_root_loader_rejects_noncanonical_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    available = date(2026, 7, 20)
+    pins: list[RegistryReleasePin] = []
+    parsed: dict[str, dict[str, object]] = {}
+    for index, name in enumerate(REGISTRY_ORDER, start=1):
+        release_id = f"{index:064x}"
+        relative = f"registry={name}/release_id={release_id}/manifest.json"
+        document = {
+            "registry_name": name,
+            "release_available_session": available.isoformat(),
+            "release_id": release_id,
+            "relative_path": relative,
+        }
+        parsed[release_id] = document
+        content = json.dumps(document, indent=2, sort_keys=True).encode()
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        pins.append(
+            RegistryReleasePin(
+                registry_name=name,
+                release_id=release_id,
+                manifest_path=relative,
+                manifest_sha256=hashlib.sha256(content).hexdigest(),
+                manifest_bytes=len(content),
+                release_available_session=available,
+            )
+        )
+
+    class FakeManifest:
+        def __init__(self, value: dict[str, object]) -> None:
+            self.registry_name = value["registry_name"]
+            self.release_id = value["release_id"]
+            self.relative_path = value["relative_path"]
+            self.release_available_session = available
+
+        def to_dict(self) -> dict[str, object]:
+            return parsed[str(self.release_id)]
+
+    class FakeManifestParser:
+        @staticmethod
+        def from_dict(value: object) -> FakeManifest:
+            assert isinstance(value, dict)
+            return FakeManifest(value)
+
+    monkeypatch.setattr(registry_workflow, "RegistryReleaseManifest", FakeManifestParser)
+    with pytest.raises(RegistryWorkflowError, match="not canonical"):
+        registry_workflow.load_registry_release_roots(tmp_path, tuple(pins))
+
+
 def test_runtime_binding_rejects_dirty_checkout_and_detects_committed_source_drift(
     tmp_path: Path,
 ) -> None:

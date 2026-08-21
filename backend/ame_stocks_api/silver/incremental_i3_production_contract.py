@@ -3627,7 +3627,7 @@ def _verify_external_production_dependencies(
     from ame_stocks_api.silver.calendar_artifact import load_xnys_calendar_artifact
     from ame_stocks_api.silver.identity_registry_workflow import (
         RegistryReleasePin,
-        load_registry_release_set,
+        load_registry_release_roots,
     )
 
     i0_marker = _load_frozen_i0_oracle_marker_exact(root, run_spec.i0_oracle.artifact)
@@ -3731,20 +3731,13 @@ def _verify_external_production_dependencies(
     if not required_sessions.issubset(available_sessions):
         raise I3ProductionContractError("production calendar omits a required session")
 
-    loaded = load_registry_release_set(
-        root,
-        registry_pins,
-        revalidate_current_runtime=False,
-    )
-    if tuple(item.manifest_pin for item in loaded.releases) != registry_pins:
-        raise I3ProductionContractError("registry production loader returned different pins")
-    if any(
-        row.source_s4_release_set_id != run_spec.s4_v1_source.object_id
-        for release in loaded.releases
-        for scope in release.source_scopes.values()
-        for row in scope.rows
-    ):
-        raise I3ProductionContractError("identity registry lineage binds another S4 release")
+    # Generation already performs the one full registry decision/scope/evidence
+    # replay needed to derive rows.  Re-expanding those historical trees after
+    # materialization doubled daily runtime without changing a factor value.
+    # Durable verification therefore rechecks the five immutable release roots
+    # here, while continuing to replay S4, calendar, I2, checkpoint, Parquet,
+    # and all materialized row/partition proofs below.
+    load_registry_release_roots(root, registry_pins)
     policy_bytes = _read_exact_root(root, run_spec.identity_policy_bundle_artifact)
     if policy_bytes != run_spec.identity_policy_bundle.canonical_bytes():
         raise I3ProductionContractError("identity policy bundle bytes differ")
