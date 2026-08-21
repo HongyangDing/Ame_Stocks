@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,6 +11,7 @@ import pytest
 
 from ame_stocks_api.artifacts import stable_digest
 from ame_stocks_api.silver import incremental_s75_completion_runtime as runtime
+from ame_stocks_api.silver.external_figi_resolution import ExternalFigiApplicationSummary
 from ame_stocks_api.silver.incremental_contract import ArtifactPin
 
 TARGET = date(2026, 7, 10)
@@ -219,3 +221,43 @@ def test_prepare_requires_real_delta_artifacts(tmp_path: Path) -> None:
     )
     with pytest.raises(runtime.S75CompletionRuntimeError, match="missing"):
         runtime.prepare_s75_completion(tmp_path, config)
+
+
+def test_external_figi_overlay_extends_marker_without_changing_legacy_shape(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    legacy, _ = _fixture(tmp_path, monkeypatch)
+    assert "external_figi_resolution_artifact" not in legacy.to_dict()
+    assert runtime.S75CompletionConfig.from_dict(legacy.to_dict()) == legacy
+
+    external_pin = _write(tmp_path, "controls/external-figi.json", b'{"release":true}\n')
+    config = replace(
+        legacy,
+        external_figi_resolution_artifact=external_pin,
+    )
+    release = SimpleNamespace(release_id=stable_digest({"external": "release"}))
+    application = ExternalFigiApplicationSummary(
+        active_cs_missing_source_figi_rows=1108,
+        externally_resolved_rows=992,
+        remaining_rows=116,
+        missing_cik_rows=5,
+        unsupported_mic_rows=0,
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_load_external_figi_overlay",
+        lambda *_args: (release, application),
+    )
+    _, config_pin = runtime.prepare_s75_completion(tmp_path, config)
+    result = runtime.stage_s75_completion(tmp_path, config_pin)
+    marker = runtime._read_canonical(tmp_path, result.sentinel_artifact, "marker")
+
+    assert marker["external_figi_resolution_artifact"] == external_pin.to_dict()
+    assert marker["external_figi_resolution_id"] == release.release_id
+    assert marker["summary"]["externally_resolved_active_cs_rows"] == 992
+    assert marker["summary"]["remaining_active_cs_missing_figi_rows"] == 116
+    assert "external_figi_never_rewrites_observed_lineage" in marker["factor_hard_invariants"]
+    replay = runtime.verify_s75_completion(tmp_path, result.sentinel_artifact)
+    assert replay.summary == result.summary
+    assert replay.external_figi_resolution is release

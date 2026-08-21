@@ -47,7 +47,9 @@ started**:
   21,623 remain fail-closed. Among 12,991 active rows, 10,444 are eligible. The main remaining coverage
   gap is 1,108 active provider-typed common-stock rows for which both S4 Assets and S6 Overview omit
   Composite and Share Class FIGIs. They remain present in membership but cannot enter the tradable
-  identity graph until separately sourced evidence resolves them;
+  identity graph until separately sourced evidence resolves them. S7.5 now has a bounded
+  `backfill-missing-figi` path that captures OpenFIGI responses plus Nasdaq official listing
+  corroboration into a separate immutable overlay without rewriting those provider observations;
 - S7.5 is a downstream bedrock, not a best-effort hint: eligible rows must have one canonical asset,
   Share Class, alias segment, and versioned asset master; unresolved or colliding rows cannot open new
   positions; identity uncertainty cannot alter active/inactive state or trigger liquidation; and exact
@@ -114,7 +116,11 @@ S7 and S7.5 are the identity bedrock for every later Silver and factor stage. Th
 boundary and the deliberately reduced set of factor-relevant hard gates are documented in
 [docs/silver-s7-5-factor-first-reset.md](docs/silver-s7-5-factor-first-reset.md). Normal daily identity
 updates use the single `ame-silver-identity-incremental run-delta` entry point; they append one session,
-preserve unresolved membership, and never silently rewrite historical partitions. The observed versus
+preserve unresolved membership, automatically carry the verified external-FIGI overlay, and never
+silently rewrite historical partitions. Missing source FIGIs can be refreshed independently with
+`ame-silver-identity-incremental backfill-missing-figi --data-root <data-root>`; accepted rows require
+one exact Common Stock FIGI pair plus matching official Nasdaq listing/MIC evidence, while ambiguous,
+missing-CIK, and nonmatching rows remain unresolved. The observed versus
 canonical identity split and the exact SOR/XZO/ANABV relation registries are documented in
 [docs/silver-s7-identity-relation-registry-design.md](docs/silver-s7-identity-relation-registry-design.md).
 `backtest_identity_eligible` remains only the identity-layer prerequisite for opening a position;

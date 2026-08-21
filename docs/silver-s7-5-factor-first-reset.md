@@ -103,3 +103,42 @@ S7.5 完成条件只有：
 4. marker state 为 `factor_ready_for_s8` 且 `s8_started=false`。
 
 S8 可以在 marker 生成后另行开始，但本次重构不运行 S8。
+
+## 源 FIGI 为空时的窄范围外部补全
+
+`observed_composite_figi` 和 `observed_share_class_figi` 是 Massive 原始事实，永远不由互联网
+查询回填。对当前 active、`type_code=CS` 且这两个字段同时为空的行，S7.5 允许生成一份独立的
+`external_figi_resolution` release：
+
+```text
+S7.5 target universe partition
+        -> exact ticker + primary MIC + observed CIK scope
+        -> OpenFIGI TICKER/US/Equity response
+        -> Nasdaq official symbol-directory MIC corroboration
+        -> immutable external FIGI evidence + resolution release
+        -> new S7_5_COMPLETE.json (old DELTA and four tables unchanged)
+```
+
+正常入口为：
+
+```text
+ame-silver-identity-incremental backfill-missing-figi --data-root <data-root>
+```
+
+若环境变量 `OPENFIGI_API_KEY` 存在，命令只在请求 header 中使用，不写入 request、response、
+manifest、日志或 CLI 输出；否则按匿名 API 的五 job 批量和限速运行。运行中断时只保留一个按
+source-set ID 定位的可恢复 workspace；成功固化 evidence/release 后删除本次 cache，不递归清理
+任何不属于该运行的目录。
+
+接受规则故意很窄：OpenFIGI 必须只产生一个 exact ticker、`Equity`、`Common Stock`、非空
+Composite/Share Class FIGI pair；同时 ticker 必须存在于 Nasdaq 官方 symbol directory，并与
+S7.5 的 `XNAS`、`XNYS` 或 `XASE` MIC 一致。歧义、无结果、错误证券类型、listing 不一致、缺 CIK
+或不支持的 MIC 都继续 unresolved，不做多数投票和模糊匹配。CIK 是 overlay key 的一部分，避免
+ticker 日后回收时沿用旧映射。
+
+release 只提供 separate canonical overlay，不改变 observed lineage、历史 Parquet、CIK/issuer、
+`active_on_date` 或核心 `backtest_identity_eligible`。其 availability 是所有接受证据抓取完成后第一
+个 XNYS open，不能回填成原 membership 日期。`run-delta` 会校验 parent 就是 current marker，随后
+自动继承 release；新行只有在 exact ticker/MIC/CIK 仍一致且 source FIGI 仍为空时才应用。S8 及后续
+reader 必须从 verified `S75CompletionResult.external_figi_resolution` 读取这层 canonical identity，
+不能绕过 marker 自行查询互联网。

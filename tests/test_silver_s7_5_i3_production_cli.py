@@ -47,6 +47,7 @@ def test_parser_exposes_one_command_factor_delta_path() -> None:
         "prepare-base",
         "prepare-delta",
         "run-delta",
+        "backfill-missing-figi",
         "stage-base",
         "verify-base",
         "stage-delta",
@@ -436,6 +437,9 @@ def test_run_delta_prepares_stages_and_marks_factor_ready(
     run_spec_pin, run_spec_id = _delta_run_spec_pin("factor-run")
     completion = _pin("delta-completion")
     deep = _pin("delta-deep")
+    parent_completion = _pin("parent-completion")
+    parent_deep = _pin("parent-deep")
+    external = _pin("external-figi-resolution")
     sentinel = _pin("S7_5_COMPLETE")
     prepared = SimpleNamespace(
         config_artifact=config,
@@ -443,6 +447,8 @@ def test_run_delta_prepares_stages_and_marks_factor_ready(
         run_spec=SimpleNamespace(
             run_spec_id=run_spec_id,
             run_available_session=date(2026, 8, 17),
+            parent_shadow_completion_artifact=parent_completion,
+            parent_deep_attestation_artifact=parent_deep,
         ),
     )
     loaded = SimpleNamespace(
@@ -465,12 +471,25 @@ def test_run_delta_prepares_stages_and_marks_factor_ready(
     )
     ready = SimpleNamespace(summary=summary, sentinel_artifact=sentinel)
     ready_config_pin = _pin("factor-ready-config")
+    prior = SimpleNamespace(
+        config=SimpleNamespace(
+            delta_completion_artifact=parent_completion,
+            delta_deep_attestation_artifact=parent_deep,
+            external_figi_resolution_artifact=external,
+            completion_available_session=date(2026, 8, 24),
+        )
+    )
+    observed_ready_configs: list[object] = []
     monkeypatch.setattr(cli, "_prepare_delta", lambda *_args: prepared)
     monkeypatch.setattr(cli, "_stage_delta", lambda *_args: staged)
+    monkeypatch.setattr(cli, "_load_current_s75", lambda *_args, **_kwargs: prior)
     monkeypatch.setattr(
         cli,
         "prepare_s75_completion",
-        lambda root, ready_config: (ready_config, ready_config_pin),
+        lambda root, ready_config: (
+            observed_ready_configs.append(ready_config) or ready_config,
+            ready_config_pin,
+        ),
     )
     monkeypatch.setattr(
         cli,
@@ -497,6 +516,55 @@ def test_run_delta_prepares_stages_and_marks_factor_ready(
     assert payload["s8_started"] is False
     assert payload["s7_5_completion"] == sentinel.to_dict()
     assert payload["factor_summary"]["terminal_session"] == "2026-07-10"
+    assert observed_ready_configs[0].external_figi_resolution_artifact == external
+    assert observed_ready_configs[0].completion_available_session == date(2026, 8, 24)
+
+
+def test_backfill_missing_figi_updates_only_the_s75_marker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    release_pin = _pin("external-release")
+    sentinel = _pin("S7_5_COMPLETE")
+    summary = SimpleNamespace(
+        to_dict=lambda: {
+            "active_cs_missing_source_figi_rows": 1108,
+            "externally_resolved_rows": 992,
+            "remaining_rows": 116,
+        }
+    )
+    backfill = SimpleNamespace(
+        release_artifact=release_pin,
+        release=SimpleNamespace(release_id=stable_digest({"external": "release"})),
+        application_summary=summary,
+        reused=False,
+    )
+    ready = SimpleNamespace(sentinel_artifact=sentinel)
+    observed: list[object] = []
+
+    def run(root, *, refresh_unresolved):
+        observed.extend((root, refresh_unresolved))
+        return backfill, ready
+
+    monkeypatch.setattr(cli, "_backfill_missing_figi", run)
+    code = cli.main(
+        [
+            "backfill-missing-figi",
+            "--data-root",
+            str(tmp_path),
+            "--refresh-unresolved",
+        ]
+    )
+
+    assert code == 0
+    assert observed == [tmp_path.resolve(), True]
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["external_figi_release"] == release_pin.to_dict()
+    assert payload["external_figi_summary"]["externally_resolved_rows"] == 992
+    assert payload["s7_5_completion"] == sentinel.to_dict()
+    assert payload["s8_started"] is False
+    assert payload["publish_authorized"] is False
 
 
 def test_verify_cli_requires_exact_completion_and_deep_attestation_pins(

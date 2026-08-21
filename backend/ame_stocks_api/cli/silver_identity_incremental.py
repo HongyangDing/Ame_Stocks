@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from collections.abc import Sequence
 from datetime import date
@@ -13,6 +14,10 @@ from pathlib import Path
 from ame_stocks_api.artifacts import safe_relative_path
 from ame_stocks_api.silver.asset_incremental_contract import S4SessionRunReceipt
 from ame_stocks_api.silver.calendar_artifact import load_xnys_calendar_artifact
+from ame_stocks_api.silver.external_figi_resolution import (
+    ExternalFigiBackfillResult,
+    capture_external_figi_resolution,
+)
 from ame_stocks_api.silver.incremental_contract import ArtifactPin
 from ame_stocks_api.silver.incremental_i3_delta_io import (
     I3ProductionDeltaRunConfig,
@@ -86,6 +91,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="prepare, stage, and mark one factor-ready DELTA in one command",
     )
     _add_delta_inputs(run_delta)
+    backfill_figi = commands.add_parser(
+        "backfill-missing-figi",
+        help=("capture OpenFIGI/Nasdaq evidence and attach a bounded external identity overlay"),
+    )
+    _add_data_root(backfill_figi)
+    backfill_figi.add_argument(
+        "--refresh-unresolved",
+        action="store_true",
+        help="retry previously attempted unresolved keys; resolved keys remain immutable",
+    )
     for name in ("stage-base", "stage-delta"):
         command = commands.add_parser(name)
         _add_data_root(command)
@@ -128,10 +143,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "run-delta":
             prepared = _prepare_delta(root, args)
             staged = _stage_delta(root, prepared.run_spec_artifact)
+            prior = _load_current_s75(root, required=False)
+            carried_external = None
+            ready_available = prepared.run_spec.run_available_session
+            if prior is not None:
+                if (
+                    prepared.run_spec.parent_shadow_completion_artifact
+                    != prior.config.delta_completion_artifact
+                    or prepared.run_spec.parent_deep_attestation_artifact
+                    != prior.config.delta_deep_attestation_artifact
+                ):
+                    raise I3ProductionCliError(
+                        "run-delta parent differs from the current S7.5 marker"
+                    )
+                carried_external = prior.config.external_figi_resolution_artifact
+                ready_available = max(
+                    ready_available,
+                    prior.config.completion_available_session,
+                )
             ready_config = S75CompletionConfig(
                 delta_completion_artifact=staged.completion_pin,
                 delta_deep_attestation_artifact=staged.deep_attestation_pin,
-                completion_available_session=prepared.run_spec.run_available_session,
+                completion_available_session=ready_available,
+                external_figi_resolution_artifact=carried_external,
             )
             _, ready_config_pin = prepare_s75_completion(root, ready_config)
             ready = stage_s75_completion(root, ready_config_pin)
@@ -141,6 +175,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "s7_5_completion": ready.sentinel_artifact.to_dict(),
                 "s7_5_state": "factor_ready_for_s8",
                 "s8_started": False,
+            }
+        elif args.command == "backfill-missing-figi":
+            backfill, ready = _backfill_missing_figi(
+                root,
+                refresh_unresolved=args.refresh_unresolved,
+            )
+            payload = {
+                "command": args.command,
+                "external_figi_release": backfill.release_artifact.to_dict(),
+                "external_figi_release_id": backfill.release.release_id,
+                "external_figi_summary": backfill.application_summary.to_dict(),
+                "publish_authorized": False,
+                "reused": backfill.reused,
+                "s7_5_completion": ready.sentinel_artifact.to_dict(),
+                "s7_5_state": "factor_ready_for_s8",
+                "s8_started": False,
+                "state": "completed",
             }
         elif args.command == "stage-base":
             result = _stage_base(root, _pin_from_args(args, "run_spec"))
@@ -313,18 +364,8 @@ def _prepare_delta(
 
 
 def _automatic_delta_config(root: Path) -> I3ProductionDeltaRunConfig:
-    marker_path = safe_relative_path(root, S75_CURRENT_MARKER_PATH)
-    if not marker_path.is_file() or marker_path.is_symlink():
-        raise I3ProductionCliError("current S7.5 factor-ready marker is missing")
-    marker_content = marker_path.read_bytes()
-    current = verify_s75_completion(
-        root,
-        ArtifactPin(
-            path=S75_CURRENT_MARKER_PATH,
-            sha256=hashlib.sha256(marker_content).hexdigest(),
-            bytes=len(marker_content),
-        ),
-    )
+    current = _load_current_s75(root, required=True)
+    assert current is not None
     calendar = load_xnys_calendar_artifact(
         root,
         calendar_artifact_id=current.run_spec.calendar.calendar_artifact_id,
@@ -363,6 +404,63 @@ def _automatic_delta_config(root: Path) -> I3ProductionDeltaRunConfig:
             receipt.receipt_available_session,
         ),
         resource_caps=current.run_spec.resource_caps,
+    )
+
+
+def _backfill_missing_figi(
+    root: Path,
+    *,
+    refresh_unresolved: bool,
+) -> tuple[ExternalFigiBackfillResult, object]:
+    current = _load_current_s75(root, required=True)
+    assert current is not None
+    calendar = load_xnys_calendar_artifact(
+        root,
+        calendar_artifact_id=current.run_spec.calendar.calendar_artifact_id,
+        expected_sha256=current.run_spec.calendar.artifact.sha256,
+    )
+    backfill = capture_external_figi_resolution(
+        root,
+        target_artifact=current.summary.target_partition,
+        target_row_count=current.summary.universe_row_count,
+        target_session=current.summary.terminal_session,
+        calendar=calendar,
+        existing_release_artifact=current.config.external_figi_resolution_artifact,
+        api_key=os.environ.get("OPENFIGI_API_KEY"),
+        refresh_unresolved=refresh_unresolved,
+    )
+    if backfill.reused:
+        return backfill, current
+    ready_config = S75CompletionConfig(
+        delta_completion_artifact=current.config.delta_completion_artifact,
+        delta_deep_attestation_artifact=current.config.delta_deep_attestation_artifact,
+        completion_available_session=max(
+            current.config.completion_available_session,
+            backfill.release.release_available_session,
+        ),
+        external_figi_resolution_artifact=backfill.release_artifact,
+    )
+    _, ready_config_pin = prepare_s75_completion(root, ready_config)
+    ready = stage_s75_completion(root, ready_config_pin)
+    if ready.external_figi_resolution != backfill.release:
+        raise I3ProductionCliError("S7.5 marker external FIGI release differs")
+    return backfill, ready
+
+
+def _load_current_s75(root: Path, *, required: bool):
+    marker_path = safe_relative_path(root, S75_CURRENT_MARKER_PATH)
+    if not marker_path.is_file() or marker_path.is_symlink():
+        if required:
+            raise I3ProductionCliError("current S7.5 factor-ready marker is missing")
+        return None
+    marker_content = marker_path.read_bytes()
+    return verify_s75_completion(
+        root,
+        ArtifactPin(
+            path=S75_CURRENT_MARKER_PATH,
+            sha256=hashlib.sha256(marker_content).hexdigest(),
+            bytes=len(marker_content),
+        ),
     )
 
 

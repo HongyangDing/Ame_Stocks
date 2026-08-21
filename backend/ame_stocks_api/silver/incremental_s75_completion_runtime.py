@@ -20,6 +20,12 @@ from pathlib import Path
 from typing import Final, Self
 
 from ame_stocks_api.artifacts import safe_relative_path, stable_digest, write_bytes_immutable
+from ame_stocks_api.silver.calendar_artifact import load_xnys_calendar_artifact
+from ame_stocks_api.silver.external_figi_resolution import (
+    ExternalFigiApplicationSummary,
+    ExternalFigiResolutionRelease,
+    verify_external_figi_resolution_release,
+)
 from ame_stocks_api.silver.incremental_contract import ArtifactPin
 from ame_stocks_api.silver.incremental_i3_contract import I3_V2_TABLE_ORDER
 from ame_stocks_api.silver.incremental_i3_migration_io import (
@@ -55,6 +61,7 @@ class S75CompletionConfig:
     delta_completion_artifact: ArtifactPin
     delta_deep_attestation_artifact: ArtifactPin
     completion_available_session: date
+    external_figi_resolution_artifact: ArtifactPin | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.delta_completion_artifact, ArtifactPin):
@@ -63,19 +70,28 @@ class S75CompletionConfig:
             raise S75CompletionRuntimeError("DELTA deep-attestation pin is invalid")
         if type(self.completion_available_session) is not date:
             raise S75CompletionRuntimeError("completion availability is not a native date")
+        if self.external_figi_resolution_artifact is not None and not isinstance(
+            self.external_figi_resolution_artifact, ArtifactPin
+        ):
+            raise S75CompletionRuntimeError("external FIGI resolution pin is invalid")
 
     @property
     def config_id(self) -> str:
         return stable_digest(self.logical_payload())
 
     def logical_payload(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "artifact_type": "s7_5_factor_ready_config",
             "completion_available_session": self.completion_available_session.isoformat(),
             "delta_completion_artifact": self.delta_completion_artifact.to_dict(),
             "delta_deep_attestation_artifact": (self.delta_deep_attestation_artifact.to_dict()),
             "rule_version": S75_COMPLETION_RUNTIME_RULE_VERSION,
         }
+        if self.external_figi_resolution_artifact is not None:
+            result["external_figi_resolution_artifact"] = (
+                self.external_figi_resolution_artifact.to_dict()
+            )
+        return result
 
     def to_dict(self) -> dict[str, object]:
         return {"config_id": self.config_id, **self.logical_payload()}
@@ -85,18 +101,20 @@ class S75CompletionConfig:
 
     @classmethod
     def from_dict(cls, value: object) -> Self:
-        item = _closed(
-            value,
-            {
-                "artifact_type",
-                "completion_available_session",
-                "config_id",
-                "delta_completion_artifact",
-                "delta_deep_attestation_artifact",
-                "rule_version",
-            },
-            "S7.5 factor-ready config",
-        )
+        legacy_fields = {
+            "artifact_type",
+            "completion_available_session",
+            "config_id",
+            "delta_completion_artifact",
+            "delta_deep_attestation_artifact",
+            "rule_version",
+        }
+        if not isinstance(value, dict) or set(value) not in (
+            legacy_fields,
+            legacy_fields | {"external_figi_resolution_artifact"},
+        ):
+            raise S75CompletionRuntimeError("S7.5 factor-ready config fields differ")
+        item = value
         if (
             item["artifact_type"] != "s7_5_factor_ready_config"
             or item["rule_version"] != S75_COMPLETION_RUNTIME_RULE_VERSION
@@ -106,6 +124,11 @@ class S75CompletionConfig:
             delta_completion_artifact=_artifact(item["delta_completion_artifact"]),
             delta_deep_attestation_artifact=_artifact(item["delta_deep_attestation_artifact"]),
             completion_available_session=_date(item["completion_available_session"]),
+            external_figi_resolution_artifact=(
+                None
+                if "external_figi_resolution_artifact" not in item
+                else _artifact(item["external_figi_resolution_artifact"])
+            ),
         )
         if item["config_id"] != result.config_id:
             raise S75CompletionRuntimeError("factor-ready config ID does not reproduce")
@@ -120,9 +143,13 @@ class S75FactorSummary:
     ineligible_row_count: int
     unresolved_row_count: int
     target_partition: ArtifactPin
+    external_figi_resolution_id: str | None = None
+    active_cs_missing_source_figi_rows: int | None = None
+    externally_resolved_active_cs_rows: int | None = None
+    remaining_active_cs_missing_figi_rows: int | None = None
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "eligible_row_count": self.eligible_row_count,
             "ineligible_row_count": self.ineligible_row_count,
             "target_partition": self.target_partition.to_dict(),
@@ -130,6 +157,18 @@ class S75FactorSummary:
             "universe_row_count": self.universe_row_count,
             "unresolved_row_count": self.unresolved_row_count,
         }
+        if self.external_figi_resolution_id is not None:
+            result.update(
+                {
+                    "active_cs_missing_source_figi_rows": (self.active_cs_missing_source_figi_rows),
+                    "external_figi_resolution_id": self.external_figi_resolution_id,
+                    "externally_resolved_active_cs_rows": (self.externally_resolved_active_cs_rows),
+                    "remaining_active_cs_missing_figi_rows": (
+                        self.remaining_active_cs_missing_figi_rows
+                    ),
+                }
+            )
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +180,7 @@ class S75CompletionResult:
     summary: S75FactorSummary
     sentinel_artifact: ArtifactPin
     reused: bool
+    external_figi_resolution: ExternalFigiResolutionRelease | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +203,12 @@ def prepare_s75_completion(
         raise S75CompletionRuntimeError("prepare requires a typed factor-ready config")
     _read_exact(root, config.delta_completion_artifact, "DELTA completion")
     _read_exact(root, config.delta_deep_attestation_artifact, "DELTA deep attestation")
+    if config.external_figi_resolution_artifact is not None:
+        _read_exact(
+            root,
+            config.external_figi_resolution_artifact,
+            "external FIGI resolution",
+        )
     relative = f"{_CONTROL_ROOT}/config_id={config.config_id}/config.json"
     return config, _write(root, relative, config.canonical_bytes())
 
@@ -176,7 +222,13 @@ def stage_s75_completion(
     root = data_root.expanduser().resolve()
     config = _load_config(root, config_artifact)
     authority = _load_delta_authority(root, config)
-    summary = _factor_summary(root, authority)
+    external_release, external_summary = _load_external_figi_overlay(root, config, authority)
+    summary = _factor_summary(
+        root,
+        authority,
+        external_release=external_release,
+        external_summary=external_summary,
+    )
     document = _marker_document(config_artifact, config, authority, summary)
     content = _canonical(document)
     immutable_relative = (
@@ -195,6 +247,7 @@ def stage_s75_completion(
         summary=summary,
         sentinel_artifact=sentinel,
         reused=reused,
+        external_figi_resolution=external_release,
     )
 
 
@@ -207,30 +260,43 @@ def verify_s75_completion(
     root = data_root.expanduser().resolve()
     if sentinel_artifact.path != S75_CURRENT_MARKER_PATH:
         raise S75CompletionRuntimeError("S7.5 completion marker path differs")
-    marker = _closed(
-        _read_canonical(root, sentinel_artifact, "S7.5 completion marker"),
-        {
-            "artifact_type",
-            "completion_available_session",
-            "config_artifact",
-            "delta_checkpoint_id",
-            "delta_completion_id",
-            "delta_native_release_id",
-            "delta_release_id",
-            "factor_hard_invariants",
-            "marker_id",
-            "rule_version",
-            "run_spec_id",
-            "s8_started",
-            "state",
-            "summary",
+    marker_value = _read_canonical(root, sentinel_artifact, "S7.5 completion marker")
+    legacy_fields = {
+        "artifact_type",
+        "completion_available_session",
+        "config_artifact",
+        "delta_checkpoint_id",
+        "delta_completion_id",
+        "delta_native_release_id",
+        "delta_release_id",
+        "factor_hard_invariants",
+        "marker_id",
+        "rule_version",
+        "run_spec_id",
+        "s8_started",
+        "state",
+        "summary",
+    }
+    if not isinstance(marker_value, dict) or set(marker_value) not in (
+        legacy_fields,
+        legacy_fields
+        | {
+            "external_figi_resolution_artifact",
+            "external_figi_resolution_id",
         },
-        "S7.5 completion marker",
-    )
+    ):
+        raise S75CompletionRuntimeError("S7.5 completion marker fields differ")
+    marker = marker_value
     config_artifact = _artifact(marker["config_artifact"])
     config = _load_config(root, config_artifact)
     authority = _load_delta_authority(root, config)
-    summary = _factor_summary(root, authority)
+    external_release, external_summary = _load_external_figi_overlay(root, config, authority)
+    summary = _factor_summary(
+        root,
+        authority,
+        external_release=external_release,
+        external_summary=external_summary,
+    )
     expected = _marker_document(config_artifact, config, authority, summary)
     if marker != expected:
         raise S75CompletionRuntimeError("S7.5 completion marker does not reproduce")
@@ -242,6 +308,7 @@ def verify_s75_completion(
         summary=summary,
         sentinel_artifact=sentinel_artifact,
         reused=True,
+        external_figi_resolution=external_release,
     )
 
 
@@ -296,7 +363,13 @@ def _load_delta_authority(root: Path, config: S75CompletionConfig) -> _DeltaAuth
     )
 
 
-def _factor_summary(root: Path, authority: _DeltaAuthority) -> S75FactorSummary:
+def _factor_summary(
+    root: Path,
+    authority: _DeltaAuthority,
+    *,
+    external_release: ExternalFigiResolutionRelease | None = None,
+    external_summary: ExternalFigiApplicationSummary | None = None,
+) -> S75FactorSummary:
     universe = authority.output_set.table_outputs[-1]
     index = universe.dataset_index
     if index is None or not index.partitions:
@@ -372,7 +445,57 @@ def _factor_summary(root: Path, authority: _DeltaAuthority) -> S75FactorSummary:
         ineligible_row_count=len(rows) - eligible,
         unresolved_row_count=unresolved,
         target_partition=target.artifact,
+        external_figi_resolution_id=(
+            None if external_release is None else external_release.release_id
+        ),
+        active_cs_missing_source_figi_rows=(
+            None
+            if external_summary is None
+            else external_summary.active_cs_missing_source_figi_rows
+        ),
+        externally_resolved_active_cs_rows=(
+            None if external_summary is None else external_summary.externally_resolved_rows
+        ),
+        remaining_active_cs_missing_figi_rows=(
+            None if external_summary is None else external_summary.remaining_rows
+        ),
     )
+
+
+def _load_external_figi_overlay(
+    root: Path,
+    config: S75CompletionConfig,
+    authority: _DeltaAuthority,
+) -> tuple[ExternalFigiResolutionRelease | None, ExternalFigiApplicationSummary | None]:
+    artifact = config.external_figi_resolution_artifact
+    if artifact is None:
+        return None, None
+    universe = authority.output_set.table_outputs[-1]
+    index = universe.dataset_index
+    if index is None or not index.partitions:
+        raise S75CompletionRuntimeError("DELTA universe dataset is empty")
+    target = index.partitions[-1]
+    try:
+        calendar = load_xnys_calendar_artifact(
+            root,
+            calendar_artifact_id=authority.run_spec.calendar.calendar_artifact_id,
+            expected_sha256=authority.run_spec.calendar.artifact.sha256,
+        )
+        release, summary = verify_external_figi_resolution_release(
+            root,
+            artifact,
+            current_target_artifact=target.artifact,
+            current_target_row_count=target.row_count,
+            current_terminal_session=target.session_date,
+            calendar=calendar,
+        )
+    except Exception as exc:
+        if isinstance(exc, S75CompletionRuntimeError):
+            raise
+        raise S75CompletionRuntimeError("external FIGI resolution replay failed") from exc
+    if release.release_available_session > config.completion_available_session:
+        raise S75CompletionRuntimeError("factor-ready marker predates external FIGI evidence")
+    return release, summary
 
 
 def _marker_document(
@@ -381,6 +504,21 @@ def _marker_document(
     authority: _DeltaAuthority,
     summary: S75FactorSummary,
 ) -> dict[str, object]:
+    invariants = [
+        "one_membership_per_session_ticker",
+        "eligible_rows_have_resolved_asset_and_alias",
+        "ineligible_rows_cannot_open_new_trades",
+        "identity_quality_never_forces_liquidation",
+        "registry_collisions_are_ineligible",
+        "exact_target_partition_schema_and_bytes",
+    ]
+    if config.external_figi_resolution_artifact is not None:
+        invariants.extend(
+            [
+                "external_figi_never_rewrites_observed_lineage",
+                "external_figi_requires_exact_ticker_mic_cik_and_null_source_figis",
+            ]
+        )
     body: dict[str, object] = {
         "artifact_type": "s7_5_factor_ready_completion",
         "completion_available_session": config.completion_available_session.isoformat(),
@@ -389,20 +527,20 @@ def _marker_document(
         "delta_completion_id": authority.completion.completion_id,
         "delta_native_release_id": authority.output_set.release_id,
         "delta_release_id": authority.output_set.gate_a_manifest_pin.release_id,
-        "factor_hard_invariants": [
-            "one_membership_per_session_ticker",
-            "eligible_rows_have_resolved_asset_and_alias",
-            "ineligible_rows_cannot_open_new_trades",
-            "identity_quality_never_forces_liquidation",
-            "registry_collisions_are_ineligible",
-            "exact_target_partition_schema_and_bytes",
-        ],
+        "factor_hard_invariants": invariants,
         "rule_version": S75_COMPLETION_RUNTIME_RULE_VERSION,
         "run_spec_id": authority.run_spec.run_spec_id,
         "s8_started": False,
         "state": S75_COMPLETION_STATE,
         "summary": summary.to_dict(),
     }
+    if config.external_figi_resolution_artifact is not None:
+        if summary.external_figi_resolution_id is None:
+            raise S75CompletionRuntimeError("external FIGI summary is missing")
+        body["external_figi_resolution_artifact"] = (
+            config.external_figi_resolution_artifact.to_dict()
+        )
+        body["external_figi_resolution_id"] = summary.external_figi_resolution_id
     return {"marker_id": stable_digest(body), **body}
 
 
