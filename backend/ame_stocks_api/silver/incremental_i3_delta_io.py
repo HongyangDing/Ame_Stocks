@@ -1230,7 +1230,7 @@ def _expand_registry_declared_artifacts(
         manifest_content = _read_exact_artifact(root, manifest_pin)
         manifest = RegistryReleaseManifest.from_dict(_strict_json(manifest_content))
         if (
-            _canonical_json_bytes(manifest.to_dict()) != manifest_content
+            _canonical_registry_manifest_bytes(manifest) != manifest_content
             or manifest.registry_name != pin.registry_name
             or manifest.release_id != pin.release_id
             or manifest.relative_path != pin.manifest_path
@@ -1281,6 +1281,12 @@ def _expand_registry_declared_artifacts(
         asset_transition_decision_count=transition_count,
         transitive_control_replay_bytes=0,
     )
+
+
+def _canonical_registry_manifest_bytes(manifest: RegistryReleaseManifest) -> bytes:
+    """Match the registry workflow's canonical JSON, which has no trailing LF."""
+
+    return _canonical_json_bytes(manifest.to_dict()).removesuffix(b"\n")
 
 
 def _preflight_delta_input_envelope(

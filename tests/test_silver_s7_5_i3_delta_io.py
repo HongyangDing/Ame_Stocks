@@ -1935,6 +1935,11 @@ def test_legacy_transitive_replay_field_remains_bounded() -> None:
         )
 
 
+def test_registry_manifest_preflight_uses_existing_no_newline_canonical_format() -> None:
+    manifest = SimpleNamespace(to_dict=lambda: {"release_id": "fixture"})
+    assert delta_io._canonical_registry_manifest_bytes(manifest) == (b'{"release_id":"fixture"}')
+
+
 def test_loader_rejects_fixed_resource_floor_before_parent_read(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
